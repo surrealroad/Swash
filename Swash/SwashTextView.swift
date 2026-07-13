@@ -9,18 +9,7 @@ import SwiftUI
 import AppKit
 
 func logDebug(_ message: String) {
-    print(message)
-    let logPath = "/Users/jack/Development/MacMark/debug_log.txt"
-    let line = message + "\n"
-    if let data = line.data(using: .utf8) {
-        if let fileHandle = FileHandle(forWritingAtPath: logPath) {
-            fileHandle.seekToEndOfFile()
-            fileHandle.write(data)
-            fileHandle.closeFile()
-        } else {
-            try? data.write(to: URL(fileURLWithPath: logPath))
-        }
-    }
+    // No-op in production. Diagnostics disabled.
 }
 
 struct SwashTextView: NSViewRepresentable {
