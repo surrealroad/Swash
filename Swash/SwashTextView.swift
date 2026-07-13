@@ -233,12 +233,19 @@ struct SwashTextView: NSViewRepresentable {
         }
         
         // Disable spellcheck inside code blocks
-        func textView(_ textView: NSTextView, willCheckTextIn range: NSRange, options: [NSSpellChecker.OptionKey : Any] = [:], types: UnsafeMutablePointer<NSTextCheckingTypes>) -> [NSSpellChecker.OptionKey : Any] {
+        func textView(_ textView: NSTextView, willCheckTextIn range: NSRange, options: [NSSpellChecker.OptionKey : Any], types: UnsafeMutablePointer<NSTextCheckingTypes>) -> [NSSpellChecker.OptionKey : Any] {
             if isRangeInCodeBlock(range, in: textView.string) {
-                types.pointee &= ~NSTextCheckingTypes(NSTextCheckingResult.CheckingType.spelling.rawValue)
-                types.pointee &= ~NSTextCheckingTypes(NSTextCheckingResult.CheckingType.grammar.rawValue)
+                types.pointee = 0
             }
             return options
+        }
+        
+        // Intercept and prevent spelling underlines inside code blocks
+        func textView(_ textView: NSTextView, shouldSetSpellingState value: Int, range: NSRange) -> Int {
+            if isRangeInCodeBlock(range, in: textView.string) {
+                return 0
+            }
+            return value
         }
         
         private func isRangeInCodeBlock(_ range: NSRange, in text: String) -> Bool {
