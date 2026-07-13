@@ -32,8 +32,8 @@ jobs:
         run: |
           # Create ZIP archive
           cd build/Build/Products/Release
-          zip -r ../../../Swash-macOS.zip Swash.app
-          cd ../../..
+          zip -r "$GITHUB_WORKSPACE/Swash-macOS.zip" Swash.app
+          cd "$GITHUB_WORKSPACE"
 
           # Create DMG Disk Image
           mkdir dmg_root
