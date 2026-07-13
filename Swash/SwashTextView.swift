@@ -281,8 +281,7 @@ struct SwashTextView: NSViewRepresentable {
                 
                 if line.hasPrefix("```") {
                     inCodeBlock = !inCodeBlock
-                    textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: lineRange)
-                    textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: lineRange)
+                    hideRange(lineRange)
                     currentOffset += lineLength + 1
                     continue
                 }
@@ -290,6 +289,7 @@ struct SwashTextView: NSViewRepresentable {
                 if inCodeBlock {
                     textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: lineRange)
                     textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor.withAlphaComponent(0.85), range: lineRange)
+                    textStorage.addAttribute(.backgroundColor, value: NSColor.textColor.withAlphaComponent(0.045), range: lineRange)
                     currentOffset += lineLength + 1
                     continue
                 }

@@ -114,12 +114,20 @@ struct ContentView: View {
     private var bubbleMenuOverlay: some View {
         GeometryReader { geometry in
             if let rect = selectionRect {
-                let menuWidth: CGFloat = 246
+                let activeCodeFormat = determineActiveCodeFormat()
+                let menuWidth: CGFloat = activeCodeFormat != nil ? 322 : 246
                 let menuHeight: CGFloat = 40
                 
-                BubbleMenuView(activeFormats: determineActiveFormats()) { action in
-                    applyFormatting(action)
-                }
+                BubbleMenuView(
+                    activeFormats: determineActiveFormats(),
+                    activeCodeFormat: activeCodeFormat,
+                    onAction: { action in
+                        applyFormatting(action)
+                    },
+                    onSelectCodeFormat: { format in
+                        applyCodeFormat(format)
+                    }
+                )
                 .transition(.opacity.combined(with: .scale(scale: 0.92)))
                 .position(
                     x: {
@@ -252,8 +260,8 @@ struct ContentView: View {
             }
         }
         
-        // 3. Inline Code
-        if isWrapped(prefix: "`", suffix: "`") {
+        // 3. Code (Inline or Block)
+        if determineActiveCodeFormat() != nil {
             active.insert(.code)
         }
         
@@ -295,7 +303,7 @@ struct ContentView: View {
         var newSelectedRange: NSRange? = nil
         
         switch action {
-        case .bold, .italic, .code, .strikethrough:
+        case .bold, .italic, .strikethrough:
             let prefix: String
             let suffix: String
             
@@ -322,9 +330,6 @@ struct ContentView: View {
                     prefix = "_"
                     suffix = "_"
                 }
-            case .code:
-                prefix = "`"
-                suffix = "`"
             case .strikethrough:
                 prefix = markdownFlavor == .slack ? "~" : "~~"
                 suffix = markdownFlavor == .slack ? "~" : "~~"
@@ -365,6 +370,23 @@ struct ContentView: View {
                 document.text = newText
                 
                 newSelectedRange = NSRange(location: range.location + prefix.count, length: range.length)
+            }
+            
+        case .code:
+            if isActive {
+                if let stripped = getRawTextAndRangeForCode() {
+                    let newText = fullText.replacingCharacters(in: stripped.replaceRange, with: stripped.rawText)
+                    document.text = newText
+                    
+                    let startLocation = NSRange(stripped.replaceRange, in: fullText).location
+                    newSelectedRange = NSRange(location: startLocation, length: stripped.rawText.utf16.count)
+                }
+            } else {
+                formatted = "`\(selectedText)`"
+                let newText = fullText.replacingCharacters(in: textRange, with: formatted)
+                document.text = newText
+                
+                newSelectedRange = NSRange(location: range.location + 1, length: range.length)
             }
             
         case .h1, .h2, .quote:
@@ -416,6 +438,224 @@ struct ContentView: View {
             selectedRange = nil
             selectionRect = nil
         }
+    }
+    
+    private func isSelectionInsideCodeBlock() -> (inside: Bool, language: String?) {
+        guard let range = selectedRange else { return (false, nil) }
+        let fullText = document.text
+        let nsText = fullText as NSString
+        
+        // Count ``` lines before the selected range
+        let prefixText = nsText.substring(to: range.location)
+        let lines = prefixText.components(separatedBy: .newlines)
+        
+        var count = 0
+        var lastLang: String? = nil
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                count += 1
+                let lang = trimmed.dropFirst(3).trimmingCharacters(in: .whitespacesAndNewlines)
+                lastLang = lang.isEmpty ? nil : lang
+            }
+        }
+        
+        if count % 2 == 1 {
+            return (true, lastLang)
+        }
+        return (false, nil)
+    }
+    
+    private func determineActiveCodeFormat() -> CodeFormat? {
+        guard let range = selectedRange,
+              let textRange = Range(range, in: document.text) else { return nil }
+        
+        let fullText = document.text
+        let selectedText = String(fullText[textRange])
+        
+        // Check if selected text is wrapped in a code block
+        let trimmedSelected = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedSelected.hasPrefix("```") && trimmedSelected.hasSuffix("```") && trimmedSelected.count >= 6 {
+            let lines = trimmedSelected.components(separatedBy: .newlines)
+            if let firstLine = lines.first, firstLine.hasPrefix("```") {
+                let lang = firstLine.dropFirst(3).trimmingCharacters(in: .whitespacesAndNewlines)
+                if lang.isEmpty { return .plainBlock }
+                return CodeFormat.allCases.first(where: { $0.languageSignifier == lang }) ?? .plainBlock
+            }
+            return .plainBlock
+        }
+        
+        // Check if selection is inside a code block
+        let insideCheck = isSelectionInsideCodeBlock()
+        if insideCheck.inside {
+            if let lang = insideCheck.language {
+                return CodeFormat.allCases.first(where: { $0.languageSignifier == lang }) ?? .plainBlock
+            }
+            return .plainBlock
+        }
+        
+        // Check if selected text is inline code
+        if selectedText.hasPrefix("`") && selectedText.hasSuffix("`") && !selectedText.hasPrefix("```") && selectedText.count >= 2 {
+            return .inline
+        }
+        
+        // Check if selection is surrounded by `
+        let startIdx = textRange.lowerBound
+        let endIdx = textRange.upperBound
+        if let prefixStart = fullText.index(startIdx, offsetBy: -1, limitedBy: fullText.startIndex),
+           let suffixEnd = fullText.index(endIdx, offsetBy: 1, limitedBy: fullText.endIndex) {
+            let before = String(fullText[prefixStart..<startIdx])
+            let after = String(fullText[endIdx..<suffixEnd])
+            if before == "`" && after == "`" {
+                return .inline
+            }
+        }
+        
+        return nil
+    }
+    
+    private func getRawTextAndRangeForCode() -> (rawText: String, replaceRange: Range<String.Index>)? {
+        guard let range = selectedRange,
+              let textRange = Range(range, in: document.text) else { return nil }
+              
+        let fullText = document.text
+        let selectedText = String(fullText[textRange])
+        
+        // Case 1: Selected text itself has ``` block
+        let trimmedSelected = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedSelected.hasPrefix("```") && trimmedSelected.hasSuffix("```") && trimmedSelected.count >= 6 {
+            let lines = selectedText.components(separatedBy: .newlines)
+            if lines.count >= 2 {
+                var middleLines = lines
+                middleLines.removeFirst()
+                middleLines.removeLast()
+                let raw = middleLines.joined(separator: "\n")
+                return (raw, textRange)
+            }
+        }
+        
+        // Case 2: Selection is inside a ``` block
+        let insideCheck = isSelectionInsideCodeBlock()
+        if insideCheck.inside {
+            let nsText = fullText as NSString
+            let prefixText = nsText.substring(to: range.location)
+            let suffixText = nsText.substring(from: range.location + range.length)
+            
+            let prefixLines = prefixText.components(separatedBy: .newlines)
+            let suffixLines = suffixText.components(separatedBy: .newlines)
+            
+            var openingLineIndexInPrefix = -1
+            for (idx, line) in prefixLines.enumerated().reversed() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("```") {
+                    openingLineIndexInPrefix = idx
+                    break
+                }
+            }
+            
+            var closingLineIndexInSuffix = -1
+            for (idx, line) in suffixLines.enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("```") {
+                    closingLineIndexInSuffix = idx
+                    break
+                }
+            }
+            
+            if openingLineIndexInPrefix != -1 && closingLineIndexInSuffix != -1 {
+                let openingLines = prefixLines[0..<openingLineIndexInPrefix]
+                let openingOffset = openingLines.joined(separator: "\n").utf16.count + (openingLines.isEmpty ? 0 : 1)
+                
+                let suffixLinesBeforeClosing = suffixLines[0...closingLineIndexInSuffix]
+                let closingOffset = range.location + range.length + suffixLinesBeforeClosing.joined(separator: "\n").utf16.count
+                
+                let totalNSRange = NSRange(location: openingOffset, length: closingOffset - openingOffset)
+                if let totalRange = Range(totalNSRange, in: fullText) {
+                    let blockText = String(fullText[totalRange])
+                    let lines = blockText.components(separatedBy: .newlines)
+                    if lines.count >= 2 {
+                        var middleLines = lines
+                        middleLines.removeFirst()
+                        middleLines.removeLast()
+                        let raw = middleLines.joined(separator: "\n")
+                        return (raw, totalRange)
+                    }
+                }
+            }
+        }
+        
+        // Case 3: Selected text itself has ` inline
+        if selectedText.hasPrefix("`") && selectedText.hasSuffix("`") && !selectedText.hasPrefix("```") && selectedText.count >= 2 {
+            let start = selectedText.index(selectedText.startIndex, offsetBy: 1)
+            let end = selectedText.index(selectedText.endIndex, offsetBy: -1)
+            return (String(selectedText[start..<end]), textRange)
+        }
+        
+        // Case 4: Selection is surrounded by ` inline
+        let startIdx = textRange.lowerBound
+        let endIdx = textRange.upperBound
+        if let prefixStart = fullText.index(startIdx, offsetBy: -1, limitedBy: fullText.startIndex),
+           let suffixEnd = fullText.index(endIdx, offsetBy: 1, limitedBy: fullText.endIndex) {
+            let before = String(fullText[prefixStart..<startIdx])
+            let after = String(fullText[endIdx..<suffixEnd])
+            if before == "`" && after == "`" {
+                return (selectedText, prefixStart..<suffixEnd)
+            }
+        }
+        
+        return nil
+    }
+    
+    private func applyCodeFormat(_ format: CodeFormat) {
+        guard let range = selectedRange,
+              let textRange = Range(range, in: document.text) else { return }
+              
+        let fullText = document.text
+        let selectedText = String(fullText[textRange])
+        
+        let rawText: String
+        let replaceRange: Range<String.Index>
+        
+        if let stripped = getRawTextAndRangeForCode() {
+            rawText = stripped.rawText
+            replaceRange = stripped.replaceRange
+        } else {
+            rawText = selectedText
+            replaceRange = textRange
+        }
+        
+        let formatted: String
+        switch format {
+        case .inline:
+            formatted = "`\(rawText)`"
+        case .plainBlock:
+            formatted = "```\n\(rawText)\n```"
+        default:
+            let langStr = format.languageSignifier ?? ""
+            formatted = "```\(langStr)\n\(rawText)\n```"
+        }
+        
+        let newText = fullText.replacingCharacters(in: replaceRange, with: formatted)
+        document.text = newText
+        
+        let startLocation = NSRange(replaceRange, in: fullText).location
+        let newLocation: Int
+        let newLength: Int
+        
+        switch format {
+        case .inline:
+            newLocation = startLocation + 1
+            newLength = rawText.utf16.count
+        case .plainBlock:
+            newLocation = startLocation + 4
+            newLength = rawText.utf16.count
+        default:
+            let langStr = format.languageSignifier ?? ""
+            newLocation = startLocation + 4 + langStr.utf16.count
+            newLength = rawText.utf16.count
+        }
+        
+        selectedRange = NSRange(location: newLocation, length: newLength)
     }
     
     private func calculateStats() -> (words: Int, chars: Int) {

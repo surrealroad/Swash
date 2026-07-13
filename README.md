@@ -26,9 +26,9 @@
 Swash combines the raw speed of AppKit's native text engine with the rich, fluid layouts of SwiftUI.
 
 *   **⚡ Blazing-Fast Native Engine** – Powered by an optimized `NSTextView` wrapper (`SwashTextView`) for instant rendering, smooth typing, and robust scroll performance.
-*   **🫧 Floating Selection Bubble Menu** – Select text to trigger an elegant, contextual bubble overlay allowing you to style your prose instantly (Bold, Italic, Code, Links) without breaking your flow.
+*   **🫧 Floating Selection Bubble Menu with Code Dropdown** – Select text to trigger an elegant, contextual bubble overlay allowing you to style your prose instantly. When code formatting is active, an integrated dropdown selector lets you choose between multiple formats and programming languages (Inline, Plain Block, JavaScript, Swift, Python, HTML, CSS, JSON) with dynamic menu positioning.
 *   **📑 macOS Document-Based Architecture** – Full native integration with the macOS system. Benefit from automatic saving, file history, sandboxed security, and standard system menus.
-*   **🎨 Premium Styled Markdown** – Implements a sophisticated, custom-crafted `MarkdownParser` to beautifully render markdown headings, lists, bold/italic, and inline code with refined spacing and professional typography.
+*   **🎨 Premium Styled Markdown & Code Blocks** – Implements a sophisticated, custom-crafted `MarkdownParser` to beautifully render headings, lists, bold/italic, and links. Features gorgeous block-level and inline code formatting, automatically hiding markup delimiters (` ``` ` and languages) and displaying code cleanly inside styled containers with subtle background highlight overlays.
 *   **🛠️ Full macOS Integration** – Leverages system-level spellchecking, autocorrect options, undo/redo handling, and native keyboard navigation.
 
 ---

@@ -17,15 +17,100 @@ enum FormatAction {
     case quote
 }
 
+enum CodeFormat: Hashable, CaseIterable {
+    case inline
+    case plainBlock
+    case javascript
+    case swift
+    case python
+    case html
+    case css
+    case json
+    
+    var name: String {
+        switch self {
+        case .inline: return "Inline Code"
+        case .plainBlock: return "Plain Block"
+        case .javascript: return "JavaScript"
+        case .swift: return "Swift"
+        case .python: return "Python"
+        case .html: return "HTML"
+        case .css: return "CSS"
+        case .json: return "JSON"
+        }
+    }
+    
+    var label: String {
+        switch self {
+        case .inline: return "Inline"
+        case .plainBlock: return "Plain"
+        case .javascript: return "JS"
+        case .swift: return "Swift"
+        case .python: return "Python"
+        case .html: return "HTML"
+        case .css: return "CSS"
+        case .json: return "JSON"
+        }
+    }
+    
+    var languageSignifier: String? {
+        switch self {
+        case .inline: return nil
+        case .plainBlock: return nil
+        case .javascript: return "javascript"
+        case .swift: return "swift"
+        case .python: return "python"
+        case .html: return "html"
+        case .css: return "css"
+        case .json: return "json"
+        }
+    }
+}
+
 struct BubbleMenuView: View {
     let activeFormats: Set<FormatAction>
+    let activeCodeFormat: CodeFormat?
     let onAction: (FormatAction) -> Void
+    let onSelectCodeFormat: (CodeFormat) -> Void
     
     var body: some View {
         HStack(spacing: 4) {
             BubbleButton(systemImage: "bold", textLabel: nil, tooltip: "Bold (⌘B)", isActive: activeFormats.contains(.bold), action: { onAction(.bold) })
             BubbleButton(systemImage: "italic", textLabel: nil, tooltip: "Italic (⌘I)", isActive: activeFormats.contains(.italic), action: { onAction(.italic) })
-            BubbleButton(systemImage: "curlybraces", textLabel: nil, tooltip: "Inline Code", isActive: activeFormats.contains(.code), action: { onAction(.code) })
+            BubbleButton(systemImage: "curlybraces", textLabel: nil, tooltip: "Code Formatting", isActive: activeFormats.contains(.code), action: { onAction(.code) })
+            
+            if activeFormats.contains(.code), let currentFormat = activeCodeFormat {
+                Menu {
+                    ForEach(CodeFormat.allCases, id: \.self) { format in
+                        Button(action: {
+                            onSelectCodeFormat(format)
+                        }) {
+                            HStack {
+                                Text(format.name)
+                                if format == currentFormat {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(currentFormat.label)
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .foregroundColor(Color.accentColor)
+                    .padding(.horizontal, 6)
+                    .frame(height: 28)
+                    .background(Color.accentColor.opacity(0.12))
+                    .cornerRadius(6)
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 72)
+                .help("Select code format or language")
+            }
+            
             BubbleButton(systemImage: "strikethrough", textLabel: nil, tooltip: "Strikethrough", isActive: activeFormats.contains(.strikethrough), action: { onAction(.strikethrough) })
             
             Divider()
