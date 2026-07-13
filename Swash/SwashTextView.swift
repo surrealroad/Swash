@@ -9,6 +9,7 @@ import SwiftUI
 import AppKit
 
 func logDebug(_ message: String) {
+    print(message)
     let logPath = "/Users/jack/Development/MacMark/debug_log.txt"
     let line = message + "\n"
     if let data = line.data(using: .utf8) {
@@ -30,6 +31,7 @@ struct SwashTextView: NSViewRepresentable {
     var flavor: MarkdownFlavor
     
     func makeNSView(context: Context) -> NSScrollView {
+        logDebug("[SwashTextView] makeNSView called")
         let scrollView = NSTextView.scrollableTextView()
         guard let textView = scrollView.documentView as? NSTextView else {
             return scrollView
@@ -74,22 +76,42 @@ struct SwashTextView: NSViewRepresentable {
         
         let normalizedTextView = textView.string.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         let normalizedBinding = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        let textChanged = normalizedTextView != normalizedBinding
         
-        logDebug("[SwashTextView] updateNSView - textChanged: \(textChanged), textView.string: \(textView.string.count) chars (normalized: \(normalizedTextView.count)), binding text: \(text.count) chars (normalized: \(normalizedBinding.count))")
+        // Trim whitespaces and newlines for comparison to ignore trivial formatting differences
+        let textChanged = normalizedTextView.trimmingCharacters(in: .whitespacesAndNewlines) != normalizedBinding.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        let isFirstResponder = textView.window?.firstResponder == textView
+        let hasSelection = textView.selectedRange().length > 0
+        
+        logDebug("[SwashTextView] updateNSView - textChanged: \(textChanged), isFirstResponder: \(isFirstResponder), hasSelection: \(hasSelection)")
+        
+        var textWasUpdated = false
         if textChanged {
-            textView.string = text
+            // Guard: If the text view is currently focused and has an active selection,
+            // do not reset its text programmatically to avoid disrupting selection/focus.
+            if isFirstResponder && hasSelection {
+                logDebug("[SwashTextView] updateNSView - Skipping programmatic text update to prevent losing active selection.")
+            } else {
+                textView.string = text
+                textWasUpdated = true
+            }
         }
         
-        let needsHighlight = textChanged ||
+        // Only highlight if the text was actually updated, or if style parameters changed,
+        // or on first run. Skip if the user is actively selecting text.
+        let needsHighlight: Bool
+        if isFirstResponder && hasSelection {
+            needsHighlight = false
+        } else {
+            needsHighlight = textWasUpdated ||
                              context.coordinator.lastStyledText == nil ||
                              context.coordinator.lastIsStyled != isStyled ||
                              context.coordinator.lastFlavor != flavor
+        }
         
-        logDebug("[SwashTextView] updateNSView - needsHighlight: \(needsHighlight), lastStyledText is Nil: \(context.coordinator.lastStyledText == nil), lastIsStyled: \(String(describing: context.coordinator.lastIsStyled)) (current: \(isStyled)), lastFlavor: \(String(describing: context.coordinator.lastFlavor)) (current: \(flavor))")
+        logDebug("[SwashTextView] updateNSView - needsHighlight: \(needsHighlight), lastStyledText is Nil: \(context.coordinator.lastStyledText == nil)")
         
         if needsHighlight {
-            // Re-run the styling/highlighting based on mode
             if isStyled {
                 context.coordinator.highlightMarkdown(in: textView)
             } else {
@@ -122,6 +144,7 @@ struct SwashTextView: NSViewRepresentable {
         
         init(_ parent: SwashTextView) {
             self.parent = parent
+            logDebug("[SwashTextView] Coordinator.init called")
         }
         
         func textDidChange(_ notification: Notification) {
@@ -159,48 +182,46 @@ struct SwashTextView: NSViewRepresentable {
             let range = textView.selectedRange()
             logDebug("[SwashTextView] updateSelectionRect - range: \(range)")
             
-            DispatchQueue.main.async {
-                logDebug("[SwashTextView] updateSelectionRect async block - range: \(range), parent.selectedRange: \(String(describing: self.parent.selectedRange))")
-                if range.length > 0 {
-                    self.parent.selectedRange = range
+            logDebug("[SwashTextView] updateSelectionRect block - range: \(range), parent.selectedRange: \(String(describing: self.parent.selectedRange))")
+            if range.length > 0 {
+                self.parent.selectedRange = range
+                
+                if let layoutManager = textView.layoutManager,
+                   let textContainer = textView.textContainer {
+                    let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                    var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
                     
-                    if let layoutManager = textView.layoutManager,
-                       let textContainer = textView.textContainer {
-                        let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-                        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-                        
-                        // Add origin of the text container (margins)
-                        let origin = textView.textContainerOrigin
-                        rect.origin.x += origin.x
-                        rect.origin.y += origin.y
-                        
-                        // Convert from textView local coordinates to NSScrollView contentView (NSClipView) coordinates
-                        let rectInClipView = textView.convert(rect, to: scrollView.contentView)
-                        
-                        let scrollOffset = scrollView.contentView.bounds.origin
-                        let swiftUIRect = NSRect(
-                            x: rectInClipView.origin.x - scrollOffset.x,
-                            y: rectInClipView.origin.y - scrollOffset.y,
-                            width: rectInClipView.width,
-                            height: rectInClipView.height
-                        )
-                        
-                        let visibleY = rectInClipView.origin.y - scrollOffset.y
-                        let viewportHeight = scrollView.contentView.bounds.height
-                        
-                        // Only publish selection rect if it is visible inside the scroll view viewport bounds
-                        if visibleY >= 0 && visibleY + rectInClipView.height <= viewportHeight {
-                            self.parent.selectionRect = swiftUIRect
-                        } else {
-                            self.parent.selectionRect = nil
-                        }
+                    // Add origin of the text container (margins)
+                    let origin = textView.textContainerOrigin
+                    rect.origin.x += origin.x
+                    rect.origin.y += origin.y
+                    
+                    // Convert from textView local coordinates to NSScrollView contentView (NSClipView) coordinates
+                    let rectInClipView = textView.convert(rect, to: scrollView.contentView)
+                    
+                    let scrollOffset = scrollView.contentView.bounds.origin
+                    let swiftUIRect = NSRect(
+                        x: rectInClipView.origin.x - scrollOffset.x,
+                        y: rectInClipView.origin.y - scrollOffset.y,
+                        width: rectInClipView.width,
+                        height: rectInClipView.height
+                    )
+                    
+                    let visibleY = rectInClipView.origin.y - scrollOffset.y
+                    let viewportHeight = scrollView.contentView.bounds.height
+                    
+                    // Only publish selection rect if it is visible inside the scroll view viewport bounds
+                    if visibleY >= 0 && visibleY + rectInClipView.height <= viewportHeight {
+                        self.parent.selectionRect = swiftUIRect
                     } else {
                         self.parent.selectionRect = nil
                     }
                 } else {
-                    self.parent.selectedRange = nil
                     self.parent.selectionRect = nil
                 }
+            } else {
+                self.parent.selectedRange = nil
+                self.parent.selectionRect = nil
             }
         }
         
