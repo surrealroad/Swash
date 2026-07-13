@@ -560,7 +560,7 @@ struct SwashTextView: NSViewRepresentable {
                 }
                 
                 // Inline Code: `code`
-                applyRegex(pattern: "`([^`]+)`", in: text) { matchRange, contentRange in
+                applyRegex(pattern: "`([^`\\n]+)`", in: text) { matchRange, contentRange in
                     textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: contentRange)
                     textStorage.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: contentRange)
                     hideRange(NSRange(location: matchRange.location, length: 1))
