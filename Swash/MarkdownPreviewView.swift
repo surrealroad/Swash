@@ -147,6 +147,7 @@ struct CodeBlockView: View {
     let code: String
     let language: String?
     
+    @Environment(\.colorScheme) var colorScheme
     @State private var isHovering = false
     @State private var isCopied = false
     
@@ -154,9 +155,12 @@ struct CodeBlockView: View {
         let mutableAttrString = NSMutableAttributedString(string: code)
         let fullRange = NSRange(location: 0, length: mutableAttrString.length)
         
+        let defaultColor = colorScheme == .dark ? NSColor(white: 0.9, alpha: 1.0) : NSColor.textColor.withAlphaComponent(0.9)
+        let commentColor = colorScheme == .dark ? NSColor(white: 0.55, alpha: 1.0) : NSColor.secondaryLabelColor
+        
         // Use monospaced font by default for syntax highlighting
         mutableAttrString.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: fullRange)
-        mutableAttrString.addAttribute(.foregroundColor, value: NSColor.textColor.withAlphaComponent(0.9), range: fullRange)
+        mutableAttrString.addAttribute(.foregroundColor, value: defaultColor, range: fullRange)
         
         guard let lang = language else {
             return AttributedString(mutableAttrString)
@@ -175,13 +179,13 @@ struct CodeBlockView: View {
                 if let commentIdx = line.firstIndex(of: "#") {
                     let nsCommentStart = line.distance(from: line.startIndex, to: commentIdx)
                     let commentRange = NSRange(location: offset + nsCommentStart, length: lineLength - nsCommentStart)
-                    mutableAttrString.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: commentRange)
+                    mutableAttrString.addAttribute(.foregroundColor, value: commentColor, range: commentRange)
                     isCommentLine = true
                 }
             } else if ["javascript", "swift", "html", "css", "json"].contains(lowerLang) {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 if trimmed.hasPrefix("//") {
-                    mutableAttrString.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: lineRange)
+                    mutableAttrString.addAttribute(.foregroundColor, value: commentColor, range: lineRange)
                     isCommentLine = true
                 }
             }
