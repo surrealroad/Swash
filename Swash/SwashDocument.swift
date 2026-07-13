@@ -1,6 +1,6 @@
 //
-//  MacMarkDocument.swift
-//  MacMark
+//  SwashDocument.swift
+//  Swash
 //
 //  Created by Jack James on 13/07/2026.
 //
@@ -8,7 +8,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-nonisolated struct MacMarkDocument: FileDocument {
+nonisolated struct SwashDocument: FileDocument {
     var text: String
 
     init(text: String = "Hello, world!") {
@@ -16,7 +16,8 @@ nonisolated struct MacMarkDocument: FileDocument {
     }
 
     static let readableContentTypes = [
-        UTType(importedAs: "com.example.plain-text")
+        UTType(importedAs: "net.daringfireball.markdown"),
+        UTType.plainText
     ]
 
     init(configuration: ReadConfiguration) throws {

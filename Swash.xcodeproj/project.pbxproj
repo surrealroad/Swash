@@ -7,26 +7,26 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		0460134030045F6800853817 /* MacMark.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacMark.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0460134030045F6800853817 /* Swash.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Swash.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		0460134C30045F6A00853817 /* Exceptions for "MacMark" folder in "MacMark" target */ = {
+		0460134C30045F6A00853817 /* Exceptions for "Swash" folder in "Swash" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 0460133F30045F6800853817 /* MacMark */;
+			target = 0460133F30045F6800853817 /* Swash */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		0460134230045F6800853817 /* MacMark */ = {
+		0460134230045F6800853817 /* Swash */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				0460134C30045F6A00853817 /* Exceptions for "MacMark" folder in "MacMark" target */,
+				0460134C30045F6A00853817 /* Exceptions for "Swash" folder in "Swash" target */,
 			);
-			path = MacMark;
+			path = Swash;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -45,7 +45,7 @@
 		0460133730045F6800853817 = {
 			isa = PBXGroup;
 			children = (
-				0460134230045F6800853817 /* MacMark */,
+				0460134230045F6800853817 /* Swash */,
 				0460134130045F6800853817 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -53,7 +53,7 @@
 		0460134130045F6800853817 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				0460134030045F6800853817 /* MacMark.app */,
+				0460134030045F6800853817 /* Swash.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -61,9 +61,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		0460133F30045F6800853817 /* MacMark */ = {
+		0460133F30045F6800853817 /* Swash */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 0460134D30045F6A00853817 /* Build configuration list for PBXNativeTarget "MacMark" */;
+			buildConfigurationList = 0460134D30045F6A00853817 /* Build configuration list for PBXNativeTarget "Swash" */;
 			buildPhases = (
 				0460133C30045F6800853817 /* Sources */,
 				0460133D30045F6800853817 /* Frameworks */,
@@ -74,13 +74,13 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				0460134230045F6800853817 /* MacMark */,
+				0460134230045F6800853817 /* Swash */,
 			);
-			name = MacMark;
+			name = Swash;
 			packageProductDependencies = (
 			);
-			productName = MacMark;
-			productReference = 0460134030045F6800853817 /* MacMark.app */;
+			productName = Swash;
+			productReference = 0460134030045F6800853817 /* Swash.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -98,7 +98,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 0460133B30045F6800853817 /* Build configuration list for PBXProject "MacMark" */;
+			buildConfigurationList = 0460133B30045F6800853817 /* Build configuration list for PBXProject "Swash" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -112,7 +112,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				0460133F30045F6800853817 /* MacMark */,
+				0460133F30045F6800853817 /* Swash */,
 			);
 		};
 /* End PBXProject section */
@@ -150,14 +150,14 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = MacMark/Info.plist;
+				INFOPLIST_FILE = Swash/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.MacMark;
+				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -181,14 +181,14 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = MacMark/Info.plist;
+				INFOPLIST_FILE = Swash/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.MacMark;
+				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -321,7 +321,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		0460133B30045F6800853817 /* Build configuration list for PBXProject "MacMark" */ = {
+		0460133B30045F6800853817 /* Build configuration list for PBXProject "Swash" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				0460135030045F6A00853817 /* Debug */,
@@ -330,7 +330,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		0460134D30045F6A00853817 /* Build configuration list for PBXNativeTarget "MacMark" */ = {
+		0460134D30045F6A00853817 /* Build configuration list for PBXNativeTarget "Swash" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				0460134E30045F6A00853817 /* Debug */,

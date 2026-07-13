@@ -1,6 +1,6 @@
 //
-//  MacMarkApp.swift
-//  MacMark
+//  SwashApp.swift
+//  Swash
 //
 //  Created by Jack James on 13/07/2026.
 //
@@ -8,9 +8,9 @@
 import SwiftUI
 
 @main
-struct MacMarkApp: App {
+struct SwashApp: App {
     var body: some Scene {
-        DocumentGroup(newDocument: MacMarkDocument()) { file in
+        DocumentGroup(newDocument: SwashDocument()) { file in
             ContentView(document: file.$document)
         }
     }
