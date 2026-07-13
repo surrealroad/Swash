@@ -76,27 +76,15 @@ struct SwashTextView: NSViewRepresentable {
         
         var textWasUpdated = false
         if textChanged {
-            // Guard: If the text view is currently focused and has an active selection,
-            // do not reset its text programmatically to avoid disrupting selection/focus.
-            if isFirstResponder && hasSelection {
-                logDebug("[SwashTextView] updateNSView - Skipping programmatic text update to prevent losing active selection.")
-            } else {
-                textView.string = text
-                textWasUpdated = true
-            }
+            textView.string = text
+            textWasUpdated = true
         }
         
-        // Only highlight if the text was actually updated, or if style parameters changed,
-        // or on first run. Skip if the user is actively selecting text.
-        let needsHighlight: Bool
-        if isFirstResponder && hasSelection {
-            needsHighlight = false
-        } else {
-            needsHighlight = textWasUpdated ||
+        // Highlight if the text was updated, if style parameters changed, or on first run.
+        let needsHighlight = textWasUpdated ||
                              context.coordinator.lastStyledText == nil ||
                              context.coordinator.lastIsStyled != isStyled ||
                              context.coordinator.lastFlavor != flavor
-        }
         
         logDebug("[SwashTextView] updateNSView - needsHighlight: \(needsHighlight), lastStyledText is Nil: \(context.coordinator.lastStyledText == nil)")
         
@@ -244,6 +232,49 @@ struct SwashTextView: NSViewRepresentable {
             return attrs
         }
         
+        // Disable spellcheck inside code blocks
+        func textView(_ textView: NSTextView, willCheckTextIn range: NSRange, options: [NSSpellChecker.OptionKey : Any] = [:], types: UnsafeMutablePointer<NSTextCheckingTypes>) -> [NSSpellChecker.OptionKey : Any] {
+            if isRangeInCodeBlock(range, in: textView.string) {
+                types.pointee &= ~NSTextCheckingTypes(NSTextCheckingResult.CheckingType.spelling.rawValue)
+                types.pointee &= ~NSTextCheckingTypes(NSTextCheckingResult.CheckingType.grammar.rawValue)
+            }
+            return options
+        }
+        
+        private func isRangeInCodeBlock(_ range: NSRange, in text: String) -> Bool {
+            var searchRange = NSRange(location: 0, length: text.utf16.count)
+            var delimiterLocations: [Int] = []
+            
+            let nsString = text as NSString
+            while searchRange.location < nsString.length {
+                let r = nsString.range(of: "```", options: [], range: searchRange)
+                if r.location == NSNotFound {
+                    break
+                }
+                delimiterLocations.append(r.location)
+                searchRange.location = r.location + r.length
+                searchRange.length = nsString.length - searchRange.location
+            }
+            
+            var i = 0
+            while i < delimiterLocations.count {
+                let start = delimiterLocations[i]
+                let end: Int
+                if i + 1 < delimiterLocations.count {
+                    end = delimiterLocations[i + 1] + 3
+                } else {
+                    end = nsString.length
+                }
+                
+                let blockRange = NSRange(location: start, length: end - start)
+                if NSIntersectionRange(range, blockRange).length > 0 {
+                    return true
+                }
+                i += 2
+            }
+            return false
+        }
+        
         // Custom interactive high-fidelity Markdown inline styling
         func highlightMarkdown(in textView: NSTextView) {
             logDebug("[SwashTextView] highlightMarkdown called")
@@ -275,7 +306,7 @@ struct SwashTextView: NSViewRepresentable {
                 let lowerLang = lang.lowercased()
                 
                 // Common Comments
-                if lowerLang == "python" {
+                if ["python", "bash", "sh"].contains(lowerLang) {
                     if let commentIdx = line.firstIndex(of: "#") {
                         let nsCommentStart = line.distance(from: line.startIndex, to: commentIdx)
                         let commentRange = NSRange(location: offset + nsCommentStart, length: line.utf16.count - nsCommentStart)
@@ -298,6 +329,8 @@ struct SwashTextView: NSViewRepresentable {
                     keywords = ["def", "class", "import", "from", "return", "if", "elif", "else", "for", "while", "in", "as", "try", "except", "lambda", "pass"]
                 } else if lowerLang == "css" {
                     keywords = ["body", "html", "div", "span", "p", "a", "img", "button", "input", "label", "form", "section", "header", "footer", "h1", "h2", "h3"]
+                } else if ["bash", "sh"].contains(lowerLang) {
+                    keywords = ["if", "then", "else", "elif", "fi", "for", "while", "in", "do", "done", "case", "esac", "function", "return", "local", "echo", "exit"]
                 }
                 
                 if !keywords.isEmpty {

@@ -26,6 +26,7 @@ enum CodeFormat: Hashable, CaseIterable {
     case html
     case css
     case json
+    case bash
     
     var name: String {
         switch self {
@@ -37,6 +38,7 @@ enum CodeFormat: Hashable, CaseIterable {
         case .html: return "HTML"
         case .css: return "CSS"
         case .json: return "JSON"
+        case .bash: return "Bash"
         }
     }
     
@@ -50,6 +52,7 @@ enum CodeFormat: Hashable, CaseIterable {
         case .html: return "HTML"
         case .css: return "CSS"
         case .json: return "JSON"
+        case .bash: return "Bash"
         }
     }
     
@@ -63,6 +66,7 @@ enum CodeFormat: Hashable, CaseIterable {
         case .html: return "html"
         case .css: return "css"
         case .json: return "json"
+        case .bash: return "bash"
         }
     }
 }
