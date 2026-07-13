@@ -18,22 +18,23 @@ enum FormatAction {
 }
 
 struct BubbleMenuView: View {
+    let activeFormats: Set<FormatAction>
     let onAction: (FormatAction) -> Void
     
     var body: some View {
         HStack(spacing: 4) {
-            BubbleButton(systemImage: "bold", textLabel: nil, tooltip: "Bold (⌘B)", action: { onAction(.bold) })
-            BubbleButton(systemImage: "italic", textLabel: nil, tooltip: "Italic (⌘I)", action: { onAction(.italic) })
-            BubbleButton(systemImage: "curlybraces", textLabel: nil, tooltip: "Inline Code", action: { onAction(.code) })
-            BubbleButton(systemImage: "strikethrough", textLabel: nil, tooltip: "Strikethrough", action: { onAction(.strikethrough) })
+            BubbleButton(systemImage: "bold", textLabel: nil, tooltip: "Bold (⌘B)", isActive: activeFormats.contains(.bold), action: { onAction(.bold) })
+            BubbleButton(systemImage: "italic", textLabel: nil, tooltip: "Italic (⌘I)", isActive: activeFormats.contains(.italic), action: { onAction(.italic) })
+            BubbleButton(systemImage: "curlybraces", textLabel: nil, tooltip: "Inline Code", isActive: activeFormats.contains(.code), action: { onAction(.code) })
+            BubbleButton(systemImage: "strikethrough", textLabel: nil, tooltip: "Strikethrough", isActive: activeFormats.contains(.strikethrough), action: { onAction(.strikethrough) })
             
             Divider()
                 .frame(height: 16)
                 .padding(.horizontal, 2)
             
-            BubbleButton(systemImage: nil, textLabel: "H1", tooltip: "Heading 1", action: { onAction(.h1) })
-            BubbleButton(systemImage: nil, textLabel: "H2", tooltip: "Heading 2", action: { onAction(.h2) })
-            BubbleButton(systemImage: "quote.bubble", textLabel: nil, tooltip: "Blockquote", action: { onAction(.quote) })
+            BubbleButton(systemImage: nil, textLabel: "H1", tooltip: "Heading 1", isActive: activeFormats.contains(.h1), action: { onAction(.h1) })
+            BubbleButton(systemImage: nil, textLabel: "H2", tooltip: "Heading 2", isActive: activeFormats.contains(.h2), action: { onAction(.h2) })
+            BubbleButton(systemImage: "quote.bubble", textLabel: nil, tooltip: "Blockquote", isActive: activeFormats.contains(.quote), action: { onAction(.quote) })
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -53,6 +54,7 @@ struct BubbleButton: View {
     let systemImage: String?
     let textLabel: String?
     let tooltip: String
+    let isActive: Bool
     let action: () -> Void
     
     @State private var isHovered = false
@@ -68,9 +70,9 @@ struct BubbleButton: View {
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                 }
             }
-            .foregroundColor(isHovered ? .primary : .primary.opacity(0.75))
+            .foregroundColor(isActive ? Color.accentColor : (isHovered ? .primary : .primary.opacity(0.75)))
             .frame(width: 28, height: 28)
-            .background(isHovered ? Color.primary.opacity(0.1) : Color.clear)
+            .background(isActive ? Color.accentColor.opacity(0.15) : (isHovered ? Color.primary.opacity(0.1) : Color.clear))
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
