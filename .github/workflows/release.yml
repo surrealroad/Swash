@@ -39,6 +39,8 @@ jobs:
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: Swash v1.0.${{ github.run_number }}
@@ -48,5 +50,3 @@ jobs:
           files: |
             Swash-macOS.dmg
             Swash-macOS.zip
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

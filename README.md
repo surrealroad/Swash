@@ -37,21 +37,9 @@ Swash combines the raw speed of AppKit's native text engine with the rich, fluid
 
 Every detail of Swash has been fine-tuned to create a calm, delightful, and highly-productive writing environment:
 
-```
-┌────────────────────────────────────────────────────────┐
-│  File   Edit   Format   View   Window   Help           │
-├────────────────────────────────────────────────────────┤
-│ 🌊 Swash                                               │
-│                                                        │
-│  # Hello Swash                                         │
-│  This is a native macOS editor...                      │
-│                                                        │
-│             ┌───────────────────────┐                  │
-│             │  [B]  [I]  [</>]  [🔗] │ <-- Bubble Menu  │
-│             └───────────────────────┘                  │
-│                                                        │
-└────────────────────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="Screenshot.png" alt="Swash Interface" width="800">
+</p>
 
 ### 📐 Ergonomic Elements
 *   **Perfect Line Spacing & Padding**: Customized text container insets provide standard 20px padding margins to keep text perfectly centered and comfortable to read.
