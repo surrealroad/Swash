@@ -148,4 +148,53 @@ struct MarkdownParser {
         
         return blocks
     }
+    
+    /// Converts Slack mrkdwn string to standard GitHub Flavored Markdown
+    static func convertSlackToGithub(_ text: String) -> String {
+        var result = text
+        
+        // 1. Links: <url|text> -> [text](url)
+        if let linkWithPipeRegex = try? NSRegularExpression(pattern: "<([^>|\\n]+)\\|([^>|\\n]+)>", options: []) {
+            result = linkWithPipeRegex.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(location: 0, length: result.utf16.count),
+                withTemplate: "[$2]($1)"
+            )
+        }
+        
+        // 2. Links: <url> -> [url](url)
+        if let linkRegex = try? NSRegularExpression(pattern: "<([^>|\\n]+)>", options: []) {
+            result = linkRegex.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(location: 0, length: result.utf16.count),
+                withTemplate: "[$1]($1)"
+            )
+        }
+        
+        // 3. Bold: *text* -> **text**
+        if let boldRegex = try? NSRegularExpression(pattern: "(?<=^|[\\s\\p{P}])\\*([^*\\n]+?)\\*(?=$|[\\s\\p{P}])", options: []) {
+            result = boldRegex.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(location: 0, length: result.utf16.count),
+                withTemplate: "**$1**"
+            )
+        }
+        
+        // Note: _italic_ is standard markdown italic too, so we let standard AttributedString handle it.
+        
+        // 4. Strikethrough: ~text~ -> ~~text~~
+        if let strikeRegex = try? NSRegularExpression(pattern: "(?<=^|[\\s\\p{P}])~([^~\\n]+?)~(?=$|[\\s\\p{P}])", options: []) {
+            result = strikeRegex.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(location: 0, length: result.utf16.count),
+                withTemplate: "~~$1~~"
+            )
+        }
+        
+        return result
+    }
 }

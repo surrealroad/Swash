@@ -13,6 +13,7 @@ struct SwashTextView: NSViewRepresentable {
     @Binding var selectedRange: NSRange?
     @Binding var selectionRect: NSRect? // Bounding rect of selection in the local coordinate space of SwashTextView (SwiftUI top-left)
     var isStyled: Bool
+    var flavor: MarkdownFlavor
     
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
@@ -55,16 +56,25 @@ struct SwashTextView: NSViewRepresentable {
         guard let textView = nsView.documentView as? NSTextView else { return }
         
         context.coordinator.isUpdatingFromSwiftUI = true
+        context.coordinator.parent = self
         
-        if textView.string != text {
+        let textChanged = textView.string != text
+        if textChanged {
             textView.string = text
         }
         
-        // Re-run the styling/highlighting based on mode
-        if isStyled {
-            context.coordinator.highlightMarkdown(in: textView)
-        } else {
-            context.coordinator.applyPlainStyle(in: textView)
+        let needsHighlight = textChanged ||
+                             context.coordinator.lastStyledText == nil ||
+                             context.coordinator.lastIsStyled != isStyled ||
+                             context.coordinator.lastFlavor != flavor
+        
+        if needsHighlight {
+            // Re-run the styling/highlighting based on mode
+            if isStyled {
+                context.coordinator.highlightMarkdown(in: textView)
+            } else {
+                context.coordinator.applyPlainStyle(in: textView)
+            }
         }
         
         // Update selection if needed
@@ -83,6 +93,10 @@ struct SwashTextView: NSViewRepresentable {
         var parent: SwashTextView
         var isUpdatingFromSwiftUI = false
         var isHighlighting = false
+        
+        var lastStyledText: String? = nil
+        var lastIsStyled: Bool? = nil
+        var lastFlavor: MarkdownFlavor? = nil
         
         init(_ parent: SwashTextView) {
             self.parent = parent
@@ -253,53 +267,133 @@ struct SwashTextView: NSViewRepresentable {
             }
             
             // 3. Inline style parsing via regexes
-            // Bold: **text**
-            applyRegex(pattern: "\\*\\*(.*?)\\*\\*", in: text) { matchRange, contentRange in
-                let boldFont = NSFont.systemFont(ofSize: 14, weight: .bold)
-                textStorage.addAttribute(.font, value: boldFont, range: contentRange)
+            if parent.flavor == .slack {
+                // Slack Bold: *text*
+                applyRegex(pattern: "\\*(?=\\S)([^*\\n]+?)(?<=\\S)\\*", in: text) { matchRange, contentRange in
+                    let boldFont = NSFont.systemFont(ofSize: 14, weight: .bold)
+                    textStorage.addAttribute(.font, value: boldFont, range: contentRange)
+                    hideRange(NSRange(location: matchRange.location, length: 1))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - 1, length: 1))
+                }
                 
-                let leftStars = NSRange(location: matchRange.location, length: 2)
-                let rightStars = NSRange(location: matchRange.location + matchRange.length - 2, length: 2)
-                hideRange(leftStars)
-                hideRange(rightStars)
-            }
-            
-            // Italic: *text*
-            applyRegex(pattern: "\\*([^*]+)\\*", in: text) { matchRange, contentRange in
-                let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
-                textStorage.addAttribute(.font, value: italicFont, range: contentRange)
-                let leftStar = NSRange(location: matchRange.location, length: 1)
-                let rightStar = NSRange(location: matchRange.location + matchRange.length - 1, length: 1)
-                hideRange(leftStar)
-                hideRange(rightStar)
-            }
-            
-            // Inline Code: `code`
-            applyRegex(pattern: "`([^`]+)`", in: text) { matchRange, contentRange in
-                textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: contentRange)
-                textStorage.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: contentRange)
+                // Slack Italic: _text_
+                applyRegex(pattern: "_(?=\\S)([^_\\n]+?)(?<=\\S)_", in: text) { matchRange, contentRange in
+                    let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
+                    textStorage.addAttribute(.font, value: italicFont, range: contentRange)
+                    hideRange(NSRange(location: matchRange.location, length: 1))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - 1, length: 1))
+                }
                 
-                let leftQuote = NSRange(location: matchRange.location, length: 1)
-                let rightQuote = NSRange(location: matchRange.location + matchRange.length - 1, length: 1)
-                hideRange(leftQuote)
-                hideRange(rightQuote)
-            }
-            
-            // Links: [text](url)
-            applyRegex(pattern: "\\[(.*?)\\]\\((.*?)\\)", in: text) { matchRange, contentRange in
-                textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: contentRange)
+                // Slack Strikethrough: ~text~
+                applyRegex(pattern: "~(?=\\S)([^~\\n]+?)(?<=\\S)~", in: text) { matchRange, contentRange in
+                    textStorage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: contentRange)
+                    hideRange(NSRange(location: matchRange.location, length: 1))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - 1, length: 1))
+                }
                 
-                let leftBracket = NSRange(location: matchRange.location, length: 1)
-                let rightPartStart = contentRange.location + contentRange.length
-                let rightPartLen = matchRange.location + matchRange.length - rightPartStart
-                let rightPartRange = NSRange(location: rightPartStart, length: rightPartLen)
+                // Slack Inline Code: `code`
+                applyRegex(pattern: "`([^`\\n]+)`", in: text) { matchRange, contentRange in
+                    textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: contentRange)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: contentRange)
+                    hideRange(NSRange(location: matchRange.location, length: 1))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - 1, length: 1))
+                }
                 
-                hideRange(leftBracket)
-                hideRange(rightPartRange)
+                // Slack Links: <url|text>
+                if let linkWithPipeRegex = try? NSRegularExpression(pattern: "(<(https?://[^>|\\n]+)\\|)([^>|\\n]+)(>)", options: []) {
+                    let nsString = text as NSString
+                    let matches = linkWithPipeRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+                    for match in matches {
+                        if match.numberOfRanges >= 5 {
+                            let leftPart = match.range(at: 1)
+                            let textRange = match.range(at: 3)
+                            let rightPart = match.range(at: 4)
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: textRange)
+                            hideRange(leftPart)
+                            hideRange(rightPart)
+                        }
+                    }
+                }
+                
+                // Slack Links: <url>
+                if let linkRegex = try? NSRegularExpression(pattern: "(<)(https?://[^>|\\n]+)(>)", options: []) {
+                    let nsString = text as NSString
+                    let matches = linkRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+                    for match in matches {
+                        if match.numberOfRanges >= 4 {
+                            let leftPart = match.range(at: 1)
+                            let urlRange = match.range(at: 2)
+                            let rightPart = match.range(at: 3)
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: urlRange)
+                            hideRange(leftPart)
+                            hideRange(rightPart)
+                        }
+                    }
+                }
+            } else {
+                // GitHub / Standard Markdown
+                
+                // Bold: **text**
+                applyRegex(pattern: "\\*\\*(.*?)\\*\\*", in: text) { matchRange, contentRange in
+                    let boldFont = NSFont.systemFont(ofSize: 14, weight: .bold)
+                    textStorage.addAttribute(.font, value: boldFont, range: contentRange)
+                    hideRange(NSRange(location: matchRange.location, length: 2))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - 2, length: 2))
+                }
+                
+                // Italic: *text*
+                applyRegex(pattern: "\\*([^*]+)\\*", in: text) { matchRange, contentRange in
+                    let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
+                    textStorage.addAttribute(.font, value: italicFont, range: contentRange)
+                    hideRange(NSRange(location: matchRange.location, length: 1))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - 1, length: 1))
+                }
+                
+                // Italic: _text_
+                applyRegex(pattern: "_([^_]+)_", in: text) { matchRange, contentRange in
+                    let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
+                    textStorage.addAttribute(.font, value: italicFont, range: contentRange)
+                    hideRange(NSRange(location: matchRange.location, length: 1))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - 1, length: 1))
+                }
+                
+                // Strikethrough: ~~text~~
+                applyRegex(pattern: "~~(?=\\S)([^~\\n]+?)(?<=\\S)~~", in: text) { matchRange, contentRange in
+                    textStorage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: contentRange)
+                    hideRange(NSRange(location: matchRange.location, length: 2))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - 2, length: 2))
+                }
+                
+                // Inline Code: `code`
+                applyRegex(pattern: "`([^`]+)`", in: text) { matchRange, contentRange in
+                    textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: contentRange)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: contentRange)
+                    hideRange(NSRange(location: matchRange.location, length: 1))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - 1, length: 1))
+                }
+                
+                // Links: [text](url)
+                applyRegex(pattern: "\\[(.*?)\\]\\((.*?)\\)", in: text) { matchRange, contentRange in
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: contentRange)
+                    
+                    let leftBracket = NSRange(location: matchRange.location, length: 1)
+                    let rightPartStart = contentRange.location + contentRange.length
+                    let rightPartLen = matchRange.location + matchRange.length - rightPartStart
+                    let rightPartRange = NSRange(location: rightPartStart, length: rightPartLen)
+                    
+                    hideRange(leftBracket)
+                    hideRange(rightPartRange)
+                }
             }
             
             textStorage.endEditing()
             isHighlighting = false
+            
+            lastStyledText = text
+            lastIsStyled = true
+            lastFlavor = parent.flavor
         }
         
         func applyPlainStyle(in textView: NSTextView) {
@@ -317,6 +411,10 @@ struct SwashTextView: NSViewRepresentable {
             
             textStorage.endEditing()
             isHighlighting = false
+            
+            lastStyledText = textView.string
+            lastIsStyled = false
+            lastFlavor = parent.flavor
         }
         
         private func applyRegex(pattern: String, in text: String, action: (NSRange, NSRange) -> Void) {

@@ -10,6 +10,7 @@ import AppKit
 
 struct MarkdownPreviewView: View {
     let text: String
+    let flavor: MarkdownFlavor
     
     var body: some View {
         let blocks = MarkdownParser.parse(text)
@@ -40,7 +41,7 @@ struct MarkdownPreviewView: View {
         switch block.type {
         case .heading(let level):
             VStack(alignment: .leading, spacing: 6) {
-                InlineMarkdownText(text: block.text)
+                InlineMarkdownText(text: block.text, flavor: flavor)
                     .font(headingFont(for: level))
                     .fontWeight(.bold)
                     .foregroundColor(.primary)
@@ -64,7 +65,7 @@ struct MarkdownPreviewView: View {
                     .frame(width: 4)
                 
                 VStack(alignment: .leading) {
-                    InlineMarkdownText(text: block.text)
+                    InlineMarkdownText(text: block.text, flavor: flavor)
                         .font(.system(.body, design: .serif))
                         .italic()
                         .foregroundColor(.secondary)
@@ -97,7 +98,7 @@ struct MarkdownPreviewView: View {
                         .frame(width: 10, height: 16, alignment: .center)
                 }
                 
-                InlineMarkdownText(text: block.text)
+                InlineMarkdownText(text: block.text, flavor: flavor)
                     .font(.body)
                     .lineSpacing(3)
             }
@@ -108,7 +109,7 @@ struct MarkdownPreviewView: View {
                 .padding(.vertical, 12)
             
         case .paragraph:
-            InlineMarkdownText(text: block.text)
+            InlineMarkdownText(text: block.text, flavor: flavor)
                 .font(.body)
                 .lineSpacing(4)
                 .foregroundColor(.primary)
@@ -129,9 +130,11 @@ struct MarkdownPreviewView: View {
 // Safely handles inline markdown components via standard AttributedString
 struct InlineMarkdownText: View {
     let text: String
+    let flavor: MarkdownFlavor
     
     var body: some View {
-        if let attributedString = try? AttributedString(markdown: text) {
+        let processedText = flavor == .slack ? MarkdownParser.convertSlackToGithub(text) : text
+        if let attributedString = try? AttributedString(markdown: processedText) {
             Text(attributedString)
         } else {
             Text(text)
