@@ -150,6 +150,93 @@ struct CodeBlockView: View {
     @State private var isHovering = false
     @State private var isCopied = false
     
+    private var highlightedCode: AttributedString {
+        let mutableAttrString = NSMutableAttributedString(string: code)
+        let fullRange = NSRange(location: 0, length: mutableAttrString.length)
+        
+        // Use monospaced font by default for syntax highlighting
+        mutableAttrString.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: fullRange)
+        mutableAttrString.addAttribute(.foregroundColor, value: NSColor.textColor.withAlphaComponent(0.9), range: fullRange)
+        
+        guard let lang = language else {
+            return AttributedString(mutableAttrString)
+        }
+        let lowerLang = lang.lowercased()
+        
+        let lines = code.components(separatedBy: .newlines)
+        var offset = 0
+        for line in lines {
+            let lineLength = line.utf16.count
+            let lineRange = NSRange(location: offset, length: lineLength)
+            
+            // Common Comments
+            var isCommentLine = false
+            if ["python", "bash", "sh"].contains(lowerLang) {
+                if let commentIdx = line.firstIndex(of: "#") {
+                    let nsCommentStart = line.distance(from: line.startIndex, to: commentIdx)
+                    let commentRange = NSRange(location: offset + nsCommentStart, length: lineLength - nsCommentStart)
+                    mutableAttrString.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: commentRange)
+                    isCommentLine = true
+                }
+            } else if ["javascript", "swift", "html", "css", "json"].contains(lowerLang) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("//") {
+                    mutableAttrString.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: lineRange)
+                    isCommentLine = true
+                }
+            }
+            
+            if !isCommentLine {
+                // Highlight keywords
+                var keywords: [String] = []
+                if ["javascript", "swift"].contains(lowerLang) {
+                    keywords = ["func", "function", "let", "var", "const", "return", "class", "import", "if", "else", "for", "while", "in", "switch", "case", "break", "continue", "struct", "enum"]
+                } else if lowerLang == "python" {
+                    keywords = ["def", "class", "import", "from", "return", "if", "elif", "else", "for", "while", "in", "as", "try", "except", "lambda", "pass"]
+                } else if lowerLang == "css" {
+                    keywords = ["body", "html", "div", "span", "p", "a", "img", "button", "input", "label", "form", "section", "header", "footer", "h1", "h2", "h3"]
+                } else if ["bash", "sh"].contains(lowerLang) {
+                    keywords = ["if", "then", "else", "elif", "fi", "for", "while", "in", "do", "done", "case", "esac", "function", "return", "local", "echo", "exit"]
+                }
+                
+                if !keywords.isEmpty {
+                    let wordPattern = "\\b(" + keywords.joined(separator: "|") + ")\\b"
+                    if let regex = try? NSRegularExpression(pattern: wordPattern, options: []) {
+                        let matches = regex.matches(in: line, options: [], range: NSRange(location: 0, length: lineLength))
+                        for match in matches {
+                            let matchRange = NSRange(location: offset + match.range.location, length: match.range.length)
+                            mutableAttrString.addAttribute(.foregroundColor, value: NSColor.systemPink, range: matchRange)
+                        }
+                    }
+                }
+                
+                // Highlight strings
+                let stringPattern = "\"[^\"]*\"|'[^']*'"
+                if let stringRegex = try? NSRegularExpression(pattern: stringPattern, options: []) {
+                    let matches = stringRegex.matches(in: line, options: [], range: NSRange(location: 0, length: lineLength))
+                    for match in matches {
+                        let matchRange = NSRange(location: offset + match.range.location, length: match.range.length)
+                        mutableAttrString.addAttribute(.foregroundColor, value: NSColor.systemGreen, range: matchRange)
+                    }
+                }
+                
+                // Highlight numbers
+                let numberPattern = "\\b\\d+\\b"
+                if let numberRegex = try? NSRegularExpression(pattern: numberPattern, options: []) {
+                    let matches = numberRegex.matches(in: line, options: [], range: NSRange(location: 0, length: lineLength))
+                    for match in matches {
+                        let matchRange = NSRange(location: offset + match.range.location, length: match.range.length)
+                        mutableAttrString.addAttribute(.foregroundColor, value: NSColor.systemOrange, range: matchRange)
+                    }
+                }
+            }
+            
+            offset += lineLength + 1
+        }
+        
+        return AttributedString(mutableAttrString)
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Optional Language header
@@ -177,9 +264,7 @@ struct CodeBlockView: View {
             .background(Color(NSColor.textColor).opacity(0.04))
             
             ScrollView(.horizontal, showsIndicators: true) {
-                Text(code)
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundColor(.primary.opacity(0.9))
+                Text(highlightedCode)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
             }
