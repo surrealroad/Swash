@@ -19,6 +19,11 @@ jobs:
         with:
           fetch-depth: 0 # Full history for proper changelog/release notes generation
 
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
       - name: Build macOS App
         run: |
           xcodebuild -scheme Swash -configuration Release -derivedDataPath build CODE_SIGN_IDENTITY="-"
