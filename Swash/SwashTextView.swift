@@ -161,8 +161,26 @@ struct SwashTextView: NSViewRepresentable {
         }
         
         func textViewDidChangeSelection(_ notification: Notification) {
-            let textView = notification.object as? NSTextView
-            logDebug("[SwashTextView] textViewDidChangeSelection - range: \(String(describing: textView?.selectedRange()))")
+            guard let textView = notification.object as? NSTextView else { return }
+            logDebug("[SwashTextView] textViewDidChangeSelection - range: \(textView.selectedRange())")
+            
+            // Only update selection if it wasn't triggered by SwiftUI itself
+            if !isUpdatingFromSwiftUI {
+                let isMouseDown = NSEvent.pressedMouseButtons & 1 != 0
+                if isMouseDown {
+                    // Defer updating selection rect until mouse is up/selection settles.
+                    // This prevents SwiftUI overlays from rendering during an active click/drag gesture,
+                    // which interrupts AppKit mouse tracking and causes automatic deselection.
+                    NSObject.cancelPreviousPerformRequests(withTarget: self)
+                    self.perform(#selector(deferredUpdateSelectionRect(_:)), with: textView, afterDelay: 0.15)
+                } else {
+                    updateSelectionRect(for: textView)
+                }
+            }
+        }
+        
+        @objc func deferredUpdateSelectionRect(_ textView: NSTextView) {
+            logDebug("[SwashTextView] deferredUpdateSelectionRect (mouse released/settled)")
             updateSelectionRect(for: textView)
         }
         
