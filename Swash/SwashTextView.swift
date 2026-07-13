@@ -470,7 +470,7 @@ struct SwashTextView: NSViewRepresentable {
                 }
                 
                 // Slack Italic: _text_
-                applyRegex(pattern: "_(?=\\S)([^_\\n]+?)(?<=\\S)_", in: text) { matchRange, contentRange in
+                applyRegex(pattern: "(?<![a-zA-Z0-9])_(?=\\S)([^_\\n]+?)(?<=\\S)_(?![a-zA-Z0-9])", in: text) { matchRange, contentRange in
                     let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
                     textStorage.addAttribute(.font, value: italicFont, range: contentRange)
                     hideRange(NSRange(location: matchRange.location, length: 1))
@@ -544,7 +544,7 @@ struct SwashTextView: NSViewRepresentable {
                 }
                 
                 // Italic: _text_
-                applyRegex(pattern: "_([^_]+)_", in: text) { matchRange, contentRange in
+                applyRegex(pattern: "(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])", in: text) { matchRange, contentRange in
                     let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
                     textStorage.addAttribute(.font, value: italicFont, range: contentRange)
                     hideRange(NSRange(location: matchRange.location, length: 1))
@@ -616,7 +616,11 @@ struct SwashTextView: NSViewRepresentable {
             let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
             for match in matches {
                 if match.numberOfRanges >= 2 {
-                    action(match.range(at: 0), match.range(at: 1))
+                    let matchRange = match.range(at: 0)
+                    if isRangeInCodeBlock(matchRange, in: text) {
+                        continue
+                    }
+                    action(matchRange, match.range(at: 1))
                 }
             }
         }
