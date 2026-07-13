@@ -8,6 +8,20 @@
 import SwiftUI
 import AppKit
 
+func logDebug(_ message: String) {
+    let logPath = "/Users/jack/Development/MacMark/debug_log.txt"
+    let line = message + "\n"
+    if let data = line.data(using: .utf8) {
+        if let fileHandle = FileHandle(forWritingAtPath: logPath) {
+            fileHandle.seekToEndOfFile()
+            fileHandle.write(data)
+            fileHandle.closeFile()
+        } else {
+            try? data.write(to: URL(fileURLWithPath: logPath))
+        }
+    }
+}
+
 struct SwashTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var selectedRange: NSRange?
@@ -58,7 +72,11 @@ struct SwashTextView: NSViewRepresentable {
         context.coordinator.isUpdatingFromSwiftUI = true
         context.coordinator.parent = self
         
-        let textChanged = textView.string != text
+        let normalizedTextView = textView.string.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        let normalizedBinding = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        let textChanged = normalizedTextView != normalizedBinding
+        
+        logDebug("[SwashTextView] updateNSView - textChanged: \(textChanged), textView.string: \(textView.string.count) chars (normalized: \(normalizedTextView.count)), binding text: \(text.count) chars (normalized: \(normalizedBinding.count))")
         if textChanged {
             textView.string = text
         }
@@ -67,6 +85,8 @@ struct SwashTextView: NSViewRepresentable {
                              context.coordinator.lastStyledText == nil ||
                              context.coordinator.lastIsStyled != isStyled ||
                              context.coordinator.lastFlavor != flavor
+        
+        logDebug("[SwashTextView] updateNSView - needsHighlight: \(needsHighlight), lastStyledText is Nil: \(context.coordinator.lastStyledText == nil), lastIsStyled: \(String(describing: context.coordinator.lastIsStyled)) (current: \(isStyled)), lastFlavor: \(String(describing: context.coordinator.lastFlavor)) (current: \(flavor))")
         
         if needsHighlight {
             // Re-run the styling/highlighting based on mode
@@ -78,7 +98,9 @@ struct SwashTextView: NSViewRepresentable {
         }
         
         // Update selection if needed
+        logDebug("[SwashTextView] updateNSView - selectedRange: \(String(describing: selectedRange)), textView.selectedRange(): \(textView.selectedRange())")
         if let range = selectedRange, textView.selectedRange() != range {
+            logDebug("[SwashTextView] updateNSView - Setting selection to: \(range)")
             textView.setSelectedRange(range)
         }
         
@@ -116,7 +138,9 @@ struct SwashTextView: NSViewRepresentable {
         }
         
         func textViewDidChangeSelection(_ notification: Notification) {
-            updateSelectionRect(for: notification.object as? NSTextView)
+            let textView = notification.object as? NSTextView
+            logDebug("[SwashTextView] textViewDidChangeSelection - range: \(String(describing: textView?.selectedRange()))")
+            updateSelectionRect(for: textView)
         }
         
         @objc func scrollViewDidScroll(_ notification: Notification) {
@@ -133,8 +157,10 @@ struct SwashTextView: NSViewRepresentable {
                   let scrollView = textView.enclosingScrollView else { return }
             
             let range = textView.selectedRange()
+            logDebug("[SwashTextView] updateSelectionRect - range: \(range)")
             
             DispatchQueue.main.async {
+                logDebug("[SwashTextView] updateSelectionRect async block - range: \(range), parent.selectedRange: \(String(describing: self.parent.selectedRange))")
                 if range.length > 0 {
                     self.parent.selectedRange = range
                     
@@ -192,6 +218,7 @@ struct SwashTextView: NSViewRepresentable {
         
         // Custom interactive high-fidelity Markdown inline styling
         func highlightMarkdown(in textView: NSTextView) {
+            logDebug("[SwashTextView] highlightMarkdown called")
             guard let textStorage = textView.textStorage, !isHighlighting else { return }
             isHighlighting = true
             
