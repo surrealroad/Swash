@@ -353,6 +353,9 @@ struct SwashTextView: NSViewRepresentable {
                         let block = NSTextBlock()
                         block.backgroundColor = NSColor.textColor.withAlphaComponent(0.04)
                         
+                        // Force block to span 100% width of the text container
+                        block.setValue(100, type: .percentageValueType, for: .width)
+                        
                         let edges: [NSRectEdge] = [.minX, .maxX, .minY, .maxY]
                         for edge in edges {
                             block.setBorderColor(NSColor.textColor.withAlphaComponent(0.12), for: edge)
