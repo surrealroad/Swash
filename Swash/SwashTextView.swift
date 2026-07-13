@@ -269,11 +269,76 @@ struct SwashTextView: NSViewRepresentable {
                 textStorage.addAttribute(.foregroundColor, value: NSColor.clear, range: range)
             }
             
+            // Helper to perform simple syntax highlighting on code lines
+            func highlightCodeLine(_ line: String, offset: Int, language: String?) {
+                guard let lang = language else { return }
+                let lowerLang = lang.lowercased()
+                
+                // Common Comments
+                if lowerLang == "python" {
+                    if let commentIdx = line.firstIndex(of: "#") {
+                        let nsCommentStart = line.distance(from: line.startIndex, to: commentIdx)
+                        let commentRange = NSRange(location: offset + nsCommentStart, length: line.utf16.count - nsCommentStart)
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: commentRange)
+                        return
+                    }
+                } else if ["javascript", "swift", "html", "css", "json"].contains(lowerLang) {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if trimmed.hasPrefix("//") {
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: NSRange(location: offset, length: line.utf16.count))
+                        return
+                    }
+                }
+                
+                // Highlight keywords
+                var keywords: [String] = []
+                if ["javascript", "swift"].contains(lowerLang) {
+                    keywords = ["func", "function", "let", "var", "const", "return", "class", "import", "if", "else", "for", "while", "in", "switch", "case", "break", "continue", "struct", "enum"]
+                } else if lowerLang == "python" {
+                    keywords = ["def", "class", "import", "from", "return", "if", "elif", "else", "for", "while", "in", "as", "try", "except", "lambda", "pass"]
+                } else if lowerLang == "css" {
+                    keywords = ["body", "html", "div", "span", "p", "a", "img", "button", "input", "label", "form", "section", "header", "footer", "h1", "h2", "h3"]
+                }
+                
+                if !keywords.isEmpty {
+                    let wordPattern = "\\b(" + keywords.joined(separator: "|") + ")\\b"
+                    if let regex = try? NSRegularExpression(pattern: wordPattern, options: []) {
+                        let matches = regex.matches(in: line, options: [], range: NSRange(location: 0, length: line.utf16.count))
+                        for match in matches {
+                            let matchRange = NSRange(location: offset + match.range.location, length: match.range.length)
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.systemPink, range: matchRange)
+                        }
+                    }
+                }
+                
+                // Highlight strings
+                let stringPattern = "\"[^\"]*\"|'[^']*'"
+                if let stringRegex = try? NSRegularExpression(pattern: stringPattern, options: []) {
+                    let matches = stringRegex.matches(in: line, options: [], range: NSRange(location: 0, length: line.utf16.count))
+                    for match in matches {
+                        let matchRange = NSRange(location: offset + match.range.location, length: match.range.length)
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.systemGreen, range: matchRange)
+                    }
+                }
+                
+                // Highlight numbers
+                let numberPattern = "\\b\\d+\\b"
+                if let numberRegex = try? NSRegularExpression(pattern: numberPattern, options: []) {
+                    let matches = numberRegex.matches(in: line, options: [], range: NSRange(location: 0, length: line.utf16.count))
+                    for match in matches {
+                        let matchRange = NSRange(location: offset + match.range.location, length: match.range.length)
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.systemOrange, range: matchRange)
+                    }
+                }
+            }
+            
             // 2. Block-level parsing
             let lines = text.components(separatedBy: .newlines)
             var currentOffset = 0
             
             var inCodeBlock = false
+            var currentLanguage: String? = nil
+            var currentBlockStyle: NSTextBlock? = nil
             
             for line in lines {
                 let lineLength = line.utf16.count
@@ -281,6 +346,27 @@ struct SwashTextView: NSViewRepresentable {
                 
                 if line.hasPrefix("```") {
                     inCodeBlock = !inCodeBlock
+                    if inCodeBlock {
+                        let lang = line.dropFirst(3).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        currentLanguage = lang.isEmpty ? nil : lang
+                        
+                        let block = NSTextBlock()
+                        block.backgroundColor = NSColor.textColor.withAlphaComponent(0.04)
+                        
+                        let edges: [NSRectEdge] = [.minX, .maxX, .minY, .maxY]
+                        for edge in edges {
+                            block.setBorderColor(NSColor.textColor.withAlphaComponent(0.12), for: edge)
+                        }
+                        
+                        block.setWidth(0.5, type: .absoluteValueType, for: .border)
+                        block.setWidth(3.0, type: .absoluteValueType, for: .border, edge: .minX)
+                        block.setWidth(8, type: .absoluteValueType, for: .padding)
+                        block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
+                        currentBlockStyle = block
+                    } else {
+                        currentLanguage = nil
+                        currentBlockStyle = nil
+                    }
                     hideRange(lineRange)
                     currentOffset += lineLength + 1
                     continue
@@ -289,7 +375,16 @@ struct SwashTextView: NSViewRepresentable {
                 if inCodeBlock {
                     textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: lineRange)
                     textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor.withAlphaComponent(0.85), range: lineRange)
-                    textStorage.addAttribute(.backgroundColor, value: NSColor.textColor.withAlphaComponent(0.045), range: lineRange)
+                    
+                    if let block = currentBlockStyle {
+                        let para = NSMutableParagraphStyle()
+                        para.textBlocks = [block]
+                        para.lineSpacing = 4
+                        textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
+                    }
+                    
+                    highlightCodeLine(line, offset: currentOffset, language: currentLanguage)
+                    
                     currentOffset += lineLength + 1
                     continue
                 }

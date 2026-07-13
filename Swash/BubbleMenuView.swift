@@ -109,6 +109,10 @@ struct BubbleMenuView: View {
                 .menuStyle(.borderlessButton)
                 .frame(width: 72)
                 .help("Select code format or language")
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.8, anchor: .center).combined(with: .opacity),
+                    removal: .scale(scale: 0.8, anchor: .center).combined(with: .opacity)
+                ))
             }
             
             BubbleButton(systemImage: "strikethrough", textLabel: nil, tooltip: "Strikethrough", isActive: activeFormats.contains(.strikethrough), action: { onAction(.strikethrough) })
@@ -123,6 +127,8 @@ struct BubbleMenuView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: activeFormats)
+        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: activeCodeFormat)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(.ultraThinMaterial)

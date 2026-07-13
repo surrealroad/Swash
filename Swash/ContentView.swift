@@ -153,6 +153,7 @@ struct ContentView: View {
                     }()
                 )
                 .animation(.spring(response: 0.24, dampingFraction: 0.72), value: selectionRect)
+                .animation(.spring(response: 0.24, dampingFraction: 0.72), value: activeCodeFormat)
             }
         }
     }
