@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌊 Swash
+# <img src="Swash/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" width="40" valign="middle"> Swash
 
 ### *A Native, High-Performance macOS Markdown Editor with Style*
 
