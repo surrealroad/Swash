@@ -8,7 +8,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-nonisolated struct SwashDocument: FileDocument {
+struct SwashDocument: FileDocument {
     var text: String
 
     init(text: String = "Hello, world!") {
