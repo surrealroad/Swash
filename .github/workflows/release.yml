@@ -1,0 +1,52 @@
+name: Build & Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, Package & Release
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for proper changelog/release notes generation
+
+      - name: Build macOS App
+        run: |
+          xcodebuild -scheme Swash -configuration Release -derivedDataPath build CODE_SIGN_IDENTITY="-"
+
+      - name: Package App Bundle
+        run: |
+          # Create ZIP archive
+          cd build/Build/Products/Release
+          zip -r ../../../Swash-macOS.zip Swash.app
+          cd ../../..
+
+          # Create DMG Disk Image
+          mkdir dmg_root
+          cp -R build/Build/Products/Release/Swash.app dmg_root/
+          hdiutil create -volname "Swash" -srcfolder dmg_root -ov -format UDZO Swash-macOS.dmg
+          rm -rf dmg_root
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Swash v1.0.${{ github.run_number }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            Swash-macOS.dmg
+            Swash-macOS.zip
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
