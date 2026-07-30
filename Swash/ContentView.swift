@@ -21,6 +21,14 @@ enum ViewMode: String, CaseIterable, Identifiable {
         case .split: return "square.split.2x1"
         }
     }
+    
+    var tooltip: String {
+        switch self {
+        case .edit: return "Source Mode: Plain Markdown Text Editor"
+        case .preview: return "Formatted Mode: Interactive Live-Styled Editor"
+        case .split: return "Split Mode: Side-by-Side Editor & Rendered Preview"
+        }
+    }
 }
 
 enum MarkdownFlavor: String, CaseIterable, Identifiable {
@@ -87,14 +95,40 @@ struct ContentView: View {
         .frame(minWidth: 600, minHeight: 400)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Picker("Layout", selection: $viewMode) {
+                HStack(spacing: 0) {
                     ForEach(ViewMode.allCases) { mode in
-                        Label(mode.rawValue, systemImage: mode.icon)
-                            .tag(mode)
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.12)) {
+                                viewMode = mode
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: mode.icon)
+                                    .font(.system(size: 11, weight: .medium))
+                                Text(mode.rawValue)
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(viewMode == mode ? Color(NSColor.controlAccentColor).opacity(0.18) : Color.clear)
+                            .foregroundColor(viewMode == mode ? Color.primary : Color.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(mode.tooltip)
+                        
+                        if mode != ViewMode.allCases.last {
+                            Divider()
+                                .frame(height: 12)
+                        }
                     }
                 }
-                .pickerStyle(.segmented)
-                .help("Toggle layout modes: Editor only, Split, or Preview only")
+                .padding(2)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+                )
             }
             
             ToolbarItem(placement: .primaryAction) {

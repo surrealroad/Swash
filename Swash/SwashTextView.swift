@@ -19,6 +19,20 @@ struct SwashTextView: NSViewRepresentable {
     var isStyled: Bool
     var flavor: MarkdownFlavor
     
+    static let bulletAttachment: NSTextAttachment = {
+        let size: CGFloat = 6
+        let image = NSImage(size: NSSize(width: size + 4, height: size), flipped: false) { rect in
+            let path = NSBezierPath(ovalIn: NSRect(x: 2, y: 0, width: size, height: size))
+            NSColor.controlAccentColor.setFill()
+            path.fill()
+            return true
+        }
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = CGRect(x: 0, y: -1, width: size + 4, height: size)
+        return attachment
+    }()
+    
     func makeNSView(context: Context) -> NSScrollView {
         logDebug("[SwashTextView] makeNSView called")
         let scrollView = NSTextView.scrollableTextView()
@@ -458,30 +472,29 @@ struct SwashTextView: NSViewRepresentable {
                     let trimmedLine = line.trimmingCharacters(in: .whitespaces)
                     if trimmedLine.hasPrefix("- ") || trimmedLine.hasPrefix("* ") || trimmedLine.hasPrefix("+ ") {
                         let leadingSpaces = line.prefix(while: { $0 == " " || $0 == "\t" }).count
-                        let bulletRange = NSRange(location: currentOffset + leadingSpaces, length: min(lineLength - leadingSpaces, 2))
+                        let markerCharRange = NSRange(location: currentOffset + leadingSpaces, length: 1)
                         
-                        hideRange(bulletRange)
+                        // Replace raw hyphen/asterisk with filled bullet point attachment
+                        textStorage.addAttribute(.attachment, value: SwashTextView.bulletAttachment, range: markerCharRange)
                         
                         let para = NSMutableParagraphStyle()
-                        let textList = NSTextList(markerFormat: NSTextList.MarkerFormat(rawValue: "{bullet}"), options: 0)
-                        para.textLists = [textList]
                         let indent = CGFloat((leadingSpaces / 2 + 1) * 20)
                         para.headIndent = indent
-                        para.firstLineHeadIndent = indent - 12
+                        para.firstLineHeadIndent = indent - 14
                         textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
                     } else if let range = trimmedLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
                         let leadingSpaces = line.prefix(while: { $0 == " " || $0 == "\t" }).count
                         let markerLen = trimmedLine[range].utf16.count
                         let numRange = NSRange(location: currentOffset + leadingSpaces, length: min(lineLength - leadingSpaces, markerLen))
                         
-                        hideRange(numRange)
+                        // Style number prefix in bold accent color
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: numRange)
+                        textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .bold), range: numRange)
                         
                         let para = NSMutableParagraphStyle()
-                        let textList = NSTextList(markerFormat: NSTextList.MarkerFormat(rawValue: "{decimal}."), options: 0)
-                        para.textLists = [textList]
                         let indent = CGFloat((leadingSpaces / 2 + 1) * 20)
                         para.headIndent = indent
-                        para.firstLineHeadIndent = indent - 16
+                        para.firstLineHeadIndent = indent - 18
                         textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
                     }
                 }
