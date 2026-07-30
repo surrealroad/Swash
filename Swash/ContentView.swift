@@ -31,22 +31,76 @@ enum ViewMode: String, CaseIterable, Identifiable {
     }
 }
 
+class ToolbarSegmentedControl: NSSegmentedControl {
+    var modeImages: [NSImage?] = []
+    var modeLabels: [String] = []
+    var modeTooltips: [String] = []
+    
+    private var displayModeObservation: NSKeyValueObservation?
+    
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        setupObserver()
+        updateDisplayForCurrentToolbarMode()
+    }
+    
+    private func setupObserver() {
+        displayModeObservation?.invalidate()
+        displayModeObservation = nil
+        
+        guard let toolbar = window?.toolbar else { return }
+        displayModeObservation = toolbar.observe(\.displayMode, options: [.initial, .new]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                self?.updateDisplayForCurrentToolbarMode()
+            }
+        }
+    }
+    
+    func updateDisplayForCurrentToolbarMode() {
+        guard let toolbar = window?.toolbar else {
+            applyDisplayMode(.iconAndLabel)
+            return
+        }
+        applyDisplayMode(toolbar.displayMode)
+    }
+    
+    private func applyDisplayMode(_ displayMode: NSToolbar.DisplayMode) {
+        for i in 0..<segmentCount {
+            if i < modeImages.count && i < modeLabels.count {
+                switch displayMode {
+                case .iconOnly:
+                    setImage(modeImages[i], forSegment: i)
+                    setLabel("", forSegment: i)
+                case .labelOnly:
+                    setImage(nil, forSegment: i)
+                    setLabel(modeLabels[i], forSegment: i)
+                case .iconAndLabel, .default:
+                    setImage(modeImages[i], forSegment: i)
+                    setLabel(modeLabels[i], forSegment: i)
+                @unknown default:
+                    setImage(modeImages[i], forSegment: i)
+                    setLabel(modeLabels[i], forSegment: i)
+                }
+            }
+            if i < modeTooltips.count {
+                setToolTip(modeTooltips[i], forSegment: i)
+            }
+        }
+    }
+}
+
 struct SegmentedViewModePicker: NSViewRepresentable {
     @Binding var selection: ViewMode
     
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl()
+    func makeNSView(context: Context) -> ToolbarSegmentedControl {
+        let control = ToolbarSegmentedControl()
         control.segmentCount = ViewMode.allCases.count
         control.trackingMode = .selectOne
         control.segmentStyle = .automatic
         
-        for (index, mode) in ViewMode.allCases.enumerated() {
-            if let image = NSImage(systemSymbolName: mode.icon, accessibilityDescription: mode.rawValue) {
-                control.setImage(image, forSegment: index)
-            }
-            control.setLabel(mode.rawValue, forSegment: index)
-            control.setToolTip(mode.tooltip, forSegment: index)
-        }
+        control.modeImages = ViewMode.allCases.map { NSImage(systemSymbolName: $0.icon, accessibilityDescription: $0.rawValue) }
+        control.modeLabels = ViewMode.allCases.map { $0.rawValue }
+        control.modeTooltips = ViewMode.allCases.map { $0.tooltip }
         
         if let index = ViewMode.allCases.firstIndex(of: selection) {
             control.selectedSegment = index
@@ -57,10 +111,11 @@ struct SegmentedViewModePicker: NSViewRepresentable {
         return control
     }
     
-    func updateNSView(_ nsView: NSSegmentedControl, context: Context) {
+    func updateNSView(_ nsView: ToolbarSegmentedControl, context: Context) {
         if let index = ViewMode.allCases.firstIndex(of: selection), nsView.selectedSegment != index {
             nsView.selectedSegment = index
         }
+        nsView.updateDisplayForCurrentToolbarMode()
     }
     
     func makeCoordinator() -> Coordinator {
@@ -169,12 +224,12 @@ struct ContentView: View {
             statusView
         }
         .frame(minWidth: 600, minHeight: 400)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+        .toolbar(id: "mainToolbar") {
+            ToolbarItem(id: "viewMode", placement: .primaryAction) {
                 SegmentedViewModePicker(selection: $viewMode)
             }
             
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(id: "flavorPicker", placement: .primaryAction) {
                 Picker("Flavor", selection: Binding(
                     get: { document.flavor },
                     set: { newFlavor in
