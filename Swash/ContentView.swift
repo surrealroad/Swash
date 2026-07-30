@@ -31,6 +31,61 @@ enum ViewMode: String, CaseIterable, Identifiable {
     }
 }
 
+struct SegmentedViewModePicker: NSViewRepresentable {
+    @Binding var selection: ViewMode
+    
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl()
+        control.segmentCount = ViewMode.allCases.count
+        control.trackingMode = .selectOne
+        control.segmentStyle = .automatic
+        
+        for (index, mode) in ViewMode.allCases.enumerated() {
+            if let image = NSImage(systemSymbolName: mode.icon, accessibilityDescription: mode.rawValue) {
+                control.setImage(image, forSegment: index)
+            }
+            control.setLabel(mode.rawValue, forSegment: index)
+            control.setToolTip(mode.tooltip, forSegment: index)
+        }
+        
+        if let index = ViewMode.allCases.firstIndex(of: selection) {
+            control.selectedSegment = index
+        }
+        
+        control.target = context.coordinator
+        control.action = #selector(Coordinator.valueChanged(_:))
+        return control
+    }
+    
+    func updateNSView(_ nsView: NSSegmentedControl, context: Context) {
+        if let index = ViewMode.allCases.firstIndex(of: selection), nsView.selectedSegment != index {
+            nsView.selectedSegment = index
+        }
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject {
+        var parent: SegmentedViewModePicker
+        
+        init(_ parent: SegmentedViewModePicker) {
+            self.parent = parent
+        }
+        
+        @objc func valueChanged(_ sender: NSSegmentedControl) {
+            let index = sender.selectedSegment
+            if index >= 0 && index < ViewMode.allCases.count {
+                let newMode = ViewMode.allCases[index]
+                if parent.selection != newMode {
+                    parent.selection = newMode
+                }
+            }
+        }
+    }
+}
+
 enum MarkdownFlavor: String, CaseIterable, Identifiable {
     case github = "GitHub"
     case commonMark = "CommonMark"
@@ -116,15 +171,7 @@ struct ContentView: View {
         .frame(minWidth: 600, minHeight: 400)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Picker("View Mode", selection: $viewMode) {
-                    ForEach(ViewMode.allCases) { mode in
-                        Label(mode.rawValue, systemImage: mode.icon)
-                            .tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .help("Switch view mode")
+                SegmentedViewModePicker(selection: $viewMode)
             }
             
             ToolbarItem(placement: .primaryAction) {
