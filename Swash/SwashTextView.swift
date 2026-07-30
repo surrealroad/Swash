@@ -600,6 +600,7 @@ struct SwashTextView: NSViewRepresentable {
                             let textRange = match.range(at: 3)
                             let rightPart = match.range(at: 4)
                             textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: textRange)
+                            textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: textRange)
                             hideRange(leftPart)
                             hideRange(rightPart)
                         }
@@ -616,6 +617,7 @@ struct SwashTextView: NSViewRepresentable {
                             let urlRange = match.range(at: 2)
                             let rightPart = match.range(at: 3)
                             textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: urlRange)
+                            textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: urlRange)
                             hideRange(leftPart)
                             hideRange(rightPart)
                         }
@@ -667,6 +669,7 @@ struct SwashTextView: NSViewRepresentable {
                 // Links: [text](url)
                 applyRegex(pattern: "\\[(.*?)\\]\\((.*?)\\)", in: text) { matchRange, contentRange in
                     textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: contentRange)
+                    textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
                     
                     let leftBracket = NSRange(location: matchRange.location, length: 1)
                     let rightPartStart = contentRange.location + contentRange.length
@@ -705,6 +708,7 @@ struct SwashTextView: NSViewRepresentable {
                     }
                     if !isHidden {
                         textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: matchRange)
+                        textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: matchRange)
                     }
                 }
             }
