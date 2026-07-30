@@ -9,6 +9,12 @@ import SwiftUI
 import AppKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        DispatchQueue.main.async {
+            DefaultAppManager.shared.checkAndPromptIfNecessary()
+        }
+    }
+    
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
