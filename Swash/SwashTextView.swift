@@ -450,10 +450,18 @@ struct SwashTextView: NSViewRepresentable {
                     textStorage.addAttribute(.font, value: italicFont, range: lineRange)
                     let quoteRange = NSRange(location: currentOffset, length: min(lineLength, 2))
                     hideRange(quoteRange)
-                } else if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("1. ") {
-                    let bulletLen = line.hasPrefix("1. ") ? 3 : 2
-                    let bulletRange = NSRange(location: currentOffset, length: min(lineLength, bulletLen))
-                    textStorage.addAttribute(.foregroundColor, value: NSColor.systemIndigo, range: bulletRange)
+                } else {
+                    let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                    if trimmedLine.hasPrefix("- ") || trimmedLine.hasPrefix("* ") || trimmedLine.hasPrefix("+ ") {
+                        let leadingSpaces = line.prefix(while: { $0 == " " || $0 == "\t" }).count
+                        let bulletRange = NSRange(location: currentOffset + leadingSpaces, length: min(lineLength - leadingSpaces, 2))
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.systemIndigo, range: bulletRange)
+                    } else if let range = trimmedLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
+                        let leadingSpaces = line.prefix(while: { $0 == " " || $0 == "\t" }).count
+                        let markerLen = trimmedLine[range].utf16.count
+                        let numRange = NSRange(location: currentOffset + leadingSpaces, length: min(lineLength - leadingSpaces, markerLen))
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.systemIndigo, range: numRange)
+                    }
                 }
                 
                 currentOffset += lineLength + 1
@@ -462,7 +470,7 @@ struct SwashTextView: NSViewRepresentable {
             // 3. Inline style parsing via regexes
             if parent.flavor == .slack {
                 // Slack Bold: *text*
-                applyRegex(pattern: "\\*(?=\\S)([^*\\n]+?)(?<=\\S)\\*", in: text) { matchRange, contentRange in
+                applyRegex(pattern: "(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)", in: text) { matchRange, contentRange in
                     let boldFont = NSFont.systemFont(ofSize: 14, weight: .bold)
                     textStorage.addAttribute(.font, value: boldFont, range: contentRange)
                     hideRange(NSRange(location: matchRange.location, length: 1))
@@ -470,7 +478,7 @@ struct SwashTextView: NSViewRepresentable {
                 }
                 
                 // Slack Italic: _text_
-                applyRegex(pattern: "(?<![a-zA-Z0-9])_(?=\\S)([^_\\n]+?)(?<=\\S)_(?![a-zA-Z0-9])", in: text) { matchRange, contentRange in
+                applyRegex(pattern: "(?<!_)(?<!\\w)_([^_\\n]+?)_(?!\\w)(?!_)", in: text) { matchRange, contentRange in
                     let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
                     textStorage.addAttribute(.font, value: italicFont, range: contentRange)
                     hideRange(NSRange(location: matchRange.location, length: 1))
@@ -478,7 +486,7 @@ struct SwashTextView: NSViewRepresentable {
                 }
                 
                 // Slack Strikethrough: ~text~
-                applyRegex(pattern: "~(?=\\S)([^~\\n]+?)(?<=\\S)~", in: text) { matchRange, contentRange in
+                applyRegex(pattern: "(?<!~)~([^~\\n]+?)~(?!~)", in: text) { matchRange, contentRange in
                     textStorage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
                     textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: contentRange)
                     hideRange(NSRange(location: matchRange.location, length: 1))
@@ -528,15 +536,15 @@ struct SwashTextView: NSViewRepresentable {
                 // GitHub / Standard Markdown
                 
                 // Bold: **text**
-                applyRegex(pattern: "\\*\\*(.*?)\\*\\*", in: text) { matchRange, contentRange in
+                applyRegex(pattern: "(?<!\\*)\\*\\*([^*\\n]+?)\\*\\*(?!\\*)", in: text) { matchRange, contentRange in
                     let boldFont = NSFont.systemFont(ofSize: 14, weight: .bold)
                     textStorage.addAttribute(.font, value: boldFont, range: contentRange)
                     hideRange(NSRange(location: matchRange.location, length: 2))
                     hideRange(NSRange(location: matchRange.location + matchRange.length - 2, length: 2))
                 }
                 
-                // Italic: *text*
-                applyRegex(pattern: "\\*([^*]+)\\*", in: text) { matchRange, contentRange in
+                // Italic: *text* (single asterisk only)
+                applyRegex(pattern: "(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)", in: text) { matchRange, contentRange in
                     let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
                     textStorage.addAttribute(.font, value: italicFont, range: contentRange)
                     hideRange(NSRange(location: matchRange.location, length: 1))
@@ -544,7 +552,7 @@ struct SwashTextView: NSViewRepresentable {
                 }
                 
                 // Italic: _text_
-                applyRegex(pattern: "(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])", in: text) { matchRange, contentRange in
+                applyRegex(pattern: "(?<!_)(?<!\\w)_([^_\\n]+?)_(?!\\w)(?!_)", in: text) { matchRange, contentRange in
                     let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
                     textStorage.addAttribute(.font, value: italicFont, range: contentRange)
                     hideRange(NSRange(location: matchRange.location, length: 1))

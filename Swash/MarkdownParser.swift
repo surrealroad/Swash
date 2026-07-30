@@ -12,6 +12,8 @@ enum BlockType: Equatable {
     case blockquote
     case codeBlock(code: String, language: String?)
     case list(isOrdered: Bool, indentLevel: Int)
+    case taskList(isChecked: Bool, indentLevel: Int)
+    case table(headers: [String], rows: [[String]])
     case horizontalRule
     case paragraph
 }
@@ -45,7 +47,10 @@ struct MarkdownParser {
             }
         }
         
-        for line in lines {
+        var lineIndex = 0
+        while lineIndex < lines.count {
+            let line = lines[lineIndex]
+            
             if inCodeBlock {
                 if line.hasPrefix("```") {
                     inCodeBlock = false
@@ -56,6 +61,7 @@ struct MarkdownParser {
                 } else {
                     currentCodeLines.append(line)
                 }
+                lineIndex += 1
                 continue
             }
             
@@ -64,15 +70,45 @@ struct MarkdownParser {
                 inCodeBlock = true
                 let lang = line.dropFirst(3).trimmingCharacters(in: .whitespacesAndNewlines)
                 currentCodeLanguage = lang.isEmpty ? nil : lang
+                lineIndex += 1
                 continue
             }
             
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             
+            // Table Detection
+            if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") && lineIndex + 1 < lines.count {
+                let nextTrimmed = lines[lineIndex + 1].trimmingCharacters(in: .whitespaces)
+                if nextTrimmed.hasPrefix("|") && nextTrimmed.contains("-") {
+                    flushParagraph()
+                    
+                    let headers = trimmed.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+                    var rows: [[String]] = []
+                    
+                    // Skip header and separator line
+                    lineIndex += 2
+                    
+                    while lineIndex < lines.count {
+                        let rowLine = lines[lineIndex].trimmingCharacters(in: .whitespaces)
+                        if rowLine.hasPrefix("|") && rowLine.hasSuffix("|") {
+                            let cells = rowLine.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+                            rows.append(cells)
+                            lineIndex += 1
+                        } else {
+                            break
+                        }
+                    }
+                    
+                    blocks.append(MarkdownBlock(type: .table(headers: headers, rows: rows), text: ""))
+                    continue
+                }
+            }
+            
             // Horizontal Rule
             if trimmed == "---" || trimmed == "***" || trimmed == "___" {
                 flushParagraph()
                 blocks.append(MarkdownBlock(type: .horizontalRule, text: ""))
+                lineIndex += 1
                 continue
             }
             
@@ -80,26 +116,32 @@ struct MarkdownParser {
             if trimmed.hasPrefix("# ") {
                 flushParagraph()
                 blocks.append(MarkdownBlock(type: .heading(level: 1), text: String(trimmed.dropFirst(2))))
+                lineIndex += 1
                 continue
             } else if trimmed.hasPrefix("## ") {
                 flushParagraph()
                 blocks.append(MarkdownBlock(type: .heading(level: 2), text: String(trimmed.dropFirst(3))))
+                lineIndex += 1
                 continue
             } else if trimmed.hasPrefix("### ") {
                 flushParagraph()
                 blocks.append(MarkdownBlock(type: .heading(level: 3), text: String(trimmed.dropFirst(4))))
+                lineIndex += 1
                 continue
             } else if trimmed.hasPrefix("#### ") {
                 flushParagraph()
                 blocks.append(MarkdownBlock(type: .heading(level: 4), text: String(trimmed.dropFirst(5))))
+                lineIndex += 1
                 continue
             } else if trimmed.hasPrefix("##### ") {
                 flushParagraph()
                 blocks.append(MarkdownBlock(type: .heading(level: 5), text: String(trimmed.dropFirst(6))))
+                lineIndex += 1
                 continue
             } else if trimmed.hasPrefix("###### ") {
                 flushParagraph()
                 blocks.append(MarkdownBlock(type: .heading(level: 6), text: String(trimmed.dropFirst(7))))
+                lineIndex += 1
                 continue
             }
             
@@ -107,18 +149,36 @@ struct MarkdownParser {
             if trimmed.hasPrefix("> ") {
                 flushParagraph()
                 blocks.append(MarkdownBlock(type: .blockquote, text: String(trimmed.dropFirst(2))))
+                lineIndex += 1
                 continue
             } else if trimmed == ">" {
                 flushParagraph()
                 blocks.append(MarkdownBlock(type: .blockquote, text: ""))
+                lineIndex += 1
+                continue
+            }
+            
+            // Task List Items (- [ ] or - [x])
+            if trimmed.hasPrefix("- [ ] ") || trimmed.hasPrefix("* [ ] ") {
+                flushParagraph()
+                let indent = line.prefix(while: { $0 == " " || $0 == "\t" }).count / 2
+                blocks.append(MarkdownBlock(type: .taskList(isChecked: false, indentLevel: indent), text: String(trimmed.dropFirst(6))))
+                lineIndex += 1
+                continue
+            } else if trimmed.hasPrefix("- [x] ") || trimmed.hasPrefix("- [X] ") || trimmed.hasPrefix("* [x] ") || trimmed.hasPrefix("* [X] ") {
+                flushParagraph()
+                let indent = line.prefix(while: { $0 == " " || $0 == "\t" }).count / 2
+                blocks.append(MarkdownBlock(type: .taskList(isChecked: true, indentLevel: indent), text: String(trimmed.dropFirst(6))))
+                lineIndex += 1
                 continue
             }
             
             // List items
             if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ") {
                 flushParagraph()
-                let indent = line.prefix(while: { $0 == " " }).count / 2
+                let indent = line.prefix(while: { $0 == " " || $0 == "\t" }).count / 2
                 blocks.append(MarkdownBlock(type: .list(isOrdered: false, indentLevel: indent), text: String(trimmed.dropFirst(2))))
+                lineIndex += 1
                 continue
             }
             
@@ -126,9 +186,10 @@ struct MarkdownParser {
             let pattern = "^[0-9]+\\.\\s+"
             if let range = trimmed.range(of: pattern, options: .regularExpression) {
                 flushParagraph()
-                let indent = line.prefix(while: { $0 == " " }).count / 2
+                let indent = line.prefix(while: { $0 == " " || $0 == "\t" }).count / 2
                 let content = trimmed.replacingCharacters(in: range, with: "")
                 blocks.append(MarkdownBlock(type: .list(isOrdered: true, indentLevel: indent), text: content))
+                lineIndex += 1
                 continue
             }
             
@@ -137,6 +198,8 @@ struct MarkdownParser {
             } else {
                 currentParagraphLines.append(line)
             }
+            
+            lineIndex += 1
         }
         
         flushParagraph()
@@ -173,8 +236,8 @@ struct MarkdownParser {
             )
         }
         
-        // 3. Bold: *text* -> **text**
-        if let boldRegex = try? NSRegularExpression(pattern: "(?<=^|[\\s\\p{P}])\\*([^*\\n]+?)\\*(?=$|[\\s\\p{P}])", options: []) {
+        // 3. Bold: *text* -> **text** (only single asterisk not adjacent to another asterisk)
+        if let boldRegex = try? NSRegularExpression(pattern: "(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)", options: []) {
             result = boldRegex.stringByReplacingMatches(
                 in: result,
                 options: [],
@@ -183,10 +246,8 @@ struct MarkdownParser {
             )
         }
         
-        // Note: _italic_ is standard markdown italic too, so we let standard AttributedString handle it.
-        
         // 4. Strikethrough: ~text~ -> ~~text~~
-        if let strikeRegex = try? NSRegularExpression(pattern: "(?<=^|[\\s\\p{P}])~([^~\\n]+?)~(?=$|[\\s\\p{P}])", options: []) {
+        if let strikeRegex = try? NSRegularExpression(pattern: "(?<!~)~([^~\\n]+?)~(?!~)", options: []) {
             result = strikeRegex.stringByReplacingMatches(
                 in: result,
                 options: [],

@@ -42,21 +42,14 @@ struct ContentView: View {
         VStack(spacing: 0) {
             ZStack(alignment: .topLeading) {
                 if viewMode == .preview {
-                    SwashTextView(
-                        text: $document.text,
-                        selectedRange: $selectedRange,
-                        selectionRect: $selectionRect,
-                        isStyled: true,
-                        flavor: markdownFlavor
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .overlay(bubbleMenuOverlay)
+                    MarkdownPreviewView(text: document.text, flavor: markdownFlavor)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if viewMode == .edit {
                     SwashTextView(
                         text: $document.text,
                         selectedRange: $selectedRange,
                         selectionRect: $selectionRect,
-                        isStyled: false,
+                        isStyled: true,
                         flavor: markdownFlavor
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

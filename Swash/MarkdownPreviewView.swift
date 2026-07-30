@@ -104,6 +104,25 @@ struct MarkdownPreviewView: View {
             }
             .padding(.vertical, 1)
             
+        case .taskList(let isChecked, let indentLevel):
+            HStack(alignment: .top, spacing: 8) {
+                Spacer()
+                    .frame(width: CGFloat(indentLevel * 18))
+                
+                Image(systemName: isChecked ? "checkmark.square.fill" : "square")
+                    .foregroundColor(isChecked ? .accentColor : .secondary)
+                    .font(.system(size: 14))
+                    .frame(width: 16, height: 16, alignment: .center)
+                
+                InlineMarkdownText(text: block.text, flavor: flavor)
+                    .font(.body)
+                    .lineSpacing(3)
+            }
+            .padding(.vertical, 1)
+            
+        case .table(let headers, let rows):
+            TableView(headers: headers, rows: rows, flavor: flavor)
+            
         case .horizontalRule:
             Divider()
                 .padding(.vertical, 12)
@@ -134,11 +153,74 @@ struct InlineMarkdownText: View {
     
     var body: some View {
         let processedText = flavor == .slack ? MarkdownParser.convertSlackToGithub(text) : text
-        if let attributedString = try? AttributedString(markdown: processedText) {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible
+        )
+        if let attributedString = try? AttributedString(markdown: processedText, options: options) {
             Text(attributedString)
         } else {
             Text(text)
         }
+    }
+}
+
+// Clean Github-style Table renderer
+struct TableView: View {
+    let headers: [String]
+    let rows: [[String]]
+    let flavor: MarkdownFlavor
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 0) {
+                ForEach(0..<headers.count, id: \.self) { colIndex in
+                    InlineMarkdownText(text: headers[colIndex], flavor: flavor)
+                        .font(.system(size: 13, weight: .bold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    if colIndex < headers.count - 1 {
+                        Divider()
+                    }
+                }
+            }
+            .background(Color.secondary.opacity(0.12))
+            
+            Divider()
+            
+            // Rows
+            ForEach(0..<rows.count, id: \.self) { rowIndex in
+                HStack(spacing: 0) {
+                    let row = rows[rowIndex]
+                    ForEach(0..<headers.count, id: \.self) { colIndex in
+                        let cellText = colIndex < row.count ? row[colIndex] : ""
+                        InlineMarkdownText(text: cellText, flavor: flavor)
+                            .font(.system(size: 13))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        
+                        if colIndex < headers.count - 1 {
+                            Divider()
+                        }
+                    }
+                }
+                .background(rowIndex % 2 == 1 ? Color.secondary.opacity(0.04) : Color.clear)
+                
+                if rowIndex < rows.count - 1 {
+                    Divider()
+                }
+            }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+        )
+        .cornerRadius(6)
+        .padding(.vertical, 6)
     }
 }
 
