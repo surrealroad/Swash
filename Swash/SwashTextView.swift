@@ -64,13 +64,17 @@ struct SwashTextView: NSViewRepresentable {
         let layoutManager = SwashLayoutManager()
         textStorage.addLayoutManager(layoutManager)
         
-        let containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        let textContainer = NSTextContainer(containerSize: containerSize)
+        let textContainer = NSTextContainer(containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         textContainer.widthTracksTextView = true
+        textContainer.heightTracksTextView = false
         layoutManager.addTextContainer(textContainer)
         
         let textView = NSTextView(frame: .zero, textContainer: textContainer)
-        textView.autoresizingMask = [.width, .height]
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.minSize = NSSize(width: 0, height: 0)
         
         let scrollView = NSScrollView()
         scrollView.documentView = textView
