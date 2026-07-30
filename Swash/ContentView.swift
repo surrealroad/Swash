@@ -49,6 +49,16 @@ enum MarkdownFlavor: String, CaseIterable, Identifiable {
     }
 }
 
+struct BubbleMenuSizePreferenceKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        let next = nextValue()
+        if next != .zero {
+            value = next
+        }
+    }
+}
+
 struct ContentView: View {
     @Binding var document: SwashDocument
     
@@ -57,6 +67,7 @@ struct ContentView: View {
     @State private var selectionRect: NSRect? = nil
     @State private var markdownFlavor: MarkdownFlavor = .github
     @State private var isInitialDetectDone: Bool = false
+    @State private var bubbleMenuSize: CGSize = CGSize(width: 414, height: 40)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -177,8 +188,8 @@ struct ContentView: View {
             if let rect = selectionRect {
                 let activeCodeFormat = determineActiveCodeFormat()
                 let activeLink = LinkDetector.findLink(at: selectedRange, in: document.text, flavor: markdownFlavor)
-                let menuWidth: CGFloat = activeCodeFormat != nil ? 354 : 278
-                let menuHeight: CGFloat = 40
+                let measuredWidth = bubbleMenuSize.width > 0 ? bubbleMenuSize.width : (activeCodeFormat != nil ? 426 : 414)
+                let measuredHeight = bubbleMenuSize.height > 0 ? bubbleMenuSize.height : 40
                 
                 BubbleMenuView(
                     activeFormats: determineActiveFormats(),
@@ -197,28 +208,43 @@ struct ContentView: View {
                         removeLink(activeLink: activeLink)
                     }
                 )
+                .background(
+                    GeometryReader { menuGeo in
+                        Color.clear.preference(key: BubbleMenuSizePreferenceKey.self, value: menuGeo.size)
+                    }
+                )
+                .onPreferenceChange(BubbleMenuSizePreferenceKey.self) { newSize in
+                    if newSize.width > 0 && newSize.height > 0 && newSize != bubbleMenuSize {
+                        bubbleMenuSize = newSize
+                    }
+                }
                 .transition(.opacity.combined(with: .scale(scale: 0.92)))
                 .position(
                     x: {
-                        if geometry.size.width <= menuWidth + 20 {
+                        let padding: CGFloat = 12
+                        if geometry.size.width <= measuredWidth + (padding * 2) {
                             return geometry.size.width / 2
                         } else {
-                            let halfWidth = menuWidth / 2
-                            let minX = halfWidth + 10
-                            let maxX = geometry.size.width - halfWidth - 10
+                            let halfWidth = measuredWidth / 2
+                            let minX = halfWidth + padding
+                            let maxX = geometry.size.width - halfWidth - padding
                             return max(minX, min(rect.midX, maxX))
                         }
                     }(),
                     y: {
                         let spacing: CGFloat = 8
-                        let showBelow = (rect.minY - menuHeight - spacing) < 0
+                        let padding: CGFloat = 8
+                        let showBelow = (rect.minY - measuredHeight - spacing) < padding
                         let calculatedY: CGFloat
                         if showBelow {
-                            calculatedY = rect.maxY + menuHeight / 2 + spacing
+                            calculatedY = rect.maxY + measuredHeight / 2 + spacing
                         } else {
-                            calculatedY = rect.minY - menuHeight / 2 - spacing
+                            calculatedY = rect.minY - measuredHeight / 2 - spacing
                         }
-                        return max(menuHeight / 2 + 10, min(calculatedY, geometry.size.height - menuHeight / 2 - 10))
+                        let halfHeight = measuredHeight / 2
+                        let minY = halfHeight + padding
+                        let maxY = geometry.size.height - halfHeight - padding
+                        return max(minY, min(calculatedY, maxY))
                     }()
                 )
                 .animation(.spring(response: 0.24, dampingFraction: 0.72), value: selectionRect)
