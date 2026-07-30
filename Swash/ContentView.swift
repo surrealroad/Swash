@@ -116,40 +116,15 @@ struct ContentView: View {
         .frame(minWidth: 600, minHeight: 400)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                HStack(spacing: 0) {
+                Picker("View Mode", selection: $viewMode) {
                     ForEach(ViewMode.allCases) { mode in
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.12)) {
-                                viewMode = mode
-                            }
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: mode.icon)
-                                    .font(.system(size: 11, weight: .medium))
-                                Text(mode.rawValue)
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(viewMode == mode ? Color(NSColor.controlAccentColor).opacity(0.18) : Color.clear)
-                            .foregroundColor(viewMode == mode ? Color.primary : Color.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help(mode.tooltip)
-                        
-                        if mode != ViewMode.allCases.last {
-                            Divider()
-                                .frame(height: 12)
-                        }
+                        Label(mode.rawValue, systemImage: mode.icon)
+                            .tag(mode)
                     }
                 }
-                .padding(2)
-                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-                .cornerRadius(6)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
-                )
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .help("Switch view mode")
             }
             
             ToolbarItem(placement: .primaryAction) {
@@ -170,6 +145,7 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .labelsHidden()
                 .help("Select Markdown format scheme (converting raw text format in place)")
             }
         }
