@@ -153,11 +153,12 @@ struct InlineMarkdownText: View {
     
     var body: some View {
         let processedText = flavor == .slack ? MarkdownParser.convertSlackToGithub(text) : text
+        let autolinkedText = MarkdownParser.autolinkBareURLs(processedText)
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace,
             failurePolicy: .returnPartiallyParsedIfPossible
         )
-        if let attributedString = try? AttributedString(markdown: processedText, options: options) {
+        if let attributedString = try? AttributedString(markdown: autolinkedText, options: options) {
             Text(attributedString)
         } else {
             Text(text)

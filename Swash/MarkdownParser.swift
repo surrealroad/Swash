@@ -258,4 +258,72 @@ struct MarkdownParser {
         
         return result
     }
+    
+    /// Converts bare URLs outside code blocks/inline code/existing links to autolinks `<url>`
+    static func autolinkBareURLs(_ text: String) -> String {
+        let nsText = text as NSString
+        let length = nsText.length
+        if length == 0 { return text }
+        
+        // Find protected ranges (inline code, explicit markdown links `[...]` or `<...>`, and code blocks)
+        var protectedRanges: [NSRange] = []
+        
+        // 1. Inline code: `...`
+        if let inlineCodeRegex = try? NSRegularExpression(pattern: "`[^`\\n]+`", options: []) {
+            let matches = inlineCodeRegex.matches(in: text, options: [], range: NSRange(location: 0, length: length))
+            protectedRanges.append(contentsOf: matches.map { $0.range })
+        }
+        
+        // 2. Existing markdown links: [text](url)
+        if let markdownLinkRegex = try? NSRegularExpression(pattern: "\\[[^\\]\\n]*\\]\\([^\\)\\n]*\\)", options: []) {
+            let matches = markdownLinkRegex.matches(in: text, options: [], range: NSRange(location: 0, length: length))
+            protectedRanges.append(contentsOf: matches.map { $0.range })
+        }
+        
+        // 3. Existing autolinks or slack links: <...>
+        if let angleLinkRegex = try? NSRegularExpression(pattern: "<[^>\\n]+>", options: []) {
+            let matches = angleLinkRegex.matches(in: text, options: [], range: NSRange(location: 0, length: length))
+            protectedRanges.append(contentsOf: matches.map { $0.range })
+        }
+        
+        // Find bare URLs
+        guard let bareUrlRegex = try? NSRegularExpression(pattern: "https?://[^\\s<>\"'\\)]+", options: []) else { return text }
+        let matches = bareUrlRegex.matches(in: text, options: [], range: NSRange(location: 0, length: length))
+        
+        if matches.isEmpty { return text }
+        
+        var result = ""
+        var lastIndex = 0
+        
+        for m in matches {
+            var matchRange = m.range(at: 0)
+            
+            // Trim trailing punctuation if any (. , ; : ! ? ) ])
+            var str = nsText.substring(with: matchRange)
+            while let last = str.last, [".", ",", ";", ":", "!", "?", ")", "]", "\"", "'"].contains(last) {
+                str.removeLast()
+                matchRange.length -= 1
+            }
+            if matchRange.length == 0 { continue }
+            
+            // Check if matchRange intersects any protected range
+            let isProtected = protectedRanges.contains { NSIntersectionRange($0, matchRange).length > 0 }
+            if isProtected { continue }
+            
+            // Append preceding un-modified text
+            if matchRange.location > lastIndex {
+                result += nsText.substring(with: NSRange(location: lastIndex, length: matchRange.location - lastIndex))
+            }
+            
+            // Wrap bare URL in angle brackets <...> for standard autolink
+            result += "<\(str)>"
+            lastIndex = matchRange.location + matchRange.length
+        }
+        
+        if lastIndex < length {
+            result += nsText.substring(with: NSRange(location: lastIndex, length: length - lastIndex))
+        }
+        
+        return result
+    }
 }

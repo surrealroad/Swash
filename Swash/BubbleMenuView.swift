@@ -78,8 +78,13 @@ enum CodeFormat: Hashable, CaseIterable {
 struct BubbleMenuView: View {
     let activeFormats: Set<FormatAction>
     let activeCodeFormat: CodeFormat?
+    let activeLink: DetectedLink?
     let onAction: (FormatAction) -> Void
     let onSelectCodeFormat: (CodeFormat) -> Void
+    let onApplyLink: (String) -> Void
+    let onRemoveLink: () -> Void
+    
+    @State private var isPresentingLinkPopover = false
     
     var body: some View {
         HStack(spacing: 4) {
@@ -125,6 +130,33 @@ struct BubbleMenuView: View {
             
             BubbleButton(systemImage: "strikethrough", textLabel: nil, tooltip: "Strikethrough", isActive: activeFormats.contains(.strikethrough), action: { onAction(.strikethrough) })
             
+            BubbleButton(
+                systemImage: "link",
+                textLabel: nil,
+                tooltip: activeLink != nil ? "Edit Link" : "Add Link",
+                isActive: activeLink != nil,
+                action: {
+                    isPresentingLinkPopover.toggle()
+                }
+            )
+            .popover(isPresented: $isPresentingLinkPopover, arrowEdge: .bottom) {
+                LinkEditorPopoverView(
+                    initialURL: activeLink?.url ?? "",
+                    isEditing: activeLink != nil,
+                    onApply: { url in
+                        isPresentingLinkPopover = false
+                        onApplyLink(url)
+                    },
+                    onRemove: {
+                        isPresentingLinkPopover = false
+                        onRemoveLink()
+                    },
+                    onCancel: {
+                        isPresentingLinkPopover = false
+                    }
+                )
+            }
+            
             Divider()
                 .frame(height: 16)
                 .padding(.horizontal, 2)
@@ -155,6 +187,110 @@ struct BubbleMenuView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
         )
+    }
+}
+
+struct LinkEditorPopoverView: View {
+    let initialURL: String
+    let isEditing: Bool
+    let onApply: (String) -> Void
+    let onRemove: () -> Void
+    let onCancel: () -> Void
+    
+    @State private var urlText: String
+    @FocusState private var isTextFieldFocused: Bool
+    
+    init(initialURL: String, isEditing: Bool, onApply: @escaping (String) -> Void, onRemove: @escaping () -> Void, onCancel: @escaping () -> Void) {
+        self.initialURL = initialURL
+        self.isEditing = isEditing
+        self.onApply = onApply
+        self.onRemove = onRemove
+        self.onCancel = onCancel
+        _urlText = State(initialValue: initialURL)
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(isEditing ? "Edit Link" : "Add Link")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.primary)
+                Spacer()
+            }
+            
+            HStack(spacing: 6) {
+                Image(systemName: "link")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                
+                TextField("https://example.com", text: $urlText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12, design: .monospaced))
+                    .focused($isTextFieldFocused)
+                    .onSubmit {
+                        submit()
+                    }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color(NSColor.textBackgroundColor))
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.primary.opacity(0.15), lineWidth: 1)
+            )
+            
+            HStack(spacing: 8) {
+                if isEditing {
+                    Button(action: {
+                        onRemove()
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "link.badge.minus")
+                                .font(.system(size: 11))
+                            Text("Remove Link")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove link and keep text")
+                }
+                
+                Spacer()
+                
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                
+                Button(action: submit) {
+                    Text(isEditing ? "Update" : "Add")
+                        .font(.system(size: 11, weight: .semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(5)
+                }
+                .buttonStyle(.plain)
+                .disabled(urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(12)
+        .frame(width: 280)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                isTextFieldFocused = true
+            }
+        }
+    }
+    
+    private func submit() {
+        let trimmed = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            onApply(trimmed)
+        }
     }
 }
 

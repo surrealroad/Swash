@@ -149,17 +149,25 @@ struct ContentView: View {
         GeometryReader { geometry in
             if let rect = selectionRect {
                 let activeCodeFormat = determineActiveCodeFormat()
-                let menuWidth: CGFloat = activeCodeFormat != nil ? 322 : 246
+                let activeLink = LinkDetector.findLink(at: selectedRange, in: document.text, flavor: markdownFlavor)
+                let menuWidth: CGFloat = activeCodeFormat != nil ? 354 : 278
                 let menuHeight: CGFloat = 40
                 
                 BubbleMenuView(
                     activeFormats: determineActiveFormats(),
                     activeCodeFormat: activeCodeFormat,
+                    activeLink: activeLink,
                     onAction: { action in
                         applyFormatting(action)
                     },
                     onSelectCodeFormat: { format in
                         applyCodeFormat(format)
+                    },
+                    onApplyLink: { url in
+                        applyLink(url: url, activeLink: activeLink)
+                    },
+                    onRemoveLink: {
+                        removeLink(activeLink: activeLink)
                     }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.92)))
@@ -716,6 +724,49 @@ struct ContentView: View {
         }
         
         selectedRange = NSRange(location: newLocation, length: newLength)
+    }
+    
+    private func applyLink(url: String, activeLink: DetectedLink?) {
+        let fullText = document.text
+        
+        if let link = activeLink {
+            // EDITING existing link
+            let updatedText: String
+            if markdownFlavor == .slack {
+                updatedText = "<\(url)|\(link.text)>"
+            } else {
+                updatedText = "[\(link.text)](\(url))"
+            }
+            
+            if let replaceRange = Range(link.fullRange, in: fullText) {
+                let newText = fullText.replacingCharacters(in: replaceRange, with: updatedText)
+                document.text = newText
+                selectedRange = NSRange(location: link.fullRange.location, length: (updatedText as NSString).length)
+            }
+        } else if let range = selectedRange, let textRange = Range(range, in: fullText) {
+            // ADDING link to selected text
+            let selectedText = String(fullText[textRange])
+            let displayText = selectedText.isEmpty ? url : selectedText
+            let insertedText: String
+            if markdownFlavor == .slack {
+                insertedText = "<\(url)|\(displayText)>"
+            } else {
+                insertedText = "[\(displayText)](\(url))"
+            }
+            
+            let newText = fullText.replacingCharacters(in: textRange, with: insertedText)
+            document.text = newText
+            selectedRange = NSRange(location: range.location, length: (insertedText as NSString).length)
+        }
+    }
+    
+    private func removeLink(activeLink: DetectedLink?) {
+        guard let link = activeLink,
+              let replaceRange = Range(link.fullRange, in: document.text) else { return }
+        
+        let newText = document.text.replacingCharacters(in: replaceRange, with: link.text)
+        document.text = newText
+        selectedRange = NSRange(location: link.fullRange.location, length: (link.text as NSString).length)
     }
     
     private func calculateStats() -> (words: Int, chars: Int) {

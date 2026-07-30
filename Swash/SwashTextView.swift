@@ -191,13 +191,17 @@ struct SwashTextView: NSViewRepresentable {
             let range = textView.selectedRange()
             logDebug("[SwashTextView] updateSelectionRect - range: \(range)")
             
-            logDebug("[SwashTextView] updateSelectionRect block - range: \(range), parent.selectedRange: \(String(describing: self.parent.selectedRange))")
-            if range.length > 0 {
+            let text = textView.string
+            let activeLink = LinkDetector.findLink(at: range, in: text, flavor: self.parent.flavor)
+            
+            if range.length > 0 || activeLink != nil {
                 self.parent.selectedRange = range
+                
+                let targetRange = (range.length > 0) ? range : (activeLink?.fullRange ?? range)
                 
                 if let layoutManager = textView.layoutManager,
                    let textContainer = textView.textContainer {
-                    let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                    let glyphRange = layoutManager.glyphRange(forCharacterRange: targetRange, actualCharacterRange: nil)
                     var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
                     
                     // Add origin of the text container (margins)
@@ -621,6 +625,37 @@ struct SwashTextView: NSViewRepresentable {
                     
                     hideRange(leftBracket)
                     hideRange(rightPartRange)
+                }
+            }
+            
+            // Bare URLs for both flavors: https?://...
+            if let bareUrlRegex = try? NSRegularExpression(pattern: "https?://[^\\s<>\"'\\)]+", options: []) {
+                let nsString = text as NSString
+                let matches = bareUrlRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+                for match in matches {
+                    var matchRange = match.range(at: 0)
+                    if isRangeInCodeBlock(matchRange, in: text) {
+                        continue
+                    }
+                    
+                    // Trim trailing punctuation if any (. , ; : ! ? ) ])
+                    var str = nsString.substring(with: matchRange)
+                    while let last = str.last, [".", ",", ";", ":", "!", "?", ")", "]", "\"", "'"].contains(last) {
+                        str.removeLast()
+                        matchRange.length -= 1
+                    }
+                    if matchRange.length == 0 { continue }
+                    
+                    // Check if font attribute at location is hidden (pointSize < 1.0)
+                    var isHidden = false
+                    if matchRange.location < textStorage.length {
+                        if let font = textStorage.attribute(.font, at: matchRange.location, effectiveRange: nil) as? NSFont, font.pointSize < 1.0 {
+                            isHidden = true
+                        }
+                    }
+                    if !isHidden {
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: matchRange)
+                    }
                 }
             }
             
