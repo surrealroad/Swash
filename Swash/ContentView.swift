@@ -31,12 +31,58 @@ enum ViewMode: String, CaseIterable, Identifiable {
     }
 }
 
-class ToolbarSegmentedControl: NSSegmentedControl {
+class ToolbarSegmentedControl: NSStackView {
     var modeImages: [NSImage?] = []
     var modeLabels: [String] = []
     var modeTooltips: [String] = []
     
+    var buttons: [NSButton] = []
+    var onSelectionChanged: ((Int) -> Void)?
+    
     private var displayModeObservation: NSKeyValueObservation?
+    
+    func setupButtons(count: Int, selectedIndex: Int) {
+        orientation = .horizontal
+        spacing = 2
+        alignment = .centerY
+        
+        arrangedSubviews.forEach { $0.removeFromSuperview() }
+        buttons.removeAll()
+        
+        for i in 0..<count {
+            let button = NSButton(title: "", target: self, action: #selector(buttonClicked(_:)))
+            button.tag = i
+            button.bezelStyle = .recessed
+            button.controlSize = .small
+            button.font = NSFont.systemFont(ofSize: 10)
+            button.showsBorderOnlyWhileMouseInside = false
+            button.setButtonType(.pushOnPushOff)
+            button.state = (i == selectedIndex) ? .on : .off
+            
+            if i < modeImages.count { button.image = modeImages[i] }
+            if i < modeLabels.count { button.title = modeLabels[i] }
+            if i < modeTooltips.count { button.toolTip = modeTooltips[i] }
+            
+            buttons.append(button)
+            addArrangedSubview(button)
+        }
+        
+        updateDisplayForCurrentToolbarMode()
+    }
+    
+    func setSelectedIndex(_ index: Int) {
+        for (i, btn) in buttons.enumerated() {
+            btn.state = (i == index) ? .on : .off
+        }
+    }
+    
+    @objc private func buttonClicked(_ sender: NSButton) {
+        let index = sender.tag
+        for (i, btn) in buttons.enumerated() {
+            btn.state = (i == index) ? .on : .off
+        }
+        onSelectionChanged?(index)
+    }
     
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -68,32 +114,25 @@ class ToolbarSegmentedControl: NSSegmentedControl {
     }
     
     private func applyDisplayMode(_ displayMode: NSToolbar.DisplayMode) {
-        for i in 0..<segmentCount {
-            if i < modeImages.count && i < modeLabels.count {
-                switch displayMode {
-                case .iconOnly:
-                    setImage(modeImages[i], forSegment: i)
-                    setLabel("", forSegment: i)
-                case .labelOnly:
-                    setImage(nil, forSegment: i)
-                    setLabel(modeLabels[i], forSegment: i)
-                case .iconAndLabel, .default:
-                    setImage(modeImages[i], forSegment: i)
-                    setLabel(modeLabels[i], forSegment: i)
-                @unknown default:
-                    setImage(modeImages[i], forSegment: i)
-                    setLabel(modeLabels[i], forSegment: i)
-                }
-            }
-            if i < modeTooltips.count {
-                setToolTip(modeTooltips[i], forSegment: i)
-            }
+        let pos: NSControl.ImagePosition
+        switch displayMode {
+        case .iconOnly:
+            pos = .imageOnly
+        case .labelOnly:
+            pos = .noImage
+        case .iconAndLabel, .default:
+            pos = .imageAbove
+        @unknown default:
+            pos = .imageAbove
+        }
+        
+        for btn in buttons {
+            btn.imagePosition = pos
         }
     }
     
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu(title: "Toolbar Display")
-        
         let currentMode = window?.toolbar?.displayMode ?? .iconAndLabel
         
         let iconAndTextItem = NSMenuItem(title: "Icon and Text", action: #selector(selectIconAndText), keyEquivalent: "")
@@ -135,50 +174,30 @@ struct SegmentedViewModePicker: NSViewRepresentable {
     
     func makeNSView(context: Context) -> ToolbarSegmentedControl {
         let control = ToolbarSegmentedControl()
-        control.segmentCount = ViewMode.allCases.count
-        control.trackingMode = .selectOne
-        control.segmentStyle = .automatic
-        
         control.modeImages = ViewMode.allCases.map { NSImage(systemSymbolName: $0.icon, accessibilityDescription: $0.rawValue) }
         control.modeLabels = ViewMode.allCases.map { $0.rawValue }
         control.modeTooltips = ViewMode.allCases.map { $0.tooltip }
         
-        if let index = ViewMode.allCases.firstIndex(of: selection) {
-            control.selectedSegment = index
+        let initialIndex = ViewMode.allCases.firstIndex(of: selection) ?? 0
+        control.setupButtons(count: ViewMode.allCases.count, selectedIndex: initialIndex)
+        
+        control.onSelectionChanged = { index in
+            if index >= 0 && index < ViewMode.allCases.count {
+                let newMode = ViewMode.allCases[index]
+                if selection != newMode {
+                    selection = newMode
+                }
+            }
         }
         
-        control.target = context.coordinator
-        control.action = #selector(Coordinator.valueChanged(_:))
         return control
     }
     
     func updateNSView(_ nsView: ToolbarSegmentedControl, context: Context) {
-        if let index = ViewMode.allCases.firstIndex(of: selection), nsView.selectedSegment != index {
-            nsView.selectedSegment = index
+        if let index = ViewMode.allCases.firstIndex(of: selection) {
+            nsView.setSelectedIndex(index)
         }
         nsView.updateDisplayForCurrentToolbarMode()
-    }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-    
-    class Coordinator: NSObject {
-        var parent: SegmentedViewModePicker
-        
-        init(_ parent: SegmentedViewModePicker) {
-            self.parent = parent
-        }
-        
-        @objc func valueChanged(_ sender: NSSegmentedControl) {
-            let index = sender.selectedSegment
-            if index >= 0 && index < ViewMode.allCases.count {
-                let newMode = ViewMode.allCases[index]
-                if parent.selection != newMode {
-                    parent.selection = newMode
-                }
-            }
-        }
     }
 }
 
