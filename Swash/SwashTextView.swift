@@ -277,8 +277,8 @@ struct SwashTextView: NSViewRepresentable {
         }
         
         // Intercept typing attributes inheritance so typing next to or inside hidden tags resets to normal size/color
-        func textView(_ textView: NSTextView, shouldChangeTypingAttributes typingAttributes: [NSAttributedString.Key : Any] = [:], toAttributes newAttributes: [NSAttributedString.Key : Any] = [:]) -> [NSAttributedString.Key : Any] {
-            var attrs = newAttributes
+        func textView(_ textView: NSTextView, shouldChangeTypingAttributes oldTypingAttributes: [String : Any] = [:], toAttributes newTypingAttributes: [NSAttributedString.Key : Any] = [:]) -> [NSAttributedString.Key : Any] {
+            var attrs = newTypingAttributes
             if let font = attrs[.font] as? NSFont, font.pointSize < 1.0 {
                 attrs[.font] = NSFont.systemFont(ofSize: 14, weight: .regular)
             }

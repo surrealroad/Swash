@@ -65,8 +65,6 @@ struct ContentView: View {
     @State private var viewMode: ViewMode = .preview
     @State private var selectedRange: NSRange? = nil
     @State private var selectionRect: NSRect? = nil
-    @State private var markdownFlavor: MarkdownFlavor = .github
-    @State private var isInitialDetectDone: Bool = false
     @State private var bubbleMenuSize: CGSize = CGSize(width: 414, height: 40)
 
     var body: some View {
@@ -78,7 +76,7 @@ struct ContentView: View {
                         selectedRange: $selectedRange,
                         selectionRect: $selectionRect,
                         isStyled: true,
-                        flavor: markdownFlavor
+                        flavor: document.flavor
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -88,7 +86,7 @@ struct ContentView: View {
                         selectedRange: $selectedRange,
                         selectionRect: $selectionRect,
                         isStyled: false,
-                        flavor: markdownFlavor
+                        flavor: document.flavor
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -99,12 +97,12 @@ struct ContentView: View {
                             selectedRange: $selectedRange,
                             selectionRect: $selectionRect,
                             isStyled: false,
-                            flavor: markdownFlavor
+                            flavor: document.flavor
                         )
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)
                         
-                        MarkdownPreviewView(text: document.text, flavor: markdownFlavor)
+                        MarkdownPreviewView(text: document.text, flavor: document.flavor)
                             .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -116,12 +114,6 @@ struct ContentView: View {
             statusView
         }
         .frame(minWidth: 600, minHeight: 400)
-        .onAppear {
-            if !isInitialDetectDone {
-                markdownFlavor = MarkdownParser.detectFlavor(document.text)
-                isInitialDetectDone = true
-            }
-        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: 0) {
@@ -162,12 +154,14 @@ struct ContentView: View {
             
             ToolbarItem(placement: .primaryAction) {
                 Picker("Flavor", selection: Binding(
-                    get: { markdownFlavor },
+                    get: { document.flavor },
                     set: { newFlavor in
-                        let oldFlavor = markdownFlavor
+                        let oldFlavor = document.flavor
                         if oldFlavor != newFlavor {
-                            document.text = MarkdownParser.convert(document.text, from: oldFlavor, to: newFlavor)
-                            markdownFlavor = newFlavor
+                            var updatedDoc = document
+                            updatedDoc.text = MarkdownParser.convert(document.text, from: oldFlavor, to: newFlavor)
+                            updatedDoc.flavor = newFlavor
+                            document = updatedDoc
                         }
                     }
                 )) {
@@ -187,7 +181,7 @@ struct ContentView: View {
         GeometryReader { geometry in
             if let rect = selectionRect {
                 let activeCodeFormat = determineActiveCodeFormat()
-                let activeLink = LinkDetector.findLink(at: selectedRange, in: document.text, flavor: markdownFlavor)
+                let activeLink = LinkDetector.findLink(at: selectedRange, in: document.text, flavor: document.flavor)
                 let measuredWidth = bubbleMenuSize.width > 0 ? bubbleMenuSize.width : (activeCodeFormat != nil ? 426 : 414)
                 let measuredHeight = bubbleMenuSize.height > 0 ? bubbleMenuSize.height : 40
                 
@@ -265,7 +259,7 @@ struct ContentView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary.opacity(0.5))
                 
-                Text(markdownFlavor.displayName)
+                Text(document.flavor.displayName)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
             }
@@ -314,16 +308,16 @@ struct ContentView: View {
         }
         
         // 1. Bold
-        let boldPrefix = markdownFlavor == .slack ? "*" : "**"
-        let boldSuffix = markdownFlavor == .slack ? "*" : "**"
+        let boldPrefix = document.flavor == .slack ? "*" : "**"
+        let boldSuffix = document.flavor == .slack ? "*" : "**"
         if isWrapped(prefix: boldPrefix, suffix: boldSuffix) {
             active.insert(.bold)
         }
         
         // 2. Italic
-        let italicPrefix = markdownFlavor == .slack ? "_" : "*"
-        let italicSuffix = markdownFlavor == .slack ? "_" : "*"
-        if markdownFlavor == .github {
+        let italicPrefix = document.flavor == .slack ? "_" : "*"
+        let italicSuffix = document.flavor == .slack ? "_" : "*"
+        if document.flavor == .github || document.flavor == .commonMark || document.flavor == .original {
             let selectedText = String(fullText[textRange])
             let hasGithubItalic = (selectedText.hasPrefix("*") && !selectedText.hasPrefix("**") && selectedText.hasSuffix("*") && !selectedText.hasSuffix("**") && selectedText.count >= 2) ||
                                   (selectedText.hasPrefix("_") && selectedText.hasSuffix("_") && selectedText.count >= 2)
@@ -362,8 +356,8 @@ struct ContentView: View {
         }
         
         // 4. Strikethrough
-        let strikePrefix = markdownFlavor == .slack ? "~" : "~~"
-        let strikeSuffix = markdownFlavor == .slack ? "~" : "~~"
+        let strikePrefix = document.flavor == .slack ? "~" : "~~"
+        let strikeSuffix = document.flavor == .slack ? "~" : "~~"
         if isWrapped(prefix: strikePrefix, suffix: strikeSuffix) {
             active.insert(.strikethrough)
         }
@@ -413,10 +407,10 @@ struct ContentView: View {
             
             switch action {
             case .bold:
-                prefix = markdownFlavor == .slack ? "*" : "**"
-                suffix = markdownFlavor == .slack ? "*" : "**"
+                prefix = document.flavor == .slack ? "*" : "**"
+                suffix = document.flavor == .slack ? "*" : "**"
             case .italic:
-                if markdownFlavor == .github {
+                if document.flavor == .github || document.flavor == .commonMark || document.flavor == .original {
                     let isUnderscore = selectedText.hasPrefix("_") && selectedText.hasSuffix("_")
                     var isSurroundingUnderscore = false
                     if let startIdx = fullText.index(textRange.lowerBound, offsetBy: -1, limitedBy: fullText.startIndex),
@@ -435,8 +429,8 @@ struct ContentView: View {
                     suffix = "_"
                 }
             case .strikethrough:
-                prefix = markdownFlavor == .slack ? "~" : "~~"
-                suffix = markdownFlavor == .slack ? "~" : "~~"
+                prefix = document.flavor == .slack ? "~" : "~~"
+                suffix = document.flavor == .slack ? "~" : "~~"
             default:
                 prefix = ""
                 suffix = ""
@@ -785,7 +779,7 @@ struct ContentView: View {
         if let link = activeLink {
             // EDITING existing link
             let updatedText: String
-            if markdownFlavor == .slack {
+            if document.flavor == .slack {
                 updatedText = "<\(url)|\(link.text)>"
             } else {
                 updatedText = "[\(link.text)](\(url))"
@@ -801,7 +795,7 @@ struct ContentView: View {
             let selectedText = String(fullText[textRange])
             let displayText = selectedText.isEmpty ? url : selectedText
             let insertedText: String
-            if markdownFlavor == .slack {
+            if document.flavor == .slack {
                 insertedText = "<\(url)|\(displayText)>"
             } else {
                 insertedText = "[\(displayText)](\(url))"

@@ -331,6 +331,8 @@ struct MarkdownParser {
     /// Converts Slack mrkdwn string to standard GitHub Flavored Markdown
     static func convertSlackToGithub(_ text: String) -> String {
         var result = text
+        
+        // 1. Links: <url|text> -> [text](url)
         if let linkWithPipeRegex = try? NSRegularExpression(pattern: "<([^>|\\n]+)\\|([^>|\\n]+)>", options: []) {
             result = linkWithPipeRegex.stringByReplacingMatches(
                 in: result,
@@ -339,14 +341,10 @@ struct MarkdownParser {
                 withTemplate: "[$2]($1)"
             )
         }
-        if let linkRegex = try? NSRegularExpression(pattern: "<([^>|\\n]+)>", options: []) {
-            result = linkRegex.stringByReplacingMatches(
-                in: result,
-                options: [],
-                range: NSRange(location: 0, length: result.utf16.count),
-                withTemplate: "[$1]($1)"
-            )
-        }
+        
+        // 2. Links: <url> -> <url>
+        
+        // 3. Bold: *text* -> **text** (only single asterisk not adjacent to another asterisk)
         if let boldRegex = try? NSRegularExpression(pattern: "(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)", options: []) {
             result = boldRegex.stringByReplacingMatches(
                 in: result,
@@ -355,6 +353,8 @@ struct MarkdownParser {
                 withTemplate: "**$1**"
             )
         }
+        
+        // 4. Strikethrough: ~text~ -> ~~text~~
         if let strikeRegex = try? NSRegularExpression(pattern: "(?<!~)~([^~\\n]+?)~(?!~)", options: []) {
             result = strikeRegex.stringByReplacingMatches(
                 in: result,
@@ -363,6 +363,7 @@ struct MarkdownParser {
                 withTemplate: "~~$1~~"
             )
         }
+        
         return result
     }
     
@@ -411,7 +412,17 @@ struct MarkdownParser {
             }
         }
         
-        // 2. Bold: **text** -> *text*
+        // 2. Convert GFM single asterisk italic *text* -> _text_ BEFORE converting double asterisk bold!
+        if let italicRegex = try? NSRegularExpression(pattern: "(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)", options: []) {
+            result = italicRegex.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(location: 0, length: result.utf16.count),
+                withTemplate: "_$1_"
+            )
+        }
+        
+        // 3. Convert GFM double asterisk bold **text** -> *text* (Slack bold)
         if let boldRegex = try? NSRegularExpression(pattern: "\\*\\*([^\\*\\n]+?)\\*\\*", options: []) {
             result = boldRegex.stringByReplacingMatches(
                 in: result,
@@ -421,23 +432,13 @@ struct MarkdownParser {
             )
         }
         
-        // 3. Strikethrough: ~~text~~ -> ~text~
+        // 4. Convert GFM strikethrough ~~text~~ -> ~text~ (Slack strikethrough)
         if let strikeRegex = try? NSRegularExpression(pattern: "~~([^~\\n]+?)~~", options: []) {
             result = strikeRegex.stringByReplacingMatches(
                 in: result,
                 options: [],
                 range: NSRange(location: 0, length: result.utf16.count),
                 withTemplate: "~$1~"
-            )
-        }
-        
-        // 4. Single asterisk italic *text* -> _text_ (because * in Slack is bold)
-        if let italicRegex = try? NSRegularExpression(pattern: "(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)", options: []) {
-            result = italicRegex.stringByReplacingMatches(
-                in: result,
-                options: [],
-                range: NSRange(location: 0, length: result.utf16.count),
-                withTemplate: "_$1_"
             )
         }
         

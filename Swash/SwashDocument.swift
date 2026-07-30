@@ -14,9 +14,11 @@ extension UTType {
 
 struct SwashDocument: FileDocument {
     var text: String
+    var flavor: MarkdownFlavor
 
-    init(text: String = "Hello, world!") {
+    init(text: String = "Hello, world!", flavor: MarkdownFlavor? = nil) {
         self.text = text
+        self.flavor = flavor ?? MarkdownParser.detectFlavor(text)
     }
 
     static let readableContentTypes: [UTType] = [
@@ -35,6 +37,7 @@ struct SwashDocument: FileDocument {
             throw CocoaError(.fileReadCorruptFile)
         }
         text = string
+        flavor = MarkdownParser.detectFlavor(string)
     }
     
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
