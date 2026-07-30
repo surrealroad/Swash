@@ -40,6 +40,9 @@ class ToolbarSegmentedControl: NSSegmentedControl {
     
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let toolbar = window?.toolbar {
+            toolbar.allowsUserCustomization = true
+        }
         setupObserver()
         updateDisplayForCurrentToolbarMode()
     }
@@ -86,6 +89,44 @@ class ToolbarSegmentedControl: NSSegmentedControl {
                 setToolTip(modeTooltips[i], forSegment: i)
             }
         }
+    }
+    
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu(title: "Toolbar Display")
+        
+        let currentMode = window?.toolbar?.displayMode ?? .iconAndLabel
+        
+        let iconAndTextItem = NSMenuItem(title: "Icon and Text", action: #selector(selectIconAndText), keyEquivalent: "")
+        iconAndTextItem.target = self
+        iconAndTextItem.state = (currentMode == .iconAndLabel || currentMode == .default) ? .on : .off
+        menu.addItem(iconAndTextItem)
+        
+        let iconOnlyItem = NSMenuItem(title: "Icon Only", action: #selector(selectIconOnly), keyEquivalent: "")
+        iconOnlyItem.target = self
+        iconOnlyItem.state = (currentMode == .iconOnly) ? .on : .off
+        menu.addItem(iconOnlyItem)
+        
+        let textOnlyItem = NSMenuItem(title: "Text Only", action: #selector(selectTextOnly), keyEquivalent: "")
+        textOnlyItem.target = self
+        textOnlyItem.state = (currentMode == .labelOnly) ? .on : .off
+        menu.addItem(textOnlyItem)
+        
+        return menu
+    }
+    
+    @objc private func selectIconAndText() {
+        window?.toolbar?.displayMode = .iconAndLabel
+        updateDisplayForCurrentToolbarMode()
+    }
+    
+    @objc private func selectIconOnly() {
+        window?.toolbar?.displayMode = .iconOnly
+        updateDisplayForCurrentToolbarMode()
+    }
+    
+    @objc private func selectTextOnly() {
+        window?.toolbar?.displayMode = .labelOnly
+        updateDisplayForCurrentToolbarMode()
     }
 }
 
