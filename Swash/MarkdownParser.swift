@@ -212,11 +212,125 @@ struct MarkdownParser {
         return blocks
     }
     
+    /// Automatically detects the Markdown flavor based on syntax signatures.
+    static func detectFlavor(_ text: String) -> MarkdownFlavor {
+        let nsText = text as NSString
+        if nsText.length == 0 { return .github }
+        
+        var slackScore = 0
+        var gfmScore = 0
+        var originalScore = 0
+        var mdLinkCount = 0
+        
+        // Slack heuristics: <url|text>, ~strikethrough~, *bold*
+        if let linkPipe = try? NSRegularExpression(pattern: "<https?://[^>|\\n]+\\|[^>|\\n]+>", options: []) {
+            slackScore += linkPipe.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 4
+        }
+        if let slackAngleLink = try? NSRegularExpression(pattern: "<https?://[^>|\\n]+>", options: []) {
+            slackScore += slackAngleLink.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 2
+        }
+        if let slackStrike = try? NSRegularExpression(pattern: "(?<!~)~([^~\\n]+?)~(?!~)", options: []) {
+            slackScore += slackStrike.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 3
+        }
+        if let slackBold = try? NSRegularExpression(pattern: "(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)", options: []) {
+            slackScore += slackBold.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 2
+        }
+        
+        // GFM heuristics: ~~strikethrough~~, task lists, tables
+        if let gfmStrike = try? NSRegularExpression(pattern: "~~([^~\\n]+?)~~", options: []) {
+            gfmScore += gfmStrike.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 4
+        }
+        if let taskList = try? NSRegularExpression(pattern: "^\\s*[-*]\\s+\\[[ xX]\\]\\s+", options: [.anchorsMatchLines]) {
+            gfmScore += taskList.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 4
+        }
+        if let table = try? NSRegularExpression(pattern: "^\\|.*\\|\\s*$", options: [.anchorsMatchLines]) {
+            gfmScore += table.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 2
+        }
+        
+        // Standard Markdown links [text](url)
+        if let mdLink = try? NSRegularExpression(pattern: "\\[[^\\]\\n]+\\]\\([^\\)\\n]+\\)", options: []) {
+            mdLinkCount = mdLink.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+        }
+        
+        // Original Markdown heuristic: 4-space indented code block without fenced ``` code block
+        let hasFencedCode = text.contains("```")
+        let hasFourSpaceIndent = (try? NSRegularExpression(pattern: "^ {4}\\S", options: [.anchorsMatchLines]))?.firstMatch(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) != nil
+        if hasFourSpaceIndent && !hasFencedCode {
+            originalScore += 4
+        }
+        
+        if slackScore > gfmScore && slackScore > originalScore {
+            return .slack
+        } else if originalScore > gfmScore && originalScore > slackScore {
+            return .original
+        } else if gfmScore > 0 {
+            return .github
+        } else if mdLinkCount > 0 || hasFencedCode {
+            return .commonMark
+        }
+        
+        return .github
+    }
+    
+    /// Converts text in-place from source flavor to target flavor.
+    static func convert(_ text: String, from source: MarkdownFlavor, to target: MarkdownFlavor) -> String {
+        if source == target { return text }
+        
+        let (maskedText, placeholders) = maskCodeBlocks(text)
+        var result = maskedText
+        
+        let gfmText = convertToGFM(result, from: source)
+        result = convertFromGFM(gfmText, to: target)
+        
+        return unmaskCodeBlocks(result, placeholders: placeholders)
+    }
+    
+    // Helper to mask code blocks so transformations don't modify source code contents
+    private static func maskCodeBlocks(_ text: String) -> (maskedText: String, placeholders: [String: String]) {
+        var placeholders: [String: String] = [:]
+        var result = text
+        var counter = 0
+        
+        // 1. Mask fenced code blocks ```...```
+        if let fencedRegex = try? NSRegularExpression(pattern: "```[\\s\\S]*?```", options: []) {
+            let nsString = result as NSString
+            let matches = fencedRegex.matches(in: result, options: [], range: NSRange(location: 0, length: nsString.length)).reversed()
+            for match in matches {
+                let blockText = nsString.substring(with: match.range)
+                let key = "___SWASH_CODE_BLOCK_\(counter)___"
+                placeholders[key] = blockText
+                result = (result as NSString).replacingCharacters(in: match.range, with: key)
+                counter += 1
+            }
+        }
+        
+        // 2. Mask inline code `...`
+        if let inlineRegex = try? NSRegularExpression(pattern: "`[^`\\n]+`", options: []) {
+            let nsString = result as NSString
+            let matches = inlineRegex.matches(in: result, options: [], range: NSRange(location: 0, length: nsString.length)).reversed()
+            for match in matches {
+                let codeText = nsString.substring(with: match.range)
+                let key = "___SWASH_INLINE_CODE_\(counter)___"
+                placeholders[key] = codeText
+                result = (result as NSString).replacingCharacters(in: match.range, with: key)
+                counter += 1
+            }
+        }
+        
+        return (result, placeholders)
+    }
+    
+    private static func unmaskCodeBlocks(_ text: String, placeholders: [String: String]) -> String {
+        var result = text
+        for (key, val) in placeholders {
+            result = result.replacingOccurrences(of: key, with: val)
+        }
+        return result
+    }
+    
     /// Converts Slack mrkdwn string to standard GitHub Flavored Markdown
     static func convertSlackToGithub(_ text: String) -> String {
         var result = text
-        
-        // 1. Links: <url|text> -> [text](url)
         if let linkWithPipeRegex = try? NSRegularExpression(pattern: "<([^>|\\n]+)\\|([^>|\\n]+)>", options: []) {
             result = linkWithPipeRegex.stringByReplacingMatches(
                 in: result,
@@ -225,8 +339,6 @@ struct MarkdownParser {
                 withTemplate: "[$2]($1)"
             )
         }
-        
-        // 2. Links: <url> -> [url](url)
         if let linkRegex = try? NSRegularExpression(pattern: "<([^>|\\n]+)>", options: []) {
             result = linkRegex.stringByReplacingMatches(
                 in: result,
@@ -235,8 +347,6 @@ struct MarkdownParser {
                 withTemplate: "[$1]($1)"
             )
         }
-        
-        // 3. Bold: *text* -> **text** (only single asterisk not adjacent to another asterisk)
         if let boldRegex = try? NSRegularExpression(pattern: "(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)", options: []) {
             result = boldRegex.stringByReplacingMatches(
                 in: result,
@@ -245,8 +355,6 @@ struct MarkdownParser {
                 withTemplate: "**$1**"
             )
         }
-        
-        // 4. Strikethrough: ~text~ -> ~~text~~
         if let strikeRegex = try? NSRegularExpression(pattern: "(?<!~)~([^~\\n]+?)~(?!~)", options: []) {
             result = strikeRegex.stringByReplacingMatches(
                 in: result,
@@ -255,8 +363,132 @@ struct MarkdownParser {
                 withTemplate: "~~$1~~"
             )
         }
+        return result
+    }
+    
+    private static func convertToGFM(_ text: String, from flavor: MarkdownFlavor) -> String {
+        switch flavor {
+        case .github, .commonMark:
+            return text
+        case .slack:
+            return convertSlackToGithub(text)
+        case .original:
+            // Convert 4-space indented code blocks to GFM fenced code blocks
+            return convertIndentedToFencedCode(text)
+        }
+    }
+    
+    private static func convertFromGFM(_ text: String, to flavor: MarkdownFlavor) -> String {
+        switch flavor {
+        case .github, .commonMark:
+            return text
+        case .slack:
+            return convertGithubToSlack(text)
+        case .original:
+            // Convert fenced code blocks to 4-space indented code blocks & strip GFM-only strikethroughs
+            var res = convertFencedToIndentedCode(text)
+            if let strikeRegex = try? NSRegularExpression(pattern: "~~([^~\\n]+?)~~", options: []) {
+                res = strikeRegex.stringByReplacingMatches(in: res, options: [], range: NSRange(location: 0, length: res.utf16.count), withTemplate: "$1")
+            }
+            return res
+        }
+    }
+    
+    private static func convertGithubToSlack(_ text: String) -> String {
+        var result = text
+        
+        // 1. Links: [text](url) -> <url|text>
+        if let linkRegex = try? NSRegularExpression(pattern: "\\[([^\\]\\n]+)\\]\\((https?://[^\\)\\n]+|[^\\)\\n]+)\\)", options: []) {
+            let nsText = result as NSString
+            let matches = linkRegex.matches(in: result, options: [], range: NSRange(location: 0, length: nsText.length))
+            for match in matches.reversed() {
+                if match.numberOfRanges >= 3 {
+                    let linkText = nsText.substring(with: match.range(at: 1))
+                    let url = nsText.substring(with: match.range(at: 2))
+                    let replacement = linkText == url ? "<\(url)>" : "<\(url)|\(linkText)>"
+                    result = (result as NSString).replacingCharacters(in: match.range(at: 0), with: replacement)
+                }
+            }
+        }
+        
+        // 2. Bold: **text** -> *text*
+        if let boldRegex = try? NSRegularExpression(pattern: "\\*\\*([^\\*\\n]+?)\\*\\*", options: []) {
+            result = boldRegex.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(location: 0, length: result.utf16.count),
+                withTemplate: "*$1*"
+            )
+        }
+        
+        // 3. Strikethrough: ~~text~~ -> ~text~
+        if let strikeRegex = try? NSRegularExpression(pattern: "~~([^~\\n]+?)~~", options: []) {
+            result = strikeRegex.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(location: 0, length: result.utf16.count),
+                withTemplate: "~$1~"
+            )
+        }
+        
+        // 4. Single asterisk italic *text* -> _text_ (because * in Slack is bold)
+        if let italicRegex = try? NSRegularExpression(pattern: "(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)", options: []) {
+            result = italicRegex.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(location: 0, length: result.utf16.count),
+                withTemplate: "_$1_"
+            )
+        }
         
         return result
+    }
+    
+    private static func convertIndentedToFencedCode(_ text: String) -> String {
+        let lines = text.components(separatedBy: .newlines)
+        var resultLines: [String] = []
+        var currentIndentedCodeLines: [String] = []
+        
+        for line in lines {
+            if line.hasPrefix("    ") || line.hasPrefix("\t") {
+                let codeLine = String(line.dropFirst(line.hasPrefix("    ") ? 4 : 1))
+                currentIndentedCodeLines.append(codeLine)
+            } else {
+                if !currentIndentedCodeLines.isEmpty {
+                    resultLines.append("```")
+                    resultLines.append(contentsOf: currentIndentedCodeLines)
+                    resultLines.append("```")
+                    currentIndentedCodeLines.removeAll()
+                }
+                resultLines.append(line)
+            }
+        }
+        if !currentIndentedCodeLines.isEmpty {
+            resultLines.append("```")
+            resultLines.append(contentsOf: currentIndentedCodeLines)
+            resultLines.append("```")
+        }
+        return resultLines.joined(separator: "\n")
+    }
+    
+    private static func convertFencedToIndentedCode(_ text: String) -> String {
+        let lines = text.components(separatedBy: .newlines)
+        var resultLines: [String] = []
+        var inCode = false
+        
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                inCode = !inCode
+                continue
+            }
+            if inCode {
+                resultLines.append("    \(line)")
+            } else {
+                resultLines.append(line)
+            }
+        }
+        return resultLines.joined(separator: "\n")
     }
     
     /// Converts bare URLs outside code blocks/inline code/existing links to autolinks `<url>`
@@ -327,3 +559,4 @@ struct MarkdownParser {
         return result
     }
 }
+

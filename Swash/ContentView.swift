@@ -33,9 +33,20 @@ enum ViewMode: String, CaseIterable, Identifiable {
 
 enum MarkdownFlavor: String, CaseIterable, Identifiable {
     case github = "GitHub"
+    case commonMark = "CommonMark"
+    case original = "Original"
     case slack = "Slack"
     
     var id: String { self.rawValue }
+    
+    var displayName: String {
+        switch self {
+        case .github: return "GitHub Markdown"
+        case .commonMark: return "CommonMark"
+        case .original: return "Original Markdown"
+        case .slack: return "Slack mrkdwn"
+        }
+    }
 }
 
 struct ContentView: View {
@@ -44,7 +55,8 @@ struct ContentView: View {
     @State private var viewMode: ViewMode = .preview
     @State private var selectedRange: NSRange? = nil
     @State private var selectionRect: NSRect? = nil
-    @AppStorage("markdownFlavor") private var markdownFlavor: MarkdownFlavor = .github
+    @State private var markdownFlavor: MarkdownFlavor = .github
+    @State private var isInitialDetectDone: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -93,6 +105,12 @@ struct ContentView: View {
             statusView
         }
         .frame(minWidth: 600, minHeight: 400)
+        .onAppear {
+            if !isInitialDetectDone {
+                markdownFlavor = MarkdownParser.detectFlavor(document.text)
+                isInitialDetectDone = true
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: 0) {
@@ -132,13 +150,22 @@ struct ContentView: View {
             }
             
             ToolbarItem(placement: .primaryAction) {
-                Picker("Flavor", selection: $markdownFlavor) {
+                Picker("Flavor", selection: Binding(
+                    get: { markdownFlavor },
+                    set: { newFlavor in
+                        let oldFlavor = markdownFlavor
+                        if oldFlavor != newFlavor {
+                            document.text = MarkdownParser.convert(document.text, from: oldFlavor, to: newFlavor)
+                            markdownFlavor = newFlavor
+                        }
+                    }
+                )) {
                     ForEach(MarkdownFlavor.allCases) { flavor in
                         Text(flavor.rawValue).tag(flavor)
                     }
                 }
                 .pickerStyle(.menu)
-                .help("Select Markdown format scheme: GitHub or Slack mrkdwn")
+                .help("Select Markdown format scheme (converting raw text format in place)")
             }
         }
     }
@@ -212,7 +239,7 @@ struct ContentView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary.opacity(0.5))
                 
-                Text(markdownFlavor == .slack ? "Slack mrkdwn" : "GitHub Markdown")
+                Text(markdownFlavor.displayName)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
             }
