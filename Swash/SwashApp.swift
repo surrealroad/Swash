@@ -9,12 +9,24 @@ import SwiftUI
 import AppKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
+        }
+    }
+    
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
         for filename in filenames {
             let url = URL(fileURLWithPath: filename)
             NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
         }
         sender.reply(toOpenOrPrint: .success)
+    }
+    
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        let url = URL(fileURLWithPath: filename)
+        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
+        return true
     }
 }
 

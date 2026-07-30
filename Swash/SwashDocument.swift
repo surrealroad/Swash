@@ -21,7 +21,11 @@ struct SwashDocument: FileDocument {
 
     static let readableContentTypes: [UTType] = [
         .markdown,
-        .plainText
+        .plainText,
+        UTType(filenameExtension: "md") ?? .plainText,
+        UTType(filenameExtension: "markdown") ?? .plainText,
+        UTType(filenameExtension: "mdown") ?? .plainText,
+        UTType(filenameExtension: "mkdn") ?? .plainText
     ]
 
     init(configuration: ReadConfiguration) throws {
