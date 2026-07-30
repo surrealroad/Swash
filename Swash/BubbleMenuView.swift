@@ -7,14 +7,18 @@
 
 import SwiftUI
 
-enum FormatAction {
+enum FormatAction: Hashable {
     case bold
     case italic
     case code
     case strikethrough
     case h1
     case h2
+    case h3
+    case h4
     case quote
+    case bulletList
+    case numberedList
 }
 
 enum CodeFormat: Hashable, CaseIterable {
@@ -127,7 +131,16 @@ struct BubbleMenuView: View {
             
             BubbleButton(systemImage: nil, textLabel: "H1", tooltip: "Heading 1", isActive: activeFormats.contains(.h1), action: { onAction(.h1) })
             BubbleButton(systemImage: nil, textLabel: "H2", tooltip: "Heading 2", isActive: activeFormats.contains(.h2), action: { onAction(.h2) })
+            BubbleButton(systemImage: nil, textLabel: "H3", tooltip: "Heading 3", isActive: activeFormats.contains(.h3), action: { onAction(.h3) })
+            BubbleButton(systemImage: nil, textLabel: "H4", tooltip: "Heading 4", isActive: activeFormats.contains(.h4), action: { onAction(.h4) })
             BubbleButton(systemImage: "quote.bubble", textLabel: nil, tooltip: "Blockquote", isActive: activeFormats.contains(.quote), action: { onAction(.quote) })
+            
+            Divider()
+                .frame(height: 16)
+                .padding(.horizontal, 2)
+            
+            BubbleButton(systemImage: "list.bullet", textLabel: nil, tooltip: "Bullet List", isActive: activeFormats.contains(.bulletList), action: { onAction(.bulletList) })
+            BubbleButton(systemImage: "list.number", textLabel: nil, tooltip: "Numbered List", isActive: activeFormats.contains(.numberedList), action: { onAction(.numberedList) })
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)

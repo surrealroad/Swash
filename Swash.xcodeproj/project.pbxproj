@@ -65,10 +65,10 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 0460134D30045F6A00853817 /* Build configuration list for PBXNativeTarget "Swash" */;
 			buildPhases = (
+				0460135230045F6A00853817 /* Auto Increment Build Number */,
 				0460133C30045F6800853817 /* Sources */,
 				0460133D30045F6800853817 /* Frameworks */,
 				0460133E30045F6800853817 /* Resources */,
-				0460135230045F6A00853817 /* Auto Increment Build Number */,
 			);
 			buildRules = (
 			);
@@ -145,7 +145,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ -z \"$CI\" ] && command -v git >/dev/null 2>&1; then\n  BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo \"1\")\n  if [ -n \"$BUILD_NUMBER\" ] && [ -f \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\" ]; then\n    /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $BUILD_NUMBER\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\" 2>/dev/null || true\n  fi\nfi\n";
+			shellScript = "if [ -z \"$CI\" ] && command -v git >/dev/null 2>&1; then\n  BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo \"1\")\n  if [ -n \"$BUILD_NUMBER\" ]; then\n    /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $BUILD_NUMBER\" \"${SRCROOT}/Swash/Info.plist\" 2>/dev/null || /usr/libexec/PlistBuddy -c \"Add :CFBundleVersion string $BUILD_NUMBER\" \"${SRCROOT}/Swash/Info.plist\" 2>/dev/null || true\n  fi\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -167,7 +167,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 27;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
@@ -198,7 +198,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 27;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;

@@ -444,6 +444,10 @@ struct SwashTextView: NSViewRepresentable {
                     textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 17, weight: .bold), range: lineRange)
                     let hashRange = NSRange(location: currentOffset, length: min(lineLength, 4))
                     hideRange(hashRange)
+                } else if line.hasPrefix("#### ") {
+                    textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 15, weight: .bold), range: lineRange)
+                    let hashRange = NSRange(location: currentOffset, length: min(lineLength, 5))
+                    hideRange(hashRange)
                 } else if line.hasPrefix("> ") {
                     textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: lineRange)
                     let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
@@ -455,12 +459,30 @@ struct SwashTextView: NSViewRepresentable {
                     if trimmedLine.hasPrefix("- ") || trimmedLine.hasPrefix("* ") || trimmedLine.hasPrefix("+ ") {
                         let leadingSpaces = line.prefix(while: { $0 == " " || $0 == "\t" }).count
                         let bulletRange = NSRange(location: currentOffset + leadingSpaces, length: min(lineLength - leadingSpaces, 2))
-                        textStorage.addAttribute(.foregroundColor, value: NSColor.systemIndigo, range: bulletRange)
+                        
+                        hideRange(bulletRange)
+                        
+                        let para = NSMutableParagraphStyle()
+                        let textList = NSTextList(markerFormat: NSTextList.MarkerFormat(rawValue: "{bullet}"), options: 0)
+                        para.textLists = [textList]
+                        let indent = CGFloat((leadingSpaces / 2 + 1) * 20)
+                        para.headIndent = indent
+                        para.firstLineHeadIndent = indent - 12
+                        textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
                     } else if let range = trimmedLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
                         let leadingSpaces = line.prefix(while: { $0 == " " || $0 == "\t" }).count
                         let markerLen = trimmedLine[range].utf16.count
                         let numRange = NSRange(location: currentOffset + leadingSpaces, length: min(lineLength - leadingSpaces, markerLen))
-                        textStorage.addAttribute(.foregroundColor, value: NSColor.systemIndigo, range: numRange)
+                        
+                        hideRange(numRange)
+                        
+                        let para = NSMutableParagraphStyle()
+                        let textList = NSTextList(markerFormat: NSTextList.MarkerFormat(rawValue: "{decimal}."), options: 0)
+                        para.textLists = [textList]
+                        let indent = CGFloat((leadingSpaces / 2 + 1) * 20)
+                        para.headIndent = indent
+                        para.firstLineHeadIndent = indent - 16
+                        textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
                     }
                 }
                 

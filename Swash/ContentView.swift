@@ -8,17 +8,17 @@
 import SwiftUI
 
 enum ViewMode: String, CaseIterable, Identifiable {
-    case edit = "Editor"
+    case edit = "Source"
+    case preview = "Formatted"
     case split = "Split"
-    case preview = "Preview"
     
     var id: String { self.rawValue }
     
     var icon: String {
         switch self {
         case .edit: return "text.alignleft"
+        case .preview: return "character.cursor.ibeam"
         case .split: return "square.split.2x1"
-        case .preview: return "eye"
         }
     }
 }
@@ -277,12 +277,20 @@ struct ContentView: View {
         let lineRange = (fullText as NSString).lineRange(for: range)
         if let fullLineRange = Range(lineRange, in: fullText) {
             let lineText = String(fullText[fullLineRange]).trimmingCharacters(in: .whitespaces)
-            if lineText.hasPrefix("# ") {
-                active.insert(.h1)
+            if lineText.hasPrefix("#### ") {
+                active.insert(.h4)
+            } else if lineText.hasPrefix("### ") {
+                active.insert(.h3)
             } else if lineText.hasPrefix("## ") {
                 active.insert(.h2)
+            } else if lineText.hasPrefix("# ") {
+                active.insert(.h1)
             } else if lineText.hasPrefix("> ") {
                 active.insert(.quote)
+            } else if lineText.hasPrefix("- ") || lineText.hasPrefix("* ") || lineText.hasPrefix("+ ") {
+                active.insert(.bulletList)
+            } else if let _ = lineText.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
+                active.insert(.numberedList)
             }
         }
         
@@ -390,7 +398,7 @@ struct ContentView: View {
                 newSelectedRange = NSRange(location: range.location + 1, length: range.length)
             }
             
-        case .h1, .h2, .quote:
+        case .h1, .h2, .h3, .h4, .quote, .bulletList, .numberedList:
             let lineRange = (fullText as NSString).lineRange(for: range)
             guard let fullLineRange = Range(lineRange, in: fullText) else { return }
             
@@ -404,16 +412,33 @@ struct ContentView: View {
             } else if cleanLine.hasPrefix("## ") {
                 removedPrefix = "## "
                 cleanLine.removeFirst(3)
+            } else if cleanLine.hasPrefix("### ") {
+                removedPrefix = "### "
+                cleanLine.removeFirst(4)
+            } else if cleanLine.hasPrefix("#### ") {
+                removedPrefix = "#### "
+                cleanLine.removeFirst(5)
             } else if cleanLine.hasPrefix("> ") {
                 removedPrefix = "> "
                 cleanLine.removeFirst(2)
+            } else if cleanLine.hasPrefix("- ") || cleanLine.hasPrefix("* ") || cleanLine.hasPrefix("+ ") {
+                removedPrefix = String(cleanLine.prefix(2))
+                cleanLine.removeFirst(2)
+            } else if let matchRange = cleanLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
+                let matchLen = cleanLine[matchRange].count
+                removedPrefix = String(cleanLine.prefix(matchLen))
+                cleanLine.removeFirst(matchLen)
             }
             
             let blockPrefix: String
             switch action {
             case .h1: blockPrefix = "# "
             case .h2: blockPrefix = "## "
+            case .h3: blockPrefix = "### "
+            case .h4: blockPrefix = "#### "
             case .quote: blockPrefix = "> "
+            case .bulletList: blockPrefix = "- "
+            case .numberedList: blockPrefix = "1. "
             default: blockPrefix = ""
             }
             
