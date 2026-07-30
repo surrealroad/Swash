@@ -474,29 +474,48 @@ struct SwashTextView: NSViewRepresentable {
                     hideRange(quoteRange)
                 } else {
                     let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-                    if trimmedLine.hasPrefix("- ") || trimmedLine.hasPrefix("* ") || trimmedLine.hasPrefix("+ ") {
-                        let leadingSpaces = line.prefix(while: { $0 == " " || $0 == "\t" }).count
-                        let markerCharRange = NSRange(location: currentOffset + leadingSpaces, length: 1)
+                    
+                    if let listMarkerRange = trimmedLine.range(of: "^[-*+]\\s+", options: .regularExpression) {
+                        let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
+                        let fullMarkerStr = String(trimmedLine[listMarkerRange])
+                        let totalMarkerLen = fullMarkerStr.utf16.count
                         
-                        // Replace raw hyphen/asterisk with filled bullet point attachment
+                        // Replace raw hyphen/asterisk character with filled bullet point attachment
+                        let markerCharRange = NSRange(location: currentOffset + leadingSpacesCount, length: 1)
                         textStorage.addAttribute(.attachment, value: SwashTextView.bulletAttachment, range: markerCharRange)
                         
+                        // Trim/hide any extra whitespace between list indicator and proceeding text (leaving 1 space)
+                        if totalMarkerLen > 2 {
+                            let extraSpacesRange = NSRange(location: currentOffset + leadingSpacesCount + 2, length: totalMarkerLen - 2)
+                            hideRange(extraSpacesRange)
+                        }
+                        
                         let para = NSMutableParagraphStyle()
-                        let indent = CGFloat((leadingSpaces / 2 + 1) * 20)
+                        let indent = CGFloat((leadingSpacesCount / 2 + 1) * 20)
                         para.headIndent = indent
                         para.firstLineHeadIndent = indent - 14
                         textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
-                    } else if let range = trimmedLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
-                        let leadingSpaces = line.prefix(while: { $0 == " " || $0 == "\t" }).count
-                        let markerLen = trimmedLine[range].utf16.count
-                        let numRange = NSRange(location: currentOffset + leadingSpaces, length: min(lineLength - leadingSpaces, markerLen))
+                    } else if let numMarkerRange = trimmedLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
+                        let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
+                        let fullMarkerStr = String(trimmedLine[numMarkerRange])
+                        let totalMarkerLen = fullMarkerStr.utf16.count
                         
-                        // Style number prefix in bold accent color
-                        textStorage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: numRange)
-                        textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .bold), range: numRange)
+                        // Find length of number plus dot (e.g. "1." -> 2)
+                        let dotIdx = fullMarkerStr.firstIndex(of: ".") ?? fullMarkerStr.endIndex
+                        let numberDotLen = fullMarkerStr.distance(from: fullMarkerStr.startIndex, to: dotIdx) + 1
+                        
+                        // Number list prefix with NO color treatment applied (uses standard text color)
+                        let numberDotRange = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, numberDotLen))
+                        textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold), range: numberDotRange)
+                        
+                        // Trim/hide any extra whitespace between list indicator and proceeding text (leaving 1 space)
+                        if totalMarkerLen > numberDotLen + 1 {
+                            let extraSpacesRange = NSRange(location: currentOffset + leadingSpacesCount + numberDotLen + 1, length: totalMarkerLen - numberDotLen - 1)
+                            hideRange(extraSpacesRange)
+                        }
                         
                         let para = NSMutableParagraphStyle()
-                        let indent = CGFloat((leadingSpaces / 2 + 1) * 20)
+                        let indent = CGFloat((leadingSpacesCount / 2 + 1) * 20)
                         para.headIndent = indent
                         para.firstLineHeadIndent = indent - 18
                         textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)

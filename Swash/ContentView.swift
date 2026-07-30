@@ -24,9 +24,9 @@ enum ViewMode: String, CaseIterable, Identifiable {
     
     var tooltip: String {
         switch self {
-        case .edit: return "Source Mode: Plain Markdown Text Editor"
-        case .preview: return "Formatted Mode: Interactive Live-Styled Editor"
-        case .split: return "Split Mode: Side-by-Side Editor & Rendered Preview"
+        case .edit: return "Show source"
+        case .preview: return "Edit text"
+        case .split: return "Side-by-side view"
         }
     }
 }
