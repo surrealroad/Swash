@@ -44,5 +44,9 @@ struct SwashApp: App {
         DocumentGroup(newDocument: SwashDocument()) { file in
             ContentView(document: file.$document)
         }
+        
+        Settings {
+            SettingsView()
+        }
     }
 }

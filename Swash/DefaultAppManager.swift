@@ -5,10 +5,13 @@
 
 import AppKit
 import UniformTypeIdentifiers
+import Combine
 
 @MainActor
-final class DefaultAppManager {
+final class DefaultAppManager: ObservableObject {
     static let shared = DefaultAppManager()
+    
+    @Published private(set) var isDefaultAppStatus: Bool = false
     
     private let suppressKey = "suppressDefaultAppPrompt"
     private var hasCheckedThisSession = false
@@ -18,7 +21,14 @@ final class DefaultAppManager {
         UTType("net.daringfireball.markdown")
     ].compactMap { $0 }
 
-    private init() {}
+    private init() {
+        refreshDefaultStatus()
+    }
+
+    /// Refresh the cached default app status.
+    func refreshDefaultStatus() {
+        isDefaultAppStatus = isSwashDefaultApp()
+    }
 
     /// Checks if Swash is set as the default application for .md files.
     func isSwashDefaultApp() -> Bool {
@@ -45,17 +55,24 @@ final class DefaultAppManager {
         let appURL = Bundle.main.bundleURL
         
         for uti in markdownUTIs {
-            NSWorkspace.shared.setDefaultApplication(at: appURL, toOpen: uti) { error in
-                if let error = error {
-                    print("Swash: Error setting default application for \(uti.identifier): \(error.localizedDescription)")
-                } else {
-                    print("Swash: Successfully set as default application for \(uti.identifier)")
+            NSWorkspace.shared.setDefaultApplication(at: appURL, toOpen: uti) { [weak self] error in
+                DispatchQueue.main.async {
+                    if let error = error {
+                        print("Swash: Error setting default application for \(uti.identifier): \(error.localizedDescription)")
+                    } else {
+                        print("Swash: Successfully set as default application for \(uti.identifier)")
+                    }
+                    self?.refreshDefaultStatus()
                 }
             }
             
             if let bundleID = Bundle.main.bundleIdentifier {
                 LSSetDefaultRoleHandlerForContentType(uti.identifier as CFString, .all, bundleID as CFString)
             }
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.refreshDefaultStatus()
         }
     }
 
