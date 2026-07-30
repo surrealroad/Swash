@@ -8,6 +8,10 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+extension UTType {
+    static let markdown = UTType("net.daringfireball.markdown") ?? UTType(importedAs: "net.daringfireball.markdown")
+}
+
 struct SwashDocument: FileDocument {
     var text: String
 
@@ -15,9 +19,9 @@ struct SwashDocument: FileDocument {
         self.text = text
     }
 
-    static let readableContentTypes = [
-        UTType(importedAs: "net.daringfireball.markdown"),
-        UTType.plainText
+    static let readableContentTypes: [UTType] = [
+        .markdown,
+        .plainText
     ]
 
     init(configuration: ReadConfiguration) throws {
