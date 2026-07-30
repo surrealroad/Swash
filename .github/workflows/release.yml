@@ -26,7 +26,9 @@ jobs:
 
       - name: Build macOS App
         run: |
-          xcodebuild -scheme Swash -configuration Release -derivedDataPath build CODE_SIGN_IDENTITY="-"
+          VERSION="1.0.${{ github.run_number }}"
+          BUILD_NUMBER="${{ github.run_number }}"
+          xcodebuild -scheme Swash -configuration Release -derivedDataPath build CODE_SIGN_IDENTITY="-" MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
 
       - name: Package App Bundle
         run: |

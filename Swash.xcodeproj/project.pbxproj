@@ -68,6 +68,7 @@
 				0460133C30045F6800853817 /* Sources */,
 				0460133D30045F6800853817 /* Frameworks */,
 				0460133E30045F6800853817 /* Resources */,
+				0460135230045F6A00853817 /* Auto Increment Build Number */,
 			);
 			buildRules = (
 			);
@@ -126,6 +127,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		0460135230045F6A00853817 /* Auto Increment Build Number */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Auto Increment Build Number";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ -z \"$CI\" ] && command -v git >/dev/null 2>&1; then\n  BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo \"1\")\n  if [ -n \"$BUILD_NUMBER\" ] && [ -f \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\" ]; then\n    /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $BUILD_NUMBER\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\" 2>/dev/null || true\n  fi\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		0460133C30045F6800853817 /* Sources */ = {
