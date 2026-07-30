@@ -89,13 +89,13 @@ struct MarkdownPreviewView: View {
                 
                 if isOrdered {
                     Text("1.")
-                        .font(.system(.body, design: .monospaced))
+                        .font(.body)
                         .foregroundColor(.secondary)
                 } else {
                     Text("•")
-                        .font(.title3)
-                        .foregroundColor(.accentColor)
-                        .frame(width: 10, height: 16, alignment: .center)
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .frame(width: 10, alignment: .center)
                 }
                 
                 InlineMarkdownText(text: block.text, flavor: flavor)

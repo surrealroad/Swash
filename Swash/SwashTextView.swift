@@ -12,6 +12,44 @@ func logDebug(_ message: String) {
     // No-op in production. Diagnostics disabled.
 }
 
+extension NSAttributedString.Key {
+    static let listMarker = NSAttributedString.Key("SwashListMarkerKey")
+}
+
+struct ListMarkerInfo {
+    let text: String
+    let indent: CGFloat
+}
+
+final class SwashLayoutManager: NSLayoutManager {
+    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+        
+        guard let textStorage = textStorage else { return }
+        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        
+        textStorage.enumerateAttribute(.listMarker, in: charRange, options: []) { value, range, _ in
+            if let markerInfo = value as? ListMarkerInfo {
+                let glyphRange = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                let lineRect = lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+                
+                let font = NSFont.systemFont(ofSize: 13, weight: .regular)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: NSColor.secondaryLabelColor
+                ]
+                
+                let markerSize = (markerInfo.text as NSString).size(withAttributes: attrs)
+                let x = origin.x + markerInfo.indent - markerSize.width - 6
+                let y = origin.y + lineRect.origin.y + (lineRect.height - markerSize.height) / 2
+                
+                let drawRect = CGRect(x: x, y: y, width: markerSize.width + 4, height: markerSize.height)
+                (markerInfo.text as NSString).draw(in: drawRect, withAttributes: attrs)
+            }
+        }
+    }
+}
+
 struct SwashTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var selectedRange: NSRange?
@@ -19,26 +57,26 @@ struct SwashTextView: NSViewRepresentable {
     var isStyled: Bool
     var flavor: MarkdownFlavor
     
-    static let bulletAttachment: NSTextAttachment = {
-        let size: CGFloat = 6
-        let image = NSImage(size: NSSize(width: size + 4, height: size), flipped: false) { rect in
-            let path = NSBezierPath(ovalIn: NSRect(x: 2, y: 0, width: size, height: size))
-            NSColor.controlAccentColor.setFill()
-            path.fill()
-            return true
-        }
-        let attachment = NSTextAttachment()
-        attachment.image = image
-        attachment.bounds = CGRect(x: 0, y: -1, width: size + 4, height: size)
-        return attachment
-    }()
-    
     func makeNSView(context: Context) -> NSScrollView {
         logDebug("[SwashTextView] makeNSView called")
-        let scrollView = NSTextView.scrollableTextView()
-        guard let textView = scrollView.documentView as? NSTextView else {
-            return scrollView
-        }
+        
+        let textStorage = NSTextStorage()
+        let layoutManager = SwashLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        
+        let containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        let textContainer = NSTextContainer(containerSize: containerSize)
+        textContainer.widthTracksTextView = true
+        layoutManager.addTextContainer(textContainer)
+        
+        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        textView.autoresizingMask = [.width, .height]
+        
+        let scrollView = NSScrollView()
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autoresizingMask = [.width, .height]
         
         textView.delegate = context.coordinator
         textView.isRichText = false
@@ -54,13 +92,9 @@ struct SwashTextView: NSViewRepresentable {
         // Set standard padding/margins for a clean writing interface
         textView.textContainerInset = NSSize(width: 20, height: 20)
         
-        // Custom background and scrollview configs
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
         
-        // Monitor scrolling to dynamically reposition the floating bubble menu
         NotificationCenter.default.addObserver(
             context.coordinator,
             selector: #selector(Coordinator.scrollViewDidScroll(_:)),
@@ -480,45 +514,38 @@ struct SwashTextView: NSViewRepresentable {
                         let fullMarkerStr = String(trimmedLine[listMarkerRange])
                         let totalMarkerLen = fullMarkerStr.utf16.count
                         
-                        // Replace raw hyphen/asterisk character with filled bullet point attachment
-                        let markerCharRange = NSRange(location: currentOffset + leadingSpacesCount, length: 1)
-                        textStorage.addAttribute(.attachment, value: SwashTextView.bulletAttachment, range: markerCharRange)
+                        // Hide raw list prefix text completely (making it 0 width and non-selectable)
+                        let rawMarkerRange = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, totalMarkerLen))
+                        hideRange(rawMarkerRange)
                         
-                        // Trim/hide any extra whitespace between list indicator and proceeding text (leaving 1 space)
-                        if totalMarkerLen > 2 {
-                            let extraSpacesRange = NSRange(location: currentOffset + leadingSpacesCount + 2, length: totalMarkerLen - 2)
-                            hideRange(extraSpacesRange)
-                        }
-                        
-                        let para = NSMutableParagraphStyle()
                         let indent = CGFloat((leadingSpacesCount / 2 + 1) * 20)
+                        let para = NSMutableParagraphStyle()
                         para.headIndent = indent
-                        para.firstLineHeadIndent = indent - 14
+                        para.firstLineHeadIndent = indent
                         textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
+                        
+                        // SwashLayoutManager draws a non-selectable "•" in the gutter margin
+                        textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: "•", indent: indent), range: lineRange)
                     } else if let numMarkerRange = trimmedLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
                         let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
                         let fullMarkerStr = String(trimmedLine[numMarkerRange])
                         let totalMarkerLen = fullMarkerStr.utf16.count
                         
-                        // Find length of number plus dot (e.g. "1." -> 2)
                         let dotIdx = fullMarkerStr.firstIndex(of: ".") ?? fullMarkerStr.endIndex
-                        let numberDotLen = fullMarkerStr.distance(from: fullMarkerStr.startIndex, to: dotIdx) + 1
+                        let numberDotStr = String(fullMarkerStr[...dotIdx])
                         
-                        // Number list prefix with NO color treatment applied (uses standard text color)
-                        let numberDotRange = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, numberDotLen))
-                        textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold), range: numberDotRange)
+                        // Hide raw list prefix text completely (making it 0 width and non-selectable)
+                        let rawMarkerRange = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, totalMarkerLen))
+                        hideRange(rawMarkerRange)
                         
-                        // Trim/hide any extra whitespace between list indicator and proceeding text (leaving 1 space)
-                        if totalMarkerLen > numberDotLen + 1 {
-                            let extraSpacesRange = NSRange(location: currentOffset + leadingSpacesCount + numberDotLen + 1, length: totalMarkerLen - numberDotLen - 1)
-                            hideRange(extraSpacesRange)
-                        }
-                        
+                        let indent = CGFloat((leadingSpacesCount / 2 + 1) * 24)
                         let para = NSMutableParagraphStyle()
-                        let indent = CGFloat((leadingSpacesCount / 2 + 1) * 20)
                         para.headIndent = indent
-                        para.firstLineHeadIndent = indent - 18
+                        para.firstLineHeadIndent = indent
                         textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
+                        
+                        // SwashLayoutManager draws a non-selectable "1." in the gutter margin using standard text color
+                        textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: numberDotStr, indent: indent), range: lineRange)
                     }
                 }
                 
