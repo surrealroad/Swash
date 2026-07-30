@@ -110,11 +110,14 @@ struct LinkDetector {
         return links
     }
     
-    static func findLink(at range: NSRange?, in fullText: String, flavor: MarkdownFlavor) -> DetectedLink? {
+    static func findLink(at range: NSRange?, in fullText: String, flavor: MarkdownFlavor, includeBareURLs: Bool = false) -> DetectedLink? {
         guard let range = range else { return nil }
         let allLinks = findLinks(in: fullText, flavor: flavor)
         
         for link in allLinks {
+            if !includeBareURLs && link.isBareURL {
+                continue
+            }
             if range.length > 0 {
                 if NSIntersectionRange(range, link.fullRange).length > 0 {
                     return link
