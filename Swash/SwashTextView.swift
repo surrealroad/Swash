@@ -115,7 +115,8 @@ struct SwashTextView: NSViewRepresentable {
         context.coordinator.isUpdatingFromSwiftUI = true
         context.coordinator.parent = self
         
-        let normalizedTextView = textView.string.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        let currentRawText = isStyled ? context.coordinator.buildRawMarkdown(from: textView.textStorage ?? NSTextStorage()) : textView.string
+        let normalizedTextView = currentRawText.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         let normalizedBinding = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         
         // Trim whitespaces and newlines for comparison to ignore trivial formatting differences
@@ -368,7 +369,13 @@ struct SwashTextView: NSViewRepresentable {
             guard let textStorage = textView.textStorage, !isHighlighting else { return }
             isHighlighting = true
             
-            let text = textView.string
+            // Reconstruct raw text from any existing attachments so parsing is deterministic
+            let rawText = buildRawMarkdown(from: textStorage)
+            if textStorage.string != rawText {
+                textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: rawText)
+            }
+            
+            let text = textStorage.string
             let fullRange = NSRange(location: 0, length: textStorage.length)
             
             textStorage.beginEditing()
