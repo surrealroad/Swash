@@ -99,6 +99,7 @@ jobs:
           # Create DMG Disk Image
           mkdir dmg_root
           cp -R "$APP_PATH" dmg_root/
+          ln -s /Applications dmg_root/Applications
           hdiutil create -volname "Swash" -srcfolder dmg_root -ov -format UDZO Swash-macOS.dmg
           rm -rf dmg_root
 
