@@ -85,14 +85,19 @@ Swash features a modern, automated release pipeline powered by GitHub Actions. E
 5.  **Publishes a GitHub Release** with the assets attached and ready to download instantly!
 
 > [!TIP]
-> **Code Signing Setup**: To sign builds with your Apple Developer Certificate:
-> 1. Export your Apple Developer Certificate from Keychain Access as a `.p12` file.
+> **Code Signing & Notarization Setup**:
+> 1. Export your **Developer ID Application** certificate from Keychain Access as a `.p12` file.
 > 2. Convert it to Base64 (`base64 -i Certificate.p12 | pbcopy`).
 > 3. Add repository secrets in **Settings > Secrets and variables > Actions**:
 >    - `MACOS_CERTIFICATE`: Base64 string of your `.p12` certificate.
 >    - `MACOS_CERTIFICATE_PWD`: Password for the `.p12` file (leave empty if no password was set).
 >    - `KEYCHAIN_PASSWORD`: Any temporary password for the CI keychain.
 >    - `CODE_SIGN_IDENTITY` *(Optional)*: Name of your certificate (auto-detected if omitted).
+>
+> **To remove the Gatekeeper "Apple could not verify..." malware warning**, add Apple Notarization credentials:
+>    - `NOTARIZATION_APPLE_ID`: Your Apple ID email (e.g. `user@example.com`).
+>    - `NOTARIZATION_PASSWORD`: An App-Specific Password generated at [appleid.apple.com](https://appleid.apple.com).
+>    - `NOTARIZATION_TEAM_ID`: Your 10-character Team ID from [developer.apple.com/account](https://developer.apple.com/account).
 
 > [!TIP]
 > Visit the [Releases](https://github.com/surrealroad/Swash/releases) section of the repository to grab the latest built application installer (`.dmg`) instantly.
