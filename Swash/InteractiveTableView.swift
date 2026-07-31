@@ -460,6 +460,34 @@ struct CellTextView: NSViewRepresentable {
             highlightCellText(in: textView)
         }
 
+        func textDidEndEditing(_ notification: Notification) {
+            NotificationCenter.default.post(name: .cellSelectionDidChange, object: nil, userInfo: [:])
+            parent.onCommit()
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            let range = textView.selectedRange()
+            if range.length > 0 {
+                if let layoutManager = textView.layoutManager, let textContainer = textView.textContainer {
+                    let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                    var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+                    
+                    let rectInWindow = textView.convert(rect, to: nil)
+                    if let window = textView.window {
+                        let localRect = window.contentView?.convert(rectInWindow, from: nil) ?? rectInWindow
+                        NotificationCenter.default.post(name: .cellSelectionDidChange, object: nil, userInfo: [
+                            "range": range,
+                            "rect": localRect,
+                            "text": textView.string
+                        ])
+                    }
+                }
+            } else {
+                NotificationCenter.default.post(name: .cellSelectionDidChange, object: nil, userInfo: [:])
+            }
+        }
+
         func highlightCellText(in textView: NSTextView) {
             guard let textStorage = textView.textStorage else { return }
             let fullRange = NSRange(location: 0, length: textStorage.length)

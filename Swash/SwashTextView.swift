@@ -16,6 +16,10 @@ extension NSAttributedString.Key {
     static let listMarker = NSAttributedString.Key("SwashListMarkerKey")
 }
 
+extension Notification.Name {
+    static let cellSelectionDidChange = Notification.Name("cellSelectionDidChange")
+}
+
 struct ListMarkerInfo {
     let text: String
     let indent: CGFloat
@@ -132,7 +136,12 @@ struct SwashTextView: NSViewRepresentable {
         
         var textWasUpdated = false
         if textChanged {
+            let savedOrigin = textView.enclosingScrollView?.contentView.bounds.origin
             textView.string = text
+            if let origin = savedOrigin, let clipView = textView.enclosingScrollView?.contentView {
+                clipView.scroll(to: origin)
+                textView.enclosingScrollView?.reflectScrolledClipView(clipView)
+            }
             textWasUpdated = true
         }
         
@@ -186,7 +195,20 @@ struct SwashTextView: NSViewRepresentable {
         
         init(_ parent: SwashTextView) {
             self.parent = parent
+            super.init()
+            NotificationCenter.default.addObserver(self, selector: #selector(handleCellSelectionChange(_:)), name: .cellSelectionDidChange, object: nil)
             logDebug("[SwashTextView] Coordinator.init called")
+        }
+        
+        @objc func handleCellSelectionChange(_ notification: Notification) {
+            if let userInfo = notification.userInfo,
+               let range = userInfo["range"] as? NSRange,
+               let rect = userInfo["rect"] as? NSRect {
+                self.parent.selectedRange = range
+                self.parent.selectionRect = rect
+            } else {
+                self.parent.selectionRect = nil
+            }
         }
         
         func buildRawMarkdown(from textStorage: NSTextStorage) -> String {
