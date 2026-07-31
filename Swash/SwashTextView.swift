@@ -383,8 +383,11 @@ struct SwashTextView: NSViewRepresentable {
             
             // Helper to hide markdown tags in Preview mode
             func hideRange(_ range: NSRange) {
-                textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 0.01), range: range)
-                textStorage.addAttribute(.foregroundColor, value: NSColor.clear, range: range)
+                let valid = NSIntersectionRange(range, NSRange(location: 0, length: textStorage.length))
+                if valid.length > 0 {
+                    textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 0.01), range: valid)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.clear, range: valid)
+                }
             }
             
             // Helper to perform simple syntax highlighting on code lines
@@ -397,13 +400,19 @@ struct SwashTextView: NSViewRepresentable {
                     if let commentIdx = line.firstIndex(of: "#") {
                         let nsCommentStart = line.distance(from: line.startIndex, to: commentIdx)
                         let commentRange = NSRange(location: offset + nsCommentStart, length: line.utf16.count - nsCommentStart)
-                        textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: commentRange)
+                        let valid = NSIntersectionRange(commentRange, NSRange(location: 0, length: textStorage.length))
+                        if valid.length > 0 {
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: valid)
+                        }
                         return
                     }
                 } else if ["javascript", "swift", "html", "css", "json"].contains(lowerLang) {
                     let trimmed = line.trimmingCharacters(in: .whitespaces)
                     if trimmed.hasPrefix("//") {
-                        textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: NSRange(location: offset, length: line.utf16.count))
+                        let valid = NSIntersectionRange(NSRange(location: offset, length: line.utf16.count), NSRange(location: 0, length: textStorage.length))
+                        if valid.length > 0 {
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: valid)
+                        }
                         return
                     }
                 }
@@ -426,7 +435,10 @@ struct SwashTextView: NSViewRepresentable {
                         let matches = regex.matches(in: line, options: [], range: NSRange(location: 0, length: line.utf16.count))
                         for match in matches {
                             let matchRange = NSRange(location: offset + match.range.location, length: match.range.length)
-                            textStorage.addAttribute(.foregroundColor, value: NSColor.systemPink, range: matchRange)
+                            let valid = NSIntersectionRange(matchRange, NSRange(location: 0, length: textStorage.length))
+                            if valid.length > 0 {
+                                textStorage.addAttribute(.foregroundColor, value: NSColor.systemPink, range: valid)
+                            }
                         }
                     }
                 }
@@ -437,7 +449,10 @@ struct SwashTextView: NSViewRepresentable {
                     let matches = stringRegex.matches(in: line, options: [], range: NSRange(location: 0, length: line.utf16.count))
                     for match in matches {
                         let matchRange = NSRange(location: offset + match.range.location, length: match.range.length)
-                        textStorage.addAttribute(.foregroundColor, value: NSColor.systemGreen, range: matchRange)
+                        let valid = NSIntersectionRange(matchRange, NSRange(location: 0, length: textStorage.length))
+                        if valid.length > 0 {
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.systemGreen, range: valid)
+                        }
                     }
                 }
                 
@@ -447,12 +462,23 @@ struct SwashTextView: NSViewRepresentable {
                     let matches = numberRegex.matches(in: line, options: [], range: NSRange(location: 0, length: line.utf16.count))
                     for match in matches {
                         let matchRange = NSRange(location: offset + match.range.location, length: match.range.length)
-                        textStorage.addAttribute(.foregroundColor, value: NSColor.systemOrange, range: matchRange)
+                        let valid = NSIntersectionRange(matchRange, NSRange(location: 0, length: textStorage.length))
+                        if valid.length > 0 {
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.systemOrange, range: valid)
+                        }
                     }
                 }
             }
             
             NSTextAttachment.registerViewProviderClass(TableAttachmentViewProvider.self, forFileType: TableTextAttachment.fileTypeIdentifier)
+            
+            struct PendingTable {
+                let range: NSRange
+                let headers: [String]
+                let alignments: [TableAlignment]
+                let rows: [[String]]
+            }
+            var tablesToReplace: [PendingTable] = []
             
             // 2. Block-level parsing
             let lines = text.components(separatedBy: .newlines)
@@ -501,14 +527,17 @@ struct SwashTextView: NSViewRepresentable {
                 }
                 
                 if inCodeBlock {
-                    textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: lineRange)
-                    textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor.withAlphaComponent(0.85), range: lineRange)
-                    
-                    if let block = currentBlockStyle {
-                        let para = NSMutableParagraphStyle()
-                        para.textBlocks = [block]
-                        para.lineSpacing = 4
-                        textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
+                    let valid = NSIntersectionRange(lineRange, NSRange(location: 0, length: textStorage.length))
+                    if valid.length > 0 {
+                        textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: valid)
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor.withAlphaComponent(0.85), range: valid)
+                        
+                        if let block = currentBlockStyle {
+                            let para = NSMutableParagraphStyle()
+                            para.textBlocks = [block]
+                            para.lineSpacing = 4
+                            textStorage.addAttribute(.paragraphStyle, value: para, range: valid)
+                        }
                     }
                     
                     highlightCodeLine(line, offset: currentOffset, language: currentLanguage)
@@ -552,87 +581,78 @@ struct SwashTextView: NSViewRepresentable {
                             let tableTotalLen = min(textStorage.length - tableStartOffset, max(1, tableEndOffset - tableStartOffset - 1))
                             let tableFullRange = NSRange(location: tableStartOffset, length: tableTotalLen)
                             
-                            let tableData = MarkdownTableData(headers: headers, alignments: alignments, rows: tableRows)
-                            var attachment: TableTextAttachment? = nil
-                            attachment = TableTextAttachment(tableData: tableData, flavor: parent.flavor) { [weak self, weak textView] updatedData in
-                                guard let self = self, let textView = textView, let textStorage = textView.textStorage, let attachment = attachment else { return }
-                                attachment.tableData = updatedData
-                                self.parent.text = self.buildRawMarkdown(from: textStorage)
-                            }
+                            tablesToReplace.append(PendingTable(range: tableFullRange, headers: headers, alignments: alignments, rows: tableRows))
                             
-                            guard let validAttachment = attachment else { continue }
-                            let attrAttachment = NSAttributedString(attachment: validAttachment)
-                            if tableStartOffset + tableTotalLen <= textStorage.length {
-                                textStorage.replaceCharacters(in: tableFullRange, with: attrAttachment)
-                            }
-                            
-                            currentOffset = tableStartOffset + attrAttachment.length
+                            currentOffset = tableEndOffset
                             lineIndex = tableLineIdx
                             continue
                         }
                     }
                 }
                 
-                if line.hasPrefix("# ") {
-                    textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 24, weight: .bold), range: lineRange)
-                    let hashRange = NSRange(location: currentOffset, length: min(lineLength, 2))
-                    hideRange(hashRange)
-                } else if line.hasPrefix("## ") {
-                    textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 20, weight: .bold), range: lineRange)
-                    let hashRange = NSRange(location: currentOffset, length: min(lineLength, 3))
-                    hideRange(hashRange)
-                } else if line.hasPrefix("### ") {
-                    textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 17, weight: .bold), range: lineRange)
-                    let hashRange = NSRange(location: currentOffset, length: min(lineLength, 4))
-                    hideRange(hashRange)
-                } else if line.hasPrefix("#### ") {
-                    textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 15, weight: .bold), range: lineRange)
-                    let hashRange = NSRange(location: currentOffset, length: min(lineLength, 5))
-                    hideRange(hashRange)
-                } else if line.hasPrefix("> ") {
-                    textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: lineRange)
-                    let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
-                    textStorage.addAttribute(.font, value: italicFont, range: lineRange)
-                    let quoteRange = NSRange(location: currentOffset, length: min(lineLength, 2))
-                    hideRange(quoteRange)
-                } else {
-                    if let listMarkerRange = trimmedLine.range(of: "^[-*+]\\s+", options: .regularExpression) {
-                        let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
-                        let fullMarkerStr = String(trimmedLine[listMarkerRange])
-                        let totalMarkerLen = fullMarkerStr.utf16.count
-                        
-                        // Hide raw list prefix text completely (making it 0 width and non-selectable)
-                        let rawMarkerRange = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, totalMarkerLen))
-                        hideRange(rawMarkerRange)
-                        
-                        let indent = CGFloat((leadingSpacesCount / 2 + 1) * 20)
-                        let para = NSMutableParagraphStyle()
-                        para.headIndent = indent
-                        para.firstLineHeadIndent = indent
-                        textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
-                        
-                        // SwashLayoutManager draws a non-selectable "•" in the gutter margin
-                        textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: "•", indent: indent), range: lineRange)
-                    } else if let numMarkerRange = trimmedLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
-                        let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
-                        let fullMarkerStr = String(trimmedLine[numMarkerRange])
-                        let totalMarkerLen = fullMarkerStr.utf16.count
-                        
-                        let dotIdx = fullMarkerStr.firstIndex(of: ".") ?? fullMarkerStr.endIndex
-                        let numberDotStr = String(fullMarkerStr[...dotIdx])
-                        
-                        // Hide raw list prefix text completely (making it 0 width and non-selectable)
-                        let rawMarkerRange = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, totalMarkerLen))
-                        hideRange(rawMarkerRange)
-                        
-                        let indent = CGFloat((leadingSpacesCount / 2 + 1) * 24)
-                        let para = NSMutableParagraphStyle()
-                        para.headIndent = indent
-                        para.firstLineHeadIndent = indent
-                        textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
-                        
-                        // SwashLayoutManager draws a non-selectable "1." in the gutter margin using standard text color
-                        textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: numberDotStr, indent: indent), range: lineRange)
+                let validLineRange = NSIntersectionRange(lineRange, NSRange(location: 0, length: textStorage.length))
+                if validLineRange.length > 0 {
+                    if line.hasPrefix("# ") {
+                        textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 24, weight: .bold), range: validLineRange)
+                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, 2))
+                        hideRange(hashRange)
+                    } else if line.hasPrefix("## ") {
+                        textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 20, weight: .bold), range: validLineRange)
+                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, 3))
+                        hideRange(hashRange)
+                    } else if line.hasPrefix("### ") {
+                        textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 17, weight: .bold), range: validLineRange)
+                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, 4))
+                        hideRange(hashRange)
+                    } else if line.hasPrefix("#### ") {
+                        textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 15, weight: .bold), range: validLineRange)
+                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, 5))
+                        hideRange(hashRange)
+                    } else if line.hasPrefix("> ") {
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: validLineRange)
+                        let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
+                        textStorage.addAttribute(.font, value: italicFont, range: validLineRange)
+                        let quoteRange = NSRange(location: currentOffset, length: min(lineLength, 2))
+                        hideRange(quoteRange)
+                    } else {
+                        if let listMarkerRange = trimmedLine.range(of: "^[-*+]\\s+", options: .regularExpression) {
+                            let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
+                            let fullMarkerStr = String(trimmedLine[listMarkerRange])
+                            let totalMarkerLen = fullMarkerStr.utf16.count
+                            
+                            // Hide raw list prefix text completely (making it 0 width and non-selectable)
+                            let rawMarkerRange = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, totalMarkerLen))
+                            hideRange(rawMarkerRange)
+                            
+                            let indent = CGFloat((leadingSpacesCount / 2 + 1) * 20)
+                            let para = NSMutableParagraphStyle()
+                            para.headIndent = indent
+                            para.firstLineHeadIndent = indent
+                            textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
+                            
+                            // SwashLayoutManager draws a non-selectable "•" in the gutter margin
+                            textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: "•", indent: indent), range: validLineRange)
+                        } else if let numMarkerRange = trimmedLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
+                            let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
+                            let fullMarkerStr = String(trimmedLine[numMarkerRange])
+                            let totalMarkerLen = fullMarkerStr.utf16.count
+                            
+                            let dotIdx = fullMarkerStr.firstIndex(of: ".") ?? fullMarkerStr.endIndex
+                            let numberDotStr = String(fullMarkerStr[...dotIdx])
+                            
+                            // Hide raw list prefix text completely (making it 0 width and non-selectable)
+                            let rawMarkerRange = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, totalMarkerLen))
+                            hideRange(rawMarkerRange)
+                            
+                            let indent = CGFloat((leadingSpacesCount / 2 + 1) * 24)
+                            let para = NSMutableParagraphStyle()
+                            para.headIndent = indent
+                            para.firstLineHeadIndent = indent
+                            textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
+                            
+                            // SwashLayoutManager draws a non-selectable "1." in the gutter margin using standard text color
+                            textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: numberDotStr, indent: indent), range: validLineRange)
+                        }
                     }
                 }
                 
@@ -681,8 +701,16 @@ struct SwashTextView: NSViewRepresentable {
                     for match in matches {
                         if match.numberOfRanges >= 5 {
                             let leftPart = match.range(at: 1)
+                            let urlRange = match.range(at: 2)
                             let textRange = match.range(at: 3)
                             let rightPart = match.range(at: 4)
+                            
+                            let validUrl = NSIntersectionRange(urlRange, NSRange(location: 0, length: textStorage.length))
+                            if validUrl.length > 0 {
+                                textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: validUrl)
+                                textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: validUrl)
+                            }
+                            
                             textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: textRange)
                             textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: textRange)
                             hideRange(leftPart)
@@ -783,16 +811,34 @@ struct SwashTextView: NSViewRepresentable {
                     }
                     if matchRange.length == 0 { continue }
                     
-                    // Check if font attribute at location is hidden (pointSize < 1.0)
-                    var isHidden = false
-                    if matchRange.location < textStorage.length {
-                        if let font = textStorage.attribute(.font, at: matchRange.location, effectiveRange: nil) as? NSFont, font.pointSize < 1.0 {
+                    let validMatch = NSIntersectionRange(matchRange, NSRange(location: 0, length: textStorage.length))
+                    if validMatch.length > 0 {
+                        var isHidden = false
+                        if let font = textStorage.attribute(.font, at: validMatch.location, effectiveRange: nil) as? NSFont, font.pointSize < 1.0 {
                             isHidden = true
                         }
+                        if !isHidden {
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: validMatch)
+                            textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: validMatch)
+                        }
                     }
-                    if !isHidden {
-                        textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: matchRange)
-                        textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: matchRange)
+                }
+            }
+            
+            // 4. Replace Table Blocks with InteractiveTableView attachments (in reverse order)
+            for table in tablesToReplace.reversed() {
+                let validRange = NSIntersectionRange(table.range, NSRange(location: 0, length: textStorage.length))
+                if validRange.length > 0 {
+                    let tableData = MarkdownTableData(headers: table.headers, alignments: table.alignments, rows: table.rows)
+                    var attachment: TableTextAttachment? = nil
+                    attachment = TableTextAttachment(tableData: tableData, flavor: parent.flavor) { [weak self, weak textView] updatedData in
+                        guard let self = self, let textView = textView, let textStorage = textView.textStorage, let attachment = attachment else { return }
+                        attachment.tableData = updatedData
+                        self.parent.text = self.buildRawMarkdown(from: textStorage)
+                    }
+                    if let validAttachment = attachment {
+                        let attrAttachment = NSAttributedString(attachment: validAttachment)
+                        textStorage.replaceCharacters(in: validRange, with: attrAttachment)
                     }
                 }
             }
