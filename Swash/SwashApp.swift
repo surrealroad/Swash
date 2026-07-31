@@ -39,12 +39,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct SwashApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var sparkleUpdater = SparkleUpdater.shared
     
     var body: some Scene {
         DocumentGroup(newDocument: SwashDocument()) { file in
             ContentView(document: file.$document)
         }
         .windowToolbarStyle(.expanded)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates...") {
+                    sparkleUpdater.checkForUpdates()
+                }
+                .disabled(!sparkleUpdater.canCheckForUpdates)
+            }
+        }
         
         Settings {
             SettingsView()

@@ -144,6 +144,36 @@ jobs:
           zip -r "$GITHUB_WORKSPACE/Swash-macOS.zip" Swash.app
           cd "$GITHUB_WORKSPACE"
 
+      - name: Generate Sparkle Appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          echo "Downloading Sparkle CLI tools for appcast generation..."
+          SPARKLE_TOOL_URL="https://github.com/sparkle-project/Sparkle/releases/download/2.6.4/Sparkle-2.6.4.tar.xz"
+          mkdir -p sparkle_tools
+          curl -sL "$SPARKLE_TOOL_URL" | tar -xJ -C sparkle_tools
+
+          echo "Preparing release directory for Sparkle appcast generation..."
+          mkdir -p sparkle_release
+          cp Swash-macOS.zip sparkle_release/
+          
+          DOWNLOAD_URL_PREFIX="https://github.com/surrealroad/Swash/releases/download/v1.0.${{ github.run_number }}/"
+
+          if [ -n "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "Generating and signing appcast.xml with SPARKLE_PRIVATE_KEY..."
+            ./sparkle_tools/bin/generate_appcast \
+              --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
+              -s "$SPARKLE_PRIVATE_KEY" \
+              sparkle_release/
+          else
+            echo "No SPARKLE_PRIVATE_KEY provided. Generating unsigned appcast.xml..."
+            ./sparkle_tools/bin/generate_appcast \
+              --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
+              sparkle_release/
+          fi
+
+          cp sparkle_release/appcast.xml appcast.xml
+
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
@@ -158,6 +188,18 @@ jobs:
           files: |
             Swash-macOS.dmg
             Swash-macOS.zip
+            appcast.xml
+
+      - name: Update Root Appcast on Main Branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml
+          if git commit -m "update: automatic Sparkle appcast.xml update for v1.0.${{ github.run_number }} [skip ci]"; then
+            git push origin HEAD:main || true
+          fi
 
       - name: Clean up Keychain
         if: always()

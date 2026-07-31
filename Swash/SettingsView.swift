@@ -7,6 +7,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject private var defaultAppManager = DefaultAppManager.shared
+    @ObservedObject private var sparkleUpdater = SparkleUpdater.shared
     @AppStorage("markdownFlavor") private var markdownFlavor: MarkdownFlavor = .github
     
     var body: some View {
@@ -57,9 +58,35 @@ struct SettingsView: View {
                 Text("File Associations")
                     .font(.headline)
             }
+            
+            Divider()
+                .padding(.vertical, 8)
+            
+            Section {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Software Updates")
+                            .font(.body)
+                            .fontWeight(.medium)
+                        
+                        Toggle("Automatically check for updates", isOn: $sparkleUpdater.automaticallyChecksForUpdates)
+                            .font(.subheadline)
+                    }
+                    
+                    Spacer()
+                    
+                    Button("Check Now...") {
+                        sparkleUpdater.checkForUpdates()
+                    }
+                    .disabled(!sparkleUpdater.canCheckForUpdates)
+                }
+            } header: {
+                Text("Updates")
+                    .font(.headline)
+            }
         }
         .padding(20)
-        .frame(width: 460, height: 200)
+        .frame(width: 460, height: 280)
         .onAppear {
             defaultAppManager.refreshDefaultStatus()
         }
