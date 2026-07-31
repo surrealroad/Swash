@@ -41,29 +41,31 @@ struct InteractiveTableView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Main Table Container
-            VStack(spacing: 0) {
-                // Header Row
-                headerView
-                
-                Divider()
-                    .background(Color.secondary.opacity(0.3))
-
-                // Data Rows
-                ForEach(0..<rows.count, id: \.self) { rowIndex in
-                    rowView(for: rowIndex)
+            ScrollView(.horizontal, showsIndicators: true) {
+                // Main Table Container
+                VStack(spacing: 0) {
+                    // Header Row
+                    headerView
                     
-                    if rowIndex < rows.count - 1 {
-                        Divider()
-                            .background(Color.secondary.opacity(0.15))
+                    Divider()
+                        .background(Color.secondary.opacity(0.3))
+
+                    // Data Rows
+                    ForEach(0..<rows.count, id: \.self) { rowIndex in
+                        rowView(for: rowIndex)
+                        
+                        if rowIndex < rows.count - 1 {
+                            Divider()
+                                .background(Color.secondary.opacity(0.15))
+                        }
                     }
                 }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                )
+                .cornerRadius(6)
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-            )
-            .cornerRadius(6)
 
             // Table Controls Footer (Visible when editable)
             if isEditable {
@@ -145,10 +147,9 @@ struct InteractiveTableView: View {
                         .frame(width: 14)
                     }
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: frameAlignment(for: alignment))
-                .background(Color.secondary.opacity(0.12))
+                .frame(minWidth: 110, maxWidth: .infinity, alignment: frameAlignment(for: alignment))
                 .onHover { hovering in
                     if hovering { hoveredColumn = colIndex }
                 }
@@ -173,6 +174,7 @@ struct InteractiveTableView: View {
                 }
             }
         }
+        .background(Color.secondary.opacity(0.12))
     }
 
     // MARK: - Row View
@@ -185,9 +187,9 @@ struct InteractiveTableView: View {
                 let alignment = colIndex < alignments.count ? alignments[colIndex] : .defaultAlignment
 
                 cellContent(text: cellText, index: CellIndex(row: rowIndex, col: colIndex), isHeader: false)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: frameAlignment(for: alignment))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(minWidth: 110, maxWidth: .infinity, alignment: frameAlignment(for: alignment))
                     .contextMenu {
                         if isEditable {
                             Button("Insert Row Above") { insertRow(at: rowIndex) }
@@ -429,3 +431,47 @@ struct CellTextField: NSViewRepresentable {
         }
     }
 }
+
+// MARK: - NSTextAttachment & Provider for NSTextView Formatted Mode
+final class TableTextAttachment: NSTextAttachment {
+    static let fileTypeIdentifier = "com.surrealroad.swash.table"
+    
+    var tableData: MarkdownTableData
+    var flavor: MarkdownFlavor
+    var onUpdate: ((MarkdownTableData) -> Void)?
+    
+    init(tableData: MarkdownTableData, flavor: MarkdownFlavor, onUpdate: ((MarkdownTableData) -> Void)?) {
+        self.tableData = tableData
+        self.flavor = flavor
+        self.onUpdate = onUpdate
+        super.init(data: nil, ofType: Self.fileTypeIdentifier)
+        self.fileType = Self.fileTypeIdentifier
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
+    override func loadView() {
+        guard let attachment = textAttachment as? TableTextAttachment else { return }
+        
+        let container = NSHostingView(rootView: InteractiveTableView(
+            tableData: attachment.tableData,
+            flavor: attachment.flavor,
+            isEditable: true,
+            onChange: { [weak attachment] newTableData in
+                attachment?.onUpdate?(newTableData)
+            }
+        ))
+        container.autoresizingMask = [.width]
+        self.view = container
+    }
+    
+    override var tracksTextAttachmentViewBounds: Bool {
+        get { return true }
+        set { }
+    }
+}
+

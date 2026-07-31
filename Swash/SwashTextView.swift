@@ -428,6 +428,8 @@ struct SwashTextView: NSViewRepresentable {
                 }
             }
             
+            NSTextAttachment.registerViewProviderClass(TableAttachmentViewProvider.self, forFileType: TableTextAttachment.fileTypeIdentifier)
+            
             // 2. Block-level parsing
             let lines = text.components(separatedBy: .newlines)
             var currentOffset = 0
@@ -436,7 +438,9 @@ struct SwashTextView: NSViewRepresentable {
             var currentLanguage: String? = nil
             var currentBlockStyle: NSTextBlock? = nil
             
-            for line in lines {
+            var lineIndex = 0
+            while lineIndex < lines.count {
+                let line = lines[lineIndex]
                 let lineLength = line.utf16.count
                 let lineRange = NSRange(location: currentOffset, length: lineLength)
                 
@@ -468,6 +472,7 @@ struct SwashTextView: NSViewRepresentable {
                     }
                     hideRange(lineRange)
                     currentOffset += lineLength + 1
+                    lineIndex += 1
                     continue
                 }
                 
@@ -485,7 +490,64 @@ struct SwashTextView: NSViewRepresentable {
                     highlightCodeLine(line, offset: currentOffset, language: currentLanguage)
                     
                     currentOffset += lineLength + 1
+                    lineIndex += 1
                     continue
+                }
+                
+                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                
+                // Detect Table Block
+                let isTableStart = trimmedLine.contains("|") && lineIndex + 1 < lines.count
+                if isTableStart {
+                    let nextTrimmed = lines[lineIndex + 1].trimmingCharacters(in: .whitespaces)
+                    let isDelimiter = nextTrimmed.contains("|") && nextTrimmed.contains("-")
+                    if isDelimiter {
+                        let headers = MarkdownParser.parseTableCells(trimmedLine)
+                        let alignments = MarkdownParser.parseAlignments(nextTrimmed)
+                        
+                        if !headers.isEmpty {
+                            let tableStartOffset = currentOffset
+                            var tableLineIdx = lineIndex + 2
+                            var tableRows: [[String]] = []
+                            
+                            while tableLineIdx < lines.count {
+                                let rowLine = lines[tableLineIdx].trimmingCharacters(in: .whitespaces)
+                                if rowLine.contains("|") && !rowLine.isEmpty {
+                                    tableRows.append(MarkdownParser.parseTableCells(rowLine))
+                                    tableLineIdx += 1
+                                } else {
+                                    break
+                                }
+                            }
+                            
+                            // Calculate total character length of table block
+                            var tableEndOffset = currentOffset
+                            for i in lineIndex..<tableLineIdx {
+                                tableEndOffset += lines[i].utf16.count + 1
+                            }
+                            let tableTotalLen = min(textStorage.length - tableStartOffset, max(1, tableEndOffset - tableStartOffset - 1))
+                            let tableFullRange = NSRange(location: tableStartOffset, length: tableTotalLen)
+                            
+                            let tableData = MarkdownTableData(headers: headers, alignments: alignments, rows: tableRows)
+                            let attachment = TableTextAttachment(tableData: tableData, flavor: parent.flavor) { [weak self] updatedData in
+                                guard let self = self else { return }
+                                let newMarkdown = MarkdownParser.tableToMarkdown(headers: updatedData.headers, alignments: updatedData.alignments, rows: updatedData.rows)
+                                let nsText = self.parent.text as NSString
+                                if tableStartOffset + tableTotalLen <= nsText.length {
+                                    let newText = nsText.replacingCharacters(in: NSRange(location: tableStartOffset, length: tableTotalLen), with: newMarkdown)
+                                    self.parent.text = newText
+                                }
+                            }
+                            
+                            // Hide raw table text and attach TableTextAttachment
+                            hideRange(tableFullRange)
+                            textStorage.addAttribute(.attachment, value: attachment, range: NSRange(location: tableStartOffset, length: 1))
+                            
+                            currentOffset = tableEndOffset
+                            lineIndex = tableLineIdx
+                            continue
+                        }
+                    }
                 }
                 
                 if line.hasPrefix("# ") {
@@ -511,8 +573,6 @@ struct SwashTextView: NSViewRepresentable {
                     let quoteRange = NSRange(location: currentOffset, length: min(lineLength, 2))
                     hideRange(quoteRange)
                 } else {
-                    let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-                    
                     if let listMarkerRange = trimmedLine.range(of: "^[-*+]\\s+", options: .regularExpression) {
                         let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
                         let fullMarkerStr = String(trimmedLine[listMarkerRange])
@@ -550,43 +610,11 @@ struct SwashTextView: NSViewRepresentable {
                         
                         // SwashLayoutManager draws a non-selectable "1." in the gutter margin using standard text color
                         textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: numberDotStr, indent: indent), range: lineRange)
-                    } else if trimmedLine.contains("|") && (trimmedLine.hasPrefix("|") || trimmedLine.hasSuffix("|") || trimmedLine.contains("-|-") || trimmedLine.contains("---|")) {
-                        // Table line styling
-                        let isDelimiter = trimmedLine.contains("-") && trimmedLine.contains("|") && !trimmedLine.contains(where: { $0.isLetter || $0.isNumber })
-                        
-                        let tableBlock = NSTextBlock()
-                        tableBlock.backgroundColor = NSColor.textColor.withAlphaComponent(0.02)
-                        tableBlock.setValue(100, type: .percentageValueType, for: .width)
-                        tableBlock.setWidth(6, type: .absoluteValueType, for: .padding)
-                        
-                        let para = NSMutableParagraphStyle()
-                        para.textBlocks = [tableBlock]
-                        para.lineSpacing = 3
-                        textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
-                        
-                        if isDelimiter {
-                            textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular), range: lineRange)
-                            textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor.withAlphaComponent(0.7), range: lineRange)
-                        } else {
-                            textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 13.5, weight: .regular), range: lineRange)
-                            
-                            // Highlight pipe characters
-                            let nsLine = line as NSString
-                            var pipeSearchRange = NSRange(location: 0, length: nsLine.length)
-                            while pipeSearchRange.location < nsLine.length {
-                                let r = nsLine.range(of: "|", options: [], range: pipeSearchRange)
-                                if r.location == NSNotFound { break }
-                                let globalPipeRange = NSRange(location: currentOffset + r.location, length: 1)
-                                textStorage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: globalPipeRange)
-                                textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .bold), range: globalPipeRange)
-                                pipeSearchRange.location = r.location + r.length
-                                pipeSearchRange.length = nsLine.length - pipeSearchRange.location
-                            }
-                        }
                     }
                 }
                 
                 currentOffset += lineLength + 1
+                lineIndex += 1
             }
             
             // 3. Inline style parsing via regexes
