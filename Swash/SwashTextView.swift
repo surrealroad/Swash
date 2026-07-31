@@ -56,6 +56,9 @@ struct SwashTextView: NSViewRepresentable {
     @Binding var selectionRect: NSRect? // Bounding rect of selection in the local coordinate space of SwashTextView (SwiftUI top-left)
     var isStyled: Bool
     var flavor: MarkdownFlavor
+    var onCommit: (() -> Void)? = nil
+    var onNextCell: (() -> Void)? = nil
+    var onPrevCell: (() -> Void)? = nil
     
     func makeNSView(context: Context) -> NSScrollView {
         logDebug("[SwashTextView] makeNSView called")
@@ -152,11 +155,16 @@ struct SwashTextView: NSViewRepresentable {
             }
         }
         
-        // Update selection if needed
+        // Update selection if needed, preserving scroll position to prevent alt-tab jumping
         logDebug("[SwashTextView] updateNSView - selectedRange: \(String(describing: selectedRange)), textView.selectedRange(): \(textView.selectedRange())")
         if let range = selectedRange, textView.selectedRange() != range {
             logDebug("[SwashTextView] updateNSView - Setting selection to: \(range)")
+            let savedOrigin = textView.enclosingScrollView?.contentView.bounds.origin
             textView.setSelectedRange(range)
+            if let origin = savedOrigin, let clipView = textView.enclosingScrollView?.contentView {
+                clipView.scroll(to: origin)
+                textView.enclosingScrollView?.reflectScrolledClipView(clipView)
+            }
         }
         
         context.coordinator.isUpdatingFromSwiftUI = false
@@ -311,6 +319,27 @@ struct SwashTextView: NSViewRepresentable {
                 attrs[.foregroundColor] = NSColor.textColor
             }
             return attrs
+        }
+        
+        // Intercept key commands for cell editing navigation
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                if let onCommit = parent.onCommit {
+                    onCommit()
+                    return true
+                }
+            } else if commandSelector == #selector(NSResponder.insertTab(_:)) {
+                if let onNextCell = parent.onNextCell {
+                    onNextCell()
+                    return true
+                }
+            } else if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+                if let onPrevCell = parent.onPrevCell {
+                    onPrevCell()
+                    return true
+                }
+            }
+            return false
         }
         
         // Disable spellcheck inside code blocks

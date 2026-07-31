@@ -144,6 +144,7 @@ struct InteractiveTableView: View {
                                 .foregroundColor(.secondary)
                         }
                         .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
                         .frame(width: 14)
                     }
                 }
@@ -223,6 +224,7 @@ struct InteractiveTableView: View {
                     get: { text },
                     set: { newText in updateCellText(newText, at: index) }
                 ),
+                flavor: flavor,
                 onCommit: {
                     editingCell = nil
                 },
@@ -372,69 +374,43 @@ struct InteractiveTableView: View {
     }
 }
 
-// MARK: - Editable Text Field helper for cell editing
-struct CellTextField: NSViewRepresentable {
+// MARK: - Cell Text Field
+struct CellTextField: View {
     @Binding var text: String
+    var flavor: MarkdownFlavor
     var onCommit: () -> Void
     var onNextCell: () -> Void
     var onPrevCell: () -> Void
 
-    func makeNSView(context: Context) -> NSTextField {
-        let textField = NSTextField()
-        textField.isBordered = false
-        textField.drawsBackground = false
-        textField.focusRingType = .none
-        textField.delegate = context.coordinator
-        textField.stringValue = text
-        
-        DispatchQueue.main.async {
-            textField.window?.makeFirstResponder(textField)
-        }
-        return textField
+    var body: some View {
+        SwashTextView(
+            text: $text,
+            selectedRange: .constant(nil),
+            selectionRect: .constant(nil),
+            isStyled: true,
+            flavor: flavor,
+            onCommit: onCommit,
+            onNextCell: onNextCell,
+            onPrevCell: onPrevCell
+        )
+        .frame(minHeight: 22)
     }
+}
 
-    func updateNSView(_ nsView: NSTextField, context: Context) {
-        if nsView.stringValue != text {
-            nsView.stringValue = text
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: CellTextField
-
-        init(_ parent: CellTextField) {
-            self.parent = parent
-        }
-
-        func controlTextDidChange(_ obj: Notification) {
-            if let tf = obj.object as? NSTextField {
-                parent.text = tf.stringValue
-            }
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                parent.onCommit()
-                return true
-            } else if commandSelector == #selector(NSResponder.insertTab(_:)) {
-                parent.onNextCell()
-                return true
-            } else if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
-                parent.onPrevCell()
-                return true
-            }
-            return false
+// MARK: - Custom NSHostingView for Scroll Wheel Passthrough
+final class TableHostingView<Content: View>: NSHostingView<Content> {
+    override func scrollWheel(with event: NSEvent) {
+        if abs(event.deltaY) > abs(event.deltaX) {
+            self.nextResponder?.scrollWheel(with: event)
+        } else {
+            super.scrollWheel(with: event)
         }
     }
 }
 
 // MARK: - NSTextAttachment & Cell for TextKit 1 NSTextView Formatted Mode
 final class TableAttachmentCell: NSTextAttachmentCell {
-    var hostingView: NSHostingView<InteractiveTableView>?
+    var hostingView: TableHostingView<InteractiveTableView>?
     var tableData: MarkdownTableData
     var flavor: MarkdownFlavor
     var onUpdate: ((MarkdownTableData) -> Void)?
@@ -462,14 +438,26 @@ final class TableAttachmentCell: NSTextAttachmentCell {
         
         MainActor.assumeIsolated {
             if self.hostingView == nil {
-                let hv = NSHostingView(rootView: InteractiveTableView(
+                let hv = TableHostingView(rootView: InteractiveTableView(
                     tableData: self.tableData,
                     flavor: self.flavor,
                     isEditable: true,
-                    onChange: { [weak self] newTableData in
+                    onChange: { [weak self, weak parentView] newTableData in
                         DispatchQueue.main.async {
                             self?.tableData = newTableData
                             self?.onUpdate?(newTableData)
+                            
+                            if let parentView = parentView, let layoutManager = parentView.layoutManager, let textStorage = parentView.textStorage {
+                                let fullRange = NSRange(location: 0, length: textStorage.length)
+                                textStorage.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
+                                    if (value as? TableTextAttachment)?.cell === self {
+                                        layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
+                                        layoutManager.invalidateDisplay(forCharacterRange: range)
+                                        parentView.needsLayout = true
+                                        parentView.needsDisplay = true
+                                    }
+                                }
+                            }
                         }
                     }
                 ))
