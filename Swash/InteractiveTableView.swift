@@ -460,9 +460,7 @@ final class TableAttachmentCell: NSTextAttachmentCell {
     nonisolated override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
         guard let parentView = controlView as? NSTextView else { return }
         
-        DispatchQueue.main.async { [weak self, weak parentView] in
-            guard let self = self, let parentView = parentView else { return }
-            
+        MainActor.assumeIsolated {
             if self.hostingView == nil {
                 let hv = NSHostingView(rootView: InteractiveTableView(
                     tableData: self.tableData,
@@ -476,12 +474,12 @@ final class TableAttachmentCell: NSTextAttachmentCell {
                     }
                 ))
                 self.hostingView = hv
-                parentView.addSubview(hv)
+                parentView.addSubview(hv, positioned: .above, relativeTo: nil)
             }
             
             if let hv = self.hostingView {
                 if hv.superview != parentView {
-                    parentView.addSubview(hv)
+                    parentView.addSubview(hv, positioned: .above, relativeTo: nil)
                 }
                 if hv.frame != cellFrame {
                     hv.frame = cellFrame
