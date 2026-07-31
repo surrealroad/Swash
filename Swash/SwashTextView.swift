@@ -837,7 +837,11 @@ struct SwashTextView: NSViewRepresentable {
                         self.parent.text = self.buildRawMarkdown(from: textStorage)
                     }
                     if let validAttachment = attachment {
-                        let attrAttachment = NSAttributedString(attachment: validAttachment)
+                        let attrAttachment = NSMutableAttributedString(attachment: validAttachment)
+                        attrAttachment.addAttributes([
+                            .font: NSFont.systemFont(ofSize: 14),
+                            .foregroundColor: NSColor.textColor
+                        ], range: NSRange(location: 0, length: attrAttachment.length))
                         textStorage.replaceCharacters(in: validRange, with: attrAttachment)
                     }
                 }

@@ -474,12 +474,12 @@ final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
                 }
             }
         ))
-        container.sizingOptions = []
+        container.autoresizingMask = [.width]
         self.view = container
     }
     
     override var tracksTextAttachmentViewBounds: Bool {
-        get { return false }
+        get { return true }
         set { }
     }
 }
