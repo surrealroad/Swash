@@ -471,33 +471,55 @@ struct CellTextView: NSViewRepresentable {
                 .foregroundColor: NSColor.textColor
             ], range: fullRange)
             
-            // Inline code pills
+            func hideRange(_ range: NSRange) {
+                let valid = NSIntersectionRange(range, NSRange(location: 0, length: textStorage.length))
+                if valid.length > 0 {
+                    textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 0.01), range: valid)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.clear, range: valid)
+                }
+            }
+            
+            // Inline code pills: `code`
             let codePattern = "`([^`]+)`"
             if let codeRegex = try? NSRegularExpression(pattern: codePattern, options: []) {
                 let matches = codeRegex.matches(in: textView.string, options: [], range: fullRange)
                 for match in matches {
-                    textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), range: match.range)
-                    textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: match.range)
+                    let contentRange = match.range(at: 1)
+                    textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), range: contentRange)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: contentRange)
                     textStorage.addAttribute(.backgroundColor, value: NSColor.textColor.withAlphaComponent(0.06), range: match.range)
+                    
+                    hideRange(NSRange(location: match.range.location, length: 1))
+                    hideRange(NSRange(location: match.range.location + match.range.length - 1, length: 1))
                 }
             }
             
-            // Bold
+            // Bold: **text**
             let boldPattern = "\\*\\*([^*]+)\\*\\*"
             if let boldRegex = try? NSRegularExpression(pattern: boldPattern, options: []) {
                 let matches = boldRegex.matches(in: textView.string, options: [], range: fullRange)
                 for match in matches {
-                    textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 13, weight: .bold), range: match.range)
+                    let contentRange = match.range(at: 1)
+                    textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 13, weight: .bold), range: contentRange)
+                    
+                    hideRange(NSRange(location: match.range.location, length: 2))
+                    hideRange(NSRange(location: match.range.location + match.range.length - 2, length: 2))
                 }
             }
             
-            // Links
+            // Links: [text](url)
             let linkPattern = "\\[([^\\]]+)\\]\\(([^\\)]+)\\)"
             if let linkRegex = try? NSRegularExpression(pattern: linkPattern, options: []) {
                 let matches = linkRegex.matches(in: textView.string, options: [], range: fullRange)
                 for match in matches {
-                    textStorage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: match.range)
-                    textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
+                    let textRange = match.range(at: 1)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: textRange)
+                    textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: textRange)
+                    
+                    hideRange(NSRange(location: match.range.location, length: 1))
+                    let urlPartStart = textRange.location + textRange.length
+                    let urlPartLen = (match.range.location + match.range.length) - urlPartStart
+                    hideRange(NSRange(location: urlPartStart, length: urlPartLen))
                 }
             }
             
@@ -522,8 +544,17 @@ struct CellTextView: NSViewRepresentable {
 
 // MARK: - Custom NSHostingView for Scroll Wheel Passthrough
 final class TableHostingView<Content: View>: NSHostingView<Content> {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let currentEvent = NSApp.currentEvent, currentEvent.type == .scrollWheel {
+            if abs(currentEvent.deltaY) >= abs(currentEvent.deltaX) {
+                return self
+            }
+        }
+        return super.hitTest(point)
+    }
+
     override func scrollWheel(with event: NSEvent) {
-        if abs(event.deltaY) > abs(event.deltaX) {
+        if abs(event.deltaY) >= abs(event.deltaX) {
             var current: NSView? = self.superview
             var parentScrollView: NSScrollView? = nil
             while current != nil {

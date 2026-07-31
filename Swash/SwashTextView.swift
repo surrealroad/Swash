@@ -398,6 +398,16 @@ struct SwashTextView: NSViewRepresentable {
             guard let textStorage = textView.textStorage, !isHighlighting else { return }
             isHighlighting = true
             
+            // Preserve scroll position to prevent jumps on focus loss/revert
+            let savedScrollOrigin = textView.enclosingScrollView?.contentView.bounds.origin
+            
+            // Clean up any old table subviews to prevent duplicate stacked views on revert or text update
+            for subview in textView.subviews {
+                if NSStringFromClass(type(of: subview)).contains("TableHostingView") {
+                    subview.removeFromSuperview()
+                }
+            }
+            
             // Reconstruct raw text from any existing attachments so parsing is deterministic
             let rawText = buildRawMarkdown(from: textStorage)
             if textStorage.string != rawText {
@@ -883,6 +893,11 @@ struct SwashTextView: NSViewRepresentable {
             
             textStorage.endEditing()
             isHighlighting = false
+            
+            if let origin = savedScrollOrigin, let clipView = textView.enclosingScrollView?.contentView {
+                clipView.scroll(to: origin)
+                textView.enclosingScrollView?.reflectScrolledClipView(clipView)
+            }
             
             lastStyledText = text
             lastIsStyled = true
