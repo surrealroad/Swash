@@ -25,29 +25,34 @@ jobs:
           xcode-version: latest-stable
 
       - name: Import Signing Certificate
-        if: ${{ secrets.MACOS_CERTIFICATE != '' }}
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD || 'ci-keychain-pass' }}
+          EXPLICIT_IDENTITY: ${{ secrets.CODE_SIGN_IDENTITY }}
         run: |
-          # Create temporary keychain
+          if [ -z "$MACOS_CERTIFICATE" ]; then
+            echo "No MACOS_CERTIFICATE secret provided. Skipping certificate import."
+            exit 0
+          fi
+
+          echo "Importing Apple Code Signing Certificate..."
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security default-keychain -s $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
-          # Decode p12 certificate and import into keychain
           CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
           echo "$MACOS_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
           security import $CERTIFICATE_PATH -k $KEYCHAIN_PATH -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign -T /usr/bin/xcodebuild
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
-          # Determine Code Sign Identity
-          IDENTITY="${{ secrets.CODE_SIGN_IDENTITY }}"
+          IDENTITY="$EXPLICIT_IDENTITY"
           if [ -z "$IDENTITY" ]; then
             IDENTITY=$(security find-identity -v -p codesigning $KEYCHAIN_PATH | grep -o '".*"' | head -1 | tr -d '"')
           fi
+
+          echo "Found Signing Identity: $IDENTITY"
           echo "CODE_SIGN_IDENTITY=$IDENTITY" >> $GITHUB_ENV
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
 
@@ -106,12 +111,16 @@ jobs:
           fi
 
       - name: Notarize & Staple (Optional)
-        if: ${{ secrets.NOTARIZATION_APPLE_ID != '' && secrets.NOTARIZATION_PASSWORD != '' && secrets.NOTARIZATION_TEAM_ID != '' }}
         env:
           APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
           PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
           TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
         run: |
+          if [ -z "$APPLE_ID" ] || [ -z "$PASSWORD" ] || [ -z "$TEAM_ID" ]; then
+            echo "Notarization secrets omitted. Skipping notarization step."
+            exit 0
+          fi
+
           echo "Submitting Swash-macOS.dmg for notarization..."
           xcrun notarytool submit Swash-macOS.dmg \
             --apple-id "$APPLE_ID" \
