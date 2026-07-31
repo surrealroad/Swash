@@ -176,14 +176,31 @@ struct SwashTextView: NSViewRepresentable {
             logDebug("[SwashTextView] Coordinator.init called")
         }
         
+        func buildRawMarkdown(from textStorage: NSTextStorage) -> String {
+            let result = NSMutableString(string: textStorage.string)
+            let fullRange = NSRange(location: 0, length: textStorage.length)
+            
+            textStorage.enumerateAttribute(.attachment, in: fullRange, options: .reverse) { value, range, _ in
+                if let tableAttachment = value as? TableTextAttachment {
+                    let markdown = MarkdownParser.tableToMarkdown(
+                        headers: tableAttachment.tableData.headers,
+                        alignments: tableAttachment.tableData.alignments,
+                        rows: tableAttachment.tableData.rows
+                    )
+                    result.replaceCharacters(in: range, with: markdown)
+                }
+            }
+            return result as String
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             if !isUpdatingFromSwiftUI {
-                parent.text = textView.string
-                
-                if parent.isStyled {
+                if parent.isStyled, let textStorage = textView.textStorage {
+                    parent.text = buildRawMarkdown(from: textStorage)
                     highlightMarkdown(in: textView)
                 } else {
+                    parent.text = textView.string
                     applyPlainStyle(in: textView)
                 }
             }
@@ -529,21 +546,20 @@ struct SwashTextView: NSViewRepresentable {
                             let tableFullRange = NSRange(location: tableStartOffset, length: tableTotalLen)
                             
                             let tableData = MarkdownTableData(headers: headers, alignments: alignments, rows: tableRows)
-                            let attachment = TableTextAttachment(tableData: tableData, flavor: parent.flavor) { [weak self] updatedData in
-                                guard let self = self else { return }
-                                let newMarkdown = MarkdownParser.tableToMarkdown(headers: updatedData.headers, alignments: updatedData.alignments, rows: updatedData.rows)
-                                let nsText = self.parent.text as NSString
-                                if tableStartOffset + tableTotalLen <= nsText.length {
-                                    let newText = nsText.replacingCharacters(in: NSRange(location: tableStartOffset, length: tableTotalLen), with: newMarkdown)
-                                    self.parent.text = newText
-                                }
+                            var attachment: TableTextAttachment? = nil
+                            attachment = TableTextAttachment(tableData: tableData, flavor: parent.flavor) { [weak self, weak textView] updatedData in
+                                guard let self = self, let textView = textView, let textStorage = textView.textStorage, let attachment = attachment else { return }
+                                attachment.tableData = updatedData
+                                self.parent.text = self.buildRawMarkdown(from: textStorage)
                             }
                             
-                            // Hide raw table text and attach TableTextAttachment
-                            hideRange(tableFullRange)
-                            textStorage.addAttribute(.attachment, value: attachment, range: NSRange(location: tableStartOffset, length: 1))
+                            guard let validAttachment = attachment else { continue }
+                            let attrAttachment = NSAttributedString(attachment: validAttachment)
+                            if tableStartOffset + tableTotalLen <= textStorage.length {
+                                textStorage.replaceCharacters(in: tableFullRange, with: attrAttachment)
+                            }
                             
-                            currentOffset = tableEndOffset
+                            currentOffset = tableStartOffset + attrAttachment.length
                             lineIndex = tableLineIdx
                             continue
                         }
