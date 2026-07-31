@@ -12,10 +12,13 @@ enum FormatAction: Hashable {
     case italic
     case code
     case strikethrough
+    case heading
     case h1
     case h2
     case h3
     case h4
+    case h5
+    case h6
     case quote
     case bulletList
     case numberedList
@@ -76,12 +79,24 @@ enum CodeFormat: Hashable, CaseIterable {
     }
 }
 
+enum BubbleMenuContext: Hashable {
+    case codeBlock
+    case tableCell
+    case heading
+    case listItem
+    case blockquote
+    case standard
+}
+
 struct BubbleMenuView: View {
     let activeFormats: Set<FormatAction>
     let activeCodeFormat: CodeFormat?
+    let activeHeadingLevel: Int?
     let activeLink: DetectedLink?
+    let context: BubbleMenuContext
     let onAction: (FormatAction) -> Void
     let onSelectCodeFormat: (CodeFormat) -> Void
+    let onSelectHeadingLevel: (Int) -> Void
     let onApplyLink: (String) -> Void
     let onRemoveLink: () -> Void
     
@@ -89,97 +104,110 @@ struct BubbleMenuView: View {
     
     var body: some View {
         HStack(spacing: 4) {
-            BubbleButton(systemImage: "bold", textLabel: nil, tooltip: "Bold (⌘B)", isActive: activeFormats.contains(.bold), action: { onAction(.bold) })
-            BubbleButton(systemImage: "italic", textLabel: nil, tooltip: "Italic (⌘I)", isActive: activeFormats.contains(.italic), action: { onAction(.italic) })
-            BubbleButton(systemImage: "curlybraces", textLabel: nil, tooltip: "Code Formatting", isActive: activeFormats.contains(.code), action: { onAction(.code) })
-            
-            if activeFormats.contains(.code), let currentFormat = activeCodeFormat {
-                Menu {
-                    ForEach(CodeFormat.allCases, id: \.self) { format in
-                        Button(action: {
-                            onSelectCodeFormat(format)
-                        }) {
-                            HStack {
-                                Text(format.name)
-                                if format == currentFormat {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 3) {
-                        Text(currentFormat.label)
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .bold))
-                    }
-                    .foregroundColor(Color.accentColor)
-                    .padding(.horizontal, 6)
-                    .frame(height: 28)
-                    .background(Color.accentColor.opacity(0.12))
-                    .cornerRadius(6)
+            if context == .codeBlock {
+                BubbleButton(
+                    systemImage: "curlybraces",
+                    textLabel: nil,
+                    tooltip: "Toggle Code Block Off",
+                    isActive: true,
+                    action: { onAction(.code) }
+                )
+                
+                if let currentFormat = activeCodeFormat {
+                    codeFormatDropdown(currentFormat: currentFormat)
                 }
-                .menuStyle(.borderlessButton)
-                .frame(width: 72)
-                .help("Select code format or language")
-                .transition(.asymmetric(
-                    insertion: .scale(scale: 0.8, anchor: .center).combined(with: .opacity),
-                    removal: .scale(scale: 0.8, anchor: .center).combined(with: .opacity)
-                ))
-            }
-            
-            BubbleButton(systemImage: "strikethrough", textLabel: nil, tooltip: "Strikethrough", isActive: activeFormats.contains(.strikethrough), action: { onAction(.strikethrough) })
-            
-            BubbleButton(
-                systemImage: "link",
-                textLabel: nil,
-                tooltip: activeLink != nil ? "Edit Link" : "Add Link",
-                isActive: activeLink != nil,
-                action: {
-                    isPresentingLinkPopover.toggle()
+            } else {
+                BubbleButton(systemImage: "bold", textLabel: nil, tooltip: "Bold (⌘B)", isActive: activeFormats.contains(.bold), action: { onAction(.bold) })
+                BubbleButton(systemImage: "italic", textLabel: nil, tooltip: "Italic (⌘I)", isActive: activeFormats.contains(.italic), action: { onAction(.italic) })
+                BubbleButton(systemImage: "curlybraces", textLabel: nil, tooltip: "Code Formatting", isActive: activeFormats.contains(.code), action: { onAction(.code) })
+                
+                if activeFormats.contains(.code), let currentFormat = activeCodeFormat {
+                    codeFormatDropdown(currentFormat: currentFormat)
                 }
-            )
-            .popover(isPresented: $isPresentingLinkPopover, arrowEdge: .bottom) {
-                LinkEditorPopoverView(
-                    initialURL: activeLink?.url ?? "",
-                    isEditing: activeLink != nil,
-                    onApply: { url in
-                        isPresentingLinkPopover = false
-                        onApplyLink(url)
-                    },
-                    onRemove: {
-                        isPresentingLinkPopover = false
-                        onRemoveLink()
-                    },
-                    onCancel: {
-                        isPresentingLinkPopover = false
+                
+                BubbleButton(systemImage: "strikethrough", textLabel: nil, tooltip: "Strikethrough", isActive: activeFormats.contains(.strikethrough), action: { onAction(.strikethrough) })
+                
+                BubbleButton(
+                    systemImage: "link",
+                    textLabel: nil,
+                    tooltip: activeLink != nil ? "Edit Link" : "Add Link",
+                    isActive: activeLink != nil,
+                    action: {
+                        isPresentingLinkPopover.toggle()
                     }
                 )
+                .popover(isPresented: $isPresentingLinkPopover, arrowEdge: .bottom) {
+                    LinkEditorPopoverView(
+                        initialURL: activeLink?.url ?? "",
+                        isEditing: activeLink != nil,
+                        onApply: { url in
+                            isPresentingLinkPopover = false
+                            onApplyLink(url)
+                        },
+                        onRemove: {
+                            isPresentingLinkPopover = false
+                            onRemoveLink()
+                        },
+                        onCancel: {
+                            isPresentingLinkPopover = false
+                        }
+                    )
+                }
+                
+                if context == .standard || context == .heading || context == .blockquote {
+                    Divider()
+                        .frame(height: 16)
+                        .padding(.horizontal, 2)
+                    
+                    BubbleButton(
+                        systemImage: nil,
+                        textLabel: "H",
+                        tooltip: activeHeadingLevel != nil ? "Toggle Heading Off" : "Toggle Heading On",
+                        isActive: activeHeadingLevel != nil,
+                        action: { onAction(.heading) }
+                    )
+                    
+                    if let currentLevel = activeHeadingLevel {
+                        headingLevelDropdown(currentLevel: currentLevel)
+                    }
+                    
+                    if context != .heading {
+                        BubbleButton(systemImage: "quote.bubble", textLabel: nil, tooltip: "Blockquote", isActive: activeFormats.contains(.quote), action: { onAction(.quote) })
+                    }
+                } else if context == .listItem {
+                    Divider()
+                        .frame(height: 16)
+                        .padding(.horizontal, 2)
+                    
+                    BubbleButton(systemImage: "quote.bubble", textLabel: nil, tooltip: "Blockquote", isActive: activeFormats.contains(.quote), action: { onAction(.quote) })
+                }
+                
+                if context == .standard || context == .listItem || context == .blockquote {
+                    Divider()
+                        .frame(height: 16)
+                        .padding(.horizontal, 2)
+                    
+                    BubbleButton(systemImage: "list.bullet", textLabel: nil, tooltip: "Bullet List", isActive: activeFormats.contains(.bulletList), action: { onAction(.bulletList) })
+                    BubbleButton(systemImage: "list.number", textLabel: nil, tooltip: "Numbered List", isActive: activeFormats.contains(.numberedList), action: { onAction(.numberedList) })
+                    
+                    if context == .standard {
+                        BubbleButton(systemImage: "tablecells", textLabel: nil, tooltip: "Table", isActive: activeFormats.contains(.table), action: { onAction(.table) })
+                    }
+                } else if context == .tableCell {
+                    Divider()
+                        .frame(height: 16)
+                        .padding(.horizontal, 2)
+                    
+                    BubbleButton(systemImage: "tablecells", textLabel: nil, tooltip: "Table", isActive: true, action: { onAction(.table) })
+                }
             }
-            
-            Divider()
-                .frame(height: 16)
-                .padding(.horizontal, 2)
-            
-            BubbleButton(systemImage: nil, textLabel: "H1", tooltip: "Heading 1", isActive: activeFormats.contains(.h1), action: { onAction(.h1) })
-            BubbleButton(systemImage: nil, textLabel: "H2", tooltip: "Heading 2", isActive: activeFormats.contains(.h2), action: { onAction(.h2) })
-            BubbleButton(systemImage: nil, textLabel: "H3", tooltip: "Heading 3", isActive: activeFormats.contains(.h3), action: { onAction(.h3) })
-            BubbleButton(systemImage: nil, textLabel: "H4", tooltip: "Heading 4", isActive: activeFormats.contains(.h4), action: { onAction(.h4) })
-            BubbleButton(systemImage: "quote.bubble", textLabel: nil, tooltip: "Blockquote", isActive: activeFormats.contains(.quote), action: { onAction(.quote) })
-            
-            Divider()
-                .frame(height: 16)
-                .padding(.horizontal, 2)
-            
-            BubbleButton(systemImage: "list.bullet", textLabel: nil, tooltip: "Bullet List", isActive: activeFormats.contains(.bulletList), action: { onAction(.bulletList) })
-            BubbleButton(systemImage: "list.number", textLabel: nil, tooltip: "Numbered List", isActive: activeFormats.contains(.numberedList), action: { onAction(.numberedList) })
-            BubbleButton(systemImage: "tablecells", textLabel: nil, tooltip: "Table", isActive: activeFormats.contains(.table), action: { onAction(.table) })
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .animation(.spring(response: 0.28, dampingFraction: 0.72), value: activeFormats)
         .animation(.spring(response: 0.28, dampingFraction: 0.72), value: activeCodeFormat)
+        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: activeHeadingLevel)
+        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: context)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(.ultraThinMaterial)
@@ -189,6 +217,80 @@ struct BubbleMenuView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
         )
+    }
+    
+    @ViewBuilder
+    private func codeFormatDropdown(currentFormat: CodeFormat) -> some View {
+        Menu {
+            ForEach(CodeFormat.allCases, id: \.self) { format in
+                Button(action: {
+                    onSelectCodeFormat(format)
+                }) {
+                    HStack {
+                        Text(format.name)
+                        if format == currentFormat {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Text(currentFormat.label)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundColor(Color.accentColor)
+            .padding(.horizontal, 6)
+            .frame(height: 28)
+            .background(Color.accentColor.opacity(0.12))
+            .cornerRadius(6)
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: 72)
+        .help("Select code format or language")
+        .transition(.asymmetric(
+            insertion: .scale(scale: 0.8, anchor: .center).combined(with: .opacity),
+            removal: .scale(scale: 0.8, anchor: .center).combined(with: .opacity)
+        ))
+    }
+    
+    @ViewBuilder
+    private func headingLevelDropdown(currentLevel: Int) -> some View {
+        Menu {
+            ForEach(1...6, id: \.self) { level in
+                Button(action: {
+                    onSelectHeadingLevel(level)
+                }) {
+                    HStack {
+                        Text("Heading \(level) (H\(level))")
+                        if level == currentLevel {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Text("H\(currentLevel)")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundColor(Color.accentColor)
+            .padding(.horizontal, 6)
+            .frame(height: 28)
+            .background(Color.accentColor.opacity(0.12))
+            .cornerRadius(6)
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: 48)
+        .help("Select heading level")
+        .transition(.asymmetric(
+            insertion: .scale(scale: 0.8, anchor: .center).combined(with: .opacity),
+            removal: .scale(scale: 0.8, anchor: .center).combined(with: .opacity)
+        ))
     }
 }
 

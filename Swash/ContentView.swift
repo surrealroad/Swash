@@ -184,19 +184,26 @@ struct ContentView: View {
         GeometryReader { geometry in
             if let rect = selectionRect {
                 let activeCodeFormat = determineActiveCodeFormat()
+                let activeHeadingLevel = determineActiveHeadingLevel()
+                let bubbleContext = determineBubbleMenuContext()
                 let activeLink = LinkDetector.findLink(at: selectedRange, in: document.text, flavor: document.flavor)
-                let measuredWidth = bubbleMenuSize.width > 0 ? bubbleMenuSize.width : (activeCodeFormat != nil ? 426 : 414)
+                let measuredWidth = bubbleMenuSize.width > 0 ? bubbleMenuSize.width : (activeCodeFormat != nil ? 426 : 380)
                 let measuredHeight = bubbleMenuSize.height > 0 ? bubbleMenuSize.height : 40
                 
                 BubbleMenuView(
                     activeFormats: determineActiveFormats(),
                     activeCodeFormat: activeCodeFormat,
+                    activeHeadingLevel: activeHeadingLevel,
                     activeLink: activeLink,
+                    context: bubbleContext,
                     onAction: { action in
                         applyFormatting(action)
                     },
                     onSelectCodeFormat: { format in
                         applyCodeFormat(format)
+                    },
+                    onSelectHeadingLevel: { level in
+                        applyHeadingLevel(level)
                     },
                     onApplyLink: { url in
                         applyLink(url: url, activeLink: activeLink)
@@ -369,14 +376,24 @@ struct ContentView: View {
         let lineRange = (fullText as NSString).lineRange(for: range)
         if let fullLineRange = Range(lineRange, in: fullText) {
             let lineText = String(fullText[fullLineRange]).trimmingCharacters(in: .whitespaces)
-            if lineText.hasPrefix("#### ") {
+            if lineText.hasPrefix("###### ") {
+                active.insert(.h6)
+                active.insert(.heading)
+            } else if lineText.hasPrefix("##### ") {
+                active.insert(.h5)
+                active.insert(.heading)
+            } else if lineText.hasPrefix("#### ") {
                 active.insert(.h4)
+                active.insert(.heading)
             } else if lineText.hasPrefix("### ") {
                 active.insert(.h3)
+                active.insert(.heading)
             } else if lineText.hasPrefix("## ") {
                 active.insert(.h2)
+                active.insert(.heading)
             } else if lineText.hasPrefix("# ") {
                 active.insert(.h1)
+                active.insert(.heading)
             } else if lineText.hasPrefix("> ") {
                 active.insert(.quote)
             } else if lineText.hasPrefix("- ") || lineText.hasPrefix("* ") || lineText.hasPrefix("+ ") {
@@ -387,6 +404,134 @@ struct ContentView: View {
         }
         
         return active
+    }
+    
+    private func determineActiveHeadingLevel() -> Int? {
+        guard let range = selectedRange else { return nil }
+        let fullText = document.text
+        let lineRange = (fullText as NSString).lineRange(for: range)
+        guard let fullLineRange = Range(lineRange, in: fullText) else { return nil }
+        let lineText = String(fullText[fullLineRange]).trimmingCharacters(in: .whitespaces)
+        
+        if lineText.hasPrefix("###### ") { return 6 }
+        if lineText.hasPrefix("##### ") { return 5 }
+        if lineText.hasPrefix("#### ") { return 4 }
+        if lineText.hasPrefix("### ") { return 3 }
+        if lineText.hasPrefix("## ") { return 2 }
+        if lineText.hasPrefix("# ") { return 1 }
+        return nil
+    }
+    
+    private func determineSmartHeadingLevel() -> Int {
+        guard let range = selectedRange else { return 1 }
+        let fullText = document.text as NSString
+        let location = range.location
+        guard location > 0 && fullText.length > 0 else { return 1 }
+        
+        let precedingText = fullText.substring(to: min(location, fullText.length))
+        let lines = precedingText.components(separatedBy: .newlines)
+        
+        for line in lines.reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("###### ") {
+                return 6
+            } else if trimmed.hasPrefix("##### ") {
+                return 5
+            } else if trimmed.hasPrefix("#### ") {
+                return 4
+            } else if trimmed.hasPrefix("### ") {
+                return 3
+            } else if trimmed.hasPrefix("## ") {
+                return 2
+            } else if trimmed.hasPrefix("# ") {
+                return 2
+            }
+        }
+        return 1
+    }
+    
+    private func determineBubbleMenuContext() -> BubbleMenuContext {
+        if determineActiveCodeFormat() != nil || isSelectionInsideCodeBlock().inside {
+            return .codeBlock
+        }
+        
+        guard let range = selectedRange else { return .standard }
+        let fullText = document.text
+        let lineRange = (fullText as NSString).lineRange(for: range)
+        guard let fullLineRange = Range(lineRange, in: fullText) else { return .standard }
+        let lineText = String(fullText[fullLineRange]).trimmingCharacters(in: .whitespaces)
+        
+        if lineText.hasPrefix("|") || lineText.hasSuffix("|") || lineText.contains(" | ") {
+            return .tableCell
+        }
+        
+        if lineText.hasPrefix("#") {
+            let hashes = lineText.prefix(while: { $0 == "#" })
+            if hashes.count >= 1 && hashes.count <= 6 && lineText.dropFirst(hashes.count).hasPrefix(" ") {
+                return .heading
+            }
+        }
+        
+        if lineText.hasPrefix("> ") {
+            return .blockquote
+        }
+        
+        if lineText.hasPrefix("- ") || lineText.hasPrefix("* ") || lineText.hasPrefix("+ ") || lineText.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) != nil {
+            return .listItem
+        }
+        
+        return .standard
+    }
+    
+    private func applyHeadingLevel(_ level: Int) {
+        guard let range = selectedRange else { return }
+        let fullText = document.text
+        let lineRange = (fullText as NSString).lineRange(for: range)
+        guard let fullLineRange = Range(lineRange, in: fullText) else { return }
+        
+        let lineText = String(fullText[fullLineRange])
+        var cleanLine = lineText
+        var removedPrefix = ""
+        
+        if cleanLine.hasPrefix("###### ") {
+            removedPrefix = "###### "
+            cleanLine.removeFirst(7)
+        } else if cleanLine.hasPrefix("##### ") {
+            removedPrefix = "##### "
+            cleanLine.removeFirst(6)
+        } else if cleanLine.hasPrefix("#### ") {
+            removedPrefix = "#### "
+            cleanLine.removeFirst(5)
+        } else if cleanLine.hasPrefix("### ") {
+            removedPrefix = "### "
+            cleanLine.removeFirst(4)
+        } else if cleanLine.hasPrefix("## ") {
+            removedPrefix = "## "
+            cleanLine.removeFirst(3)
+        } else if cleanLine.hasPrefix("# ") {
+            removedPrefix = "# "
+            cleanLine.removeFirst(2)
+        } else if cleanLine.hasPrefix("> ") {
+            removedPrefix = "> "
+            cleanLine.removeFirst(2)
+        } else if cleanLine.hasPrefix("- ") || cleanLine.hasPrefix("* ") || cleanLine.hasPrefix("+ ") {
+            removedPrefix = String(cleanLine.prefix(2))
+            cleanLine.removeFirst(2)
+        } else if let matchRange = cleanLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
+            let matchLen = cleanLine[matchRange].count
+            removedPrefix = String(cleanLine.prefix(matchLen))
+            cleanLine.removeFirst(matchLen)
+        }
+        
+        let blockPrefix = String(repeating: "#", count: level) + " "
+        let formatted = "\(blockPrefix)\(cleanLine)"
+        let newText = fullText.replacingCharacters(in: fullLineRange, with: formatted)
+        document.text = newText
+        
+        let shift = blockPrefix.count - removedPrefix.count
+        if range.location + shift >= 0 {
+            selectedRange = NSRange(location: range.location + shift, length: range.length)
+        }
     }
     
     // Apply formatting or toggle it off if already active
@@ -404,6 +549,52 @@ struct ContentView: View {
         var newSelectedRange: NSRange? = nil
         
         switch action {
+        case .heading:
+            if determineActiveHeadingLevel() != nil {
+                // Toggle heading OFF
+                let lineRange = (fullText as NSString).lineRange(for: range)
+                guard let fullLineRange = Range(lineRange, in: fullText) else { return }
+                let lineText = String(fullText[fullLineRange])
+                var cleanLine = lineText
+                var removedPrefix = ""
+                
+                if cleanLine.hasPrefix("###### ") {
+                    removedPrefix = "###### "
+                    cleanLine.removeFirst(7)
+                } else if cleanLine.hasPrefix("##### ") {
+                    removedPrefix = "##### "
+                    cleanLine.removeFirst(6)
+                } else if cleanLine.hasPrefix("#### ") {
+                    removedPrefix = "#### "
+                    cleanLine.removeFirst(5)
+                } else if cleanLine.hasPrefix("### ") {
+                    removedPrefix = "### "
+                    cleanLine.removeFirst(4)
+                } else if cleanLine.hasPrefix("## ") {
+                    removedPrefix = "## "
+                    cleanLine.removeFirst(3)
+                } else if cleanLine.hasPrefix("# ") {
+                    removedPrefix = "# "
+                    cleanLine.removeFirst(2)
+                }
+                
+                let newText = fullText.replacingCharacters(in: fullLineRange, with: cleanLine)
+                document.text = newText
+                newSelectedRange = NSRange(location: max(0, range.location - removedPrefix.count), length: range.length)
+            } else {
+                // Toggle heading ON with smart level based on context
+                let targetLevel = determineSmartHeadingLevel()
+                applyHeadingLevel(targetLevel)
+                return
+            }
+            
+        case .h1: applyHeadingLevel(1); return
+        case .h2: applyHeadingLevel(2); return
+        case .h3: applyHeadingLevel(3); return
+        case .h4: applyHeadingLevel(4); return
+        case .h5: applyHeadingLevel(5); return
+        case .h6: applyHeadingLevel(6); return
+            
         case .bold, .italic, .strikethrough:
             let prefix: String
             let suffix: String
@@ -490,7 +681,7 @@ struct ContentView: View {
                 newSelectedRange = NSRange(location: range.location + 1, length: range.length)
             }
             
-        case .h1, .h2, .h3, .h4, .quote, .bulletList, .numberedList:
+        case .quote, .bulletList, .numberedList:
             let lineRange = (fullText as NSString).lineRange(for: range)
             guard let fullLineRange = Range(lineRange, in: fullText) else { return }
             
@@ -510,6 +701,12 @@ struct ContentView: View {
             } else if cleanLine.hasPrefix("#### ") {
                 removedPrefix = "#### "
                 cleanLine.removeFirst(5)
+            } else if cleanLine.hasPrefix("##### ") {
+                removedPrefix = "##### "
+                cleanLine.removeFirst(6)
+            } else if cleanLine.hasPrefix("###### ") {
+                removedPrefix = "###### "
+                cleanLine.removeFirst(7)
             } else if cleanLine.hasPrefix("> ") {
                 removedPrefix = "> "
                 cleanLine.removeFirst(2)
@@ -524,10 +721,6 @@ struct ContentView: View {
             
             let blockPrefix: String
             switch action {
-            case .h1: blockPrefix = "# "
-            case .h2: blockPrefix = "## "
-            case .h3: blockPrefix = "### "
-            case .h4: blockPrefix = "#### "
             case .quote: blockPrefix = "> "
             case .bulletList: blockPrefix = "- "
             case .numberedList: blockPrefix = "1. "
