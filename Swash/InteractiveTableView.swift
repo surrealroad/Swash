@@ -40,32 +40,34 @@ struct InteractiveTableView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ScrollView(.horizontal, showsIndicators: true) {
-                // Main Table Container
-                VStack(spacing: 0) {
-                    // Header Row
-                    headerView
-                    
-                    Divider()
-                        .background(Color.secondary.opacity(0.3))
-
-                    // Data Rows
-                    ForEach(0..<rows.count, id: \.self) { rowIndex in
-                        rowView(for: rowIndex)
+        GeometryReader { geometry in
+            VStack(alignment: .leading, spacing: 6) {
+                ScrollView(.horizontal, showsIndicators: true) {
+                    // Main Table Container
+                    VStack(spacing: 0) {
+                        // Header Row
+                        headerView
                         
-                        if rowIndex < rows.count - 1 {
-                            Divider()
-                                .background(Color.secondary.opacity(0.15))
+                        Divider()
+                            .background(Color.secondary.opacity(0.3))
+
+                        // Data Rows
+                        ForEach(0..<rows.count, id: \.self) { rowIndex in
+                            rowView(for: rowIndex)
+                            
+                            if rowIndex < rows.count - 1 {
+                                Divider()
+                                    .background(Color.secondary.opacity(0.15))
+                            }
                         }
                     }
+                    .frame(minWidth: max(300, geometry.size.width), maxWidth: .infinity)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                    )
+                    .cornerRadius(6)
                 }
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                )
-                .cornerRadius(6)
-            }
 
             // Table Controls Footer (Visible when editable)
             if isEditable {
@@ -115,6 +117,7 @@ struct InteractiveTableView: View {
             alignments = newData.alignments
             rows = newData.rows
         }
+        }
     }
 
     // MARK: - Header View
@@ -139,8 +142,8 @@ struct InteractiveTableView: View {
                                 Button("Delete Column", role: .destructive) { deleteColumn(at: colIndex) }
                             }
                         } label: {
-                            Image(systemName: alignmentIcon(for: alignment))
-                                .font(.system(size: 9))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
                                 .foregroundColor(.secondary)
                         }
                         .menuStyle(.borderlessButton)
@@ -383,17 +386,137 @@ struct CellTextField: View {
     var onPrevCell: () -> Void
 
     var body: some View {
-        SwashTextView(
+        CellTextView(
             text: $text,
-            selectedRange: .constant(nil),
-            selectionRect: .constant(nil),
-            isStyled: true,
             flavor: flavor,
             onCommit: onCommit,
             onNextCell: onNextCell,
             onPrevCell: onPrevCell
         )
-        .frame(minHeight: 22)
+        .frame(minHeight: 20)
+    }
+}
+
+// MARK: - CellTextView with Live Inline Markdown Formatting
+struct CellTextView: NSViewRepresentable {
+    @Binding var text: String
+    var flavor: MarkdownFlavor
+    var onCommit: () -> Void
+    var onNextCell: () -> Void
+    var onPrevCell: () -> Void
+
+    func makeNSView(context: Context) -> NSTextView {
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        
+        let textContainer = NSTextContainer(containerSize: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = true
+        textContainer.heightTracksTextView = false
+        textContainer.lineFragmentPadding = 0
+        layoutManager.addTextContainer(textContainer)
+        
+        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        textView.drawsBackground = false
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+        textView.textColor = NSColor.textColor
+        textView.textContainerInset = NSSize(width: 0, height: 0)
+        textView.focusRingType = .none
+        textView.delegate = context.coordinator
+        
+        textView.string = text
+        context.coordinator.highlightCellText(in: textView)
+        
+        DispatchQueue.main.async {
+            textView.window?.makeFirstResponder(textView)
+        }
+        return textView
+    }
+
+    func updateNSView(_ textView: NSTextView, context: Context) {
+        if textView.string != text {
+            textView.string = text
+            context.coordinator.highlightCellText(in: textView)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: CellTextView
+
+        init(_ parent: CellTextView) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+            highlightCellText(in: textView)
+        }
+
+        func highlightCellText(in textView: NSTextView) {
+            guard let textStorage = textView.textStorage else { return }
+            let fullRange = NSRange(location: 0, length: textStorage.length)
+            guard fullRange.length > 0 else { return }
+            
+            textStorage.beginEditing()
+            textStorage.setAttributes([
+                .font: NSFont.systemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: NSColor.textColor
+            ], range: fullRange)
+            
+            // Inline code pills
+            let codePattern = "`([^`]+)`"
+            if let codeRegex = try? NSRegularExpression(pattern: codePattern, options: []) {
+                let matches = codeRegex.matches(in: textView.string, options: [], range: fullRange)
+                for match in matches {
+                    textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), range: match.range)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: match.range)
+                    textStorage.addAttribute(.backgroundColor, value: NSColor.textColor.withAlphaComponent(0.06), range: match.range)
+                }
+            }
+            
+            // Bold
+            let boldPattern = "\\*\\*([^*]+)\\*\\*"
+            if let boldRegex = try? NSRegularExpression(pattern: boldPattern, options: []) {
+                let matches = boldRegex.matches(in: textView.string, options: [], range: fullRange)
+                for match in matches {
+                    textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 13, weight: .bold), range: match.range)
+                }
+            }
+            
+            // Links
+            let linkPattern = "\\[([^\\]]+)\\]\\(([^\\)]+)\\)"
+            if let linkRegex = try? NSRegularExpression(pattern: linkPattern, options: []) {
+                let matches = linkRegex.matches(in: textView.string, options: [], range: fullRange)
+                for match in matches {
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: match.range)
+                    textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
+                }
+            }
+            
+            textStorage.endEditing()
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                parent.onCommit()
+                return true
+            } else if commandSelector == #selector(NSResponder.insertTab(_:)) {
+                parent.onNextCell()
+                return true
+            } else if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+                parent.onPrevCell()
+                return true
+            }
+            return false
+        }
     }
 }
 
@@ -401,7 +524,20 @@ struct CellTextField: View {
 final class TableHostingView<Content: View>: NSHostingView<Content> {
     override func scrollWheel(with event: NSEvent) {
         if abs(event.deltaY) > abs(event.deltaX) {
-            self.nextResponder?.scrollWheel(with: event)
+            var current: NSView? = self.superview
+            var parentScrollView: NSScrollView? = nil
+            while current != nil {
+                if let sv = current as? NSScrollView, sv !== self {
+                    parentScrollView = sv
+                    break
+                }
+                current = current?.superview
+            }
+            if let sv = parentScrollView {
+                sv.scrollWheel(with: event)
+            } else {
+                self.nextResponder?.scrollWheel(with: event)
+            }
         } else {
             super.scrollWheel(with: event)
         }
