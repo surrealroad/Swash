@@ -69,6 +69,7 @@ jobs:
               CODE_SIGN_STYLE="Manual" \
               CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
               OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
+              OTHER_CODE_SIGN_FLAGS="--options runtime --keychain $KEYCHAIN_PATH" \
               MARKETING_VERSION="$VERSION" \
               CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
           else
@@ -110,18 +111,21 @@ jobs:
             codesign -dv --verbose=4 Swash-macOS.dmg
           fi
 
-      - name: Notarize & Staple (Optional)
+      - name: Notarize & Staple
         env:
           APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
           PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
           TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
         run: |
           if [ -z "$APPLE_ID" ] || [ -z "$PASSWORD" ] || [ -z "$TEAM_ID" ]; then
-            echo "Notarization secrets omitted. Skipping notarization step."
+            echo "Notarization secrets (NOTARIZATION_APPLE_ID, NOTARIZATION_PASSWORD, NOTARIZATION_TEAM_ID) omitted."
+            echo "Note: Without Apple Notarization, macOS Gatekeeper will display 'Apple could not verify...' warning."
             exit 0
           fi
 
-          echo "Submitting Swash-macOS.dmg for notarization..."
+          APP_PATH="build/Build/Products/Release/Swash.app"
+
+          echo "Submitting Swash-macOS.dmg for Apple Notarization..."
           xcrun notarytool submit Swash-macOS.dmg \
             --apple-id "$APPLE_ID" \
             --password "$PASSWORD" \
@@ -130,6 +134,16 @@ jobs:
 
           echo "Stapling notarization ticket to Swash-macOS.dmg..."
           xcrun staple Swash-macOS.dmg
+
+          echo "Stapling notarization ticket to Swash.app..."
+          xcrun staple "$APP_PATH" || true
+
+          # Update Swash-macOS.zip with the stapled app bundle
+          echo "Updating Swash-macOS.zip with stapled Swash.app..."
+          rm -f "$GITHUB_WORKSPACE/Swash-macOS.zip"
+          cd build/Build/Products/Release
+          zip -r "$GITHUB_WORKSPACE/Swash-macOS.zip" Swash.app
+          cd "$GITHUB_WORKSPACE"
 
       - name: Create GitHub Release
         id: create_release
