@@ -432,10 +432,9 @@ struct CellTextField: NSViewRepresentable {
     }
 }
 
-// MARK: - NSTextAttachment & Provider for NSTextView Formatted Mode
-final class TableTextAttachment: NSTextAttachment {
-    static let fileTypeIdentifier = "com.surrealroad.swash.table"
-    
+// MARK: - NSTextAttachment & Cell for TextKit 1 NSTextView Formatted Mode
+final class TableAttachmentCell: NSTextAttachmentCell {
+    var hostingView: NSHostingView<InteractiveTableView>?
     var tableData: MarkdownTableData
     var flavor: MarkdownFlavor
     var onUpdate: ((MarkdownTableData) -> Void)?
@@ -444,43 +443,76 @@ final class TableTextAttachment: NSTextAttachment {
         self.tableData = tableData
         self.flavor = flavor
         self.onUpdate = onUpdate
-        super.init(data: nil, ofType: Self.fileTypeIdentifier)
-        self.fileType = Self.fileTypeIdentifier
+        super.init(textCell: "")
     }
     
-    required init?(coder: NSCoder) {
+    required init(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
     
-    override func attachmentBounds(for textContainer: NSTextContainer?, proposedLineFragment lineFrag: NSRect, glyphPosition position: CGPoint, characterIndex charIndex: Int) -> NSRect {
+    nonisolated override func cellFrame(for textContainer: NSTextContainer, proposedLineFragment lineFrag: NSRect, glyphPosition position: CGPoint, characterIndex charIndex: Int) -> NSRect {
         let width = lineFrag.width > 0 ? lineFrag.width : 500
         let rowCount = tableData.rows.count + 1
         let estimatedHeight = CGFloat(max(100, rowCount * 36 + 60))
         return NSRect(x: 0, y: 0, width: width, height: estimatedHeight)
     }
-}
-
-final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
-    override func loadView() {
-        guard let attachment = textAttachment as? TableTextAttachment else { return }
+    
+    nonisolated override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
+        guard let parentView = controlView as? NSTextView else { return }
         
-        let container = NSHostingView(rootView: InteractiveTableView(
-            tableData: attachment.tableData,
-            flavor: attachment.flavor,
-            isEditable: true,
-            onChange: { [weak attachment] newTableData in
-                DispatchQueue.main.async {
-                    attachment?.onUpdate?(newTableData)
+        DispatchQueue.main.async { [weak self, weak parentView] in
+            guard let self = self, let parentView = parentView else { return }
+            
+            if self.hostingView == nil {
+                let hv = NSHostingView(rootView: InteractiveTableView(
+                    tableData: self.tableData,
+                    flavor: self.flavor,
+                    isEditable: true,
+                    onChange: { [weak self] newTableData in
+                        DispatchQueue.main.async {
+                            self?.tableData = newTableData
+                            self?.onUpdate?(newTableData)
+                        }
+                    }
+                ))
+                self.hostingView = hv
+                parentView.addSubview(hv)
+            }
+            
+            if let hv = self.hostingView {
+                if hv.superview != parentView {
+                    parentView.addSubview(hv)
+                }
+                if hv.frame != cellFrame {
+                    hv.frame = cellFrame
                 }
             }
-        ))
-        container.autoresizingMask = [.width]
-        self.view = container
+        }
+    }
+}
+
+final class TableTextAttachment: NSTextAttachment {
+    static let fileTypeIdentifier = "com.surrealroad.swash.table"
+    
+    var tableData: MarkdownTableData
+    var flavor: MarkdownFlavor
+    var onUpdate: ((MarkdownTableData) -> Void)?
+    var cell: TableAttachmentCell
+    
+    init(tableData: MarkdownTableData, flavor: MarkdownFlavor, onUpdate: ((MarkdownTableData) -> Void)?) {
+        self.tableData = tableData
+        self.flavor = flavor
+        self.onUpdate = onUpdate
+        
+        let cell = TableAttachmentCell(tableData: tableData, flavor: flavor, onUpdate: onUpdate)
+        self.cell = cell
+        
+        super.init(data: nil, ofType: Self.fileTypeIdentifier)
+        self.attachmentCell = cell
     }
     
-    override var tracksTextAttachmentViewBounds: Bool {
-        get { return true }
-        set { }
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
 

@@ -470,8 +470,6 @@ struct SwashTextView: NSViewRepresentable {
                 }
             }
             
-            NSTextAttachment.registerViewProviderClass(TableAttachmentViewProvider.self, forFileType: TableTextAttachment.fileTypeIdentifier)
-            
             struct PendingTable {
                 let range: NSRange
                 let headers: [String]
