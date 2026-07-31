@@ -162,9 +162,9 @@ jobs:
 
           if [ -n "$SPARKLE_PRIVATE_KEY" ]; then
             echo "Generating and signing appcast.xml with SPARKLE_PRIVATE_KEY..."
-            ./sparkle_tools/bin/generate_appcast \
+            echo "$SPARKLE_PRIVATE_KEY" | ./sparkle_tools/bin/generate_appcast \
+              --ed-key-file - \
               --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
-              -s "$SPARKLE_PRIVATE_KEY" \
               sparkle_release/
           else
             echo "No SPARKLE_PRIVATE_KEY provided. Generating unsigned appcast.xml..."
