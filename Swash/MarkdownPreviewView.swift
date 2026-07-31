@@ -120,8 +120,13 @@ struct MarkdownPreviewView: View {
             }
             .padding(.vertical, 1)
             
-        case .table(let headers, let rows):
-            TableView(headers: headers, rows: rows, flavor: flavor)
+        case .table(let headers, let alignments, let rows):
+            InteractiveTableView(
+                tableData: MarkdownTableData(headers: headers, alignments: alignments, rows: rows),
+                flavor: flavor,
+                isEditable: false
+            )
+            .padding(.vertical, 6)
             
         case .horizontalRule:
             Divider()

@@ -550,6 +550,39 @@ struct SwashTextView: NSViewRepresentable {
                         
                         // SwashLayoutManager draws a non-selectable "1." in the gutter margin using standard text color
                         textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: numberDotStr, indent: indent), range: lineRange)
+                    } else if trimmedLine.contains("|") && (trimmedLine.hasPrefix("|") || trimmedLine.hasSuffix("|") || trimmedLine.contains("-|-") || trimmedLine.contains("---|")) {
+                        // Table line styling
+                        let isDelimiter = trimmedLine.contains("-") && trimmedLine.contains("|") && !trimmedLine.contains(where: { $0.isLetter || $0.isNumber })
+                        
+                        let tableBlock = NSTextBlock()
+                        tableBlock.backgroundColor = NSColor.textColor.withAlphaComponent(0.02)
+                        tableBlock.setValue(100, type: .percentageValueType, for: .width)
+                        tableBlock.setWidth(6, type: .absoluteValueType, for: .padding)
+                        
+                        let para = NSMutableParagraphStyle()
+                        para.textBlocks = [tableBlock]
+                        para.lineSpacing = 3
+                        textStorage.addAttribute(.paragraphStyle, value: para, range: lineRange)
+                        
+                        if isDelimiter {
+                            textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular), range: lineRange)
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor.withAlphaComponent(0.7), range: lineRange)
+                        } else {
+                            textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 13.5, weight: .regular), range: lineRange)
+                            
+                            // Highlight pipe characters
+                            let nsLine = line as NSString
+                            var pipeSearchRange = NSRange(location: 0, length: nsLine.length)
+                            while pipeSearchRange.location < nsLine.length {
+                                let r = nsLine.range(of: "|", options: [], range: pipeSearchRange)
+                                if r.location == NSNotFound { break }
+                                let globalPipeRange = NSRange(location: currentOffset + r.location, length: 1)
+                                textStorage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: globalPipeRange)
+                                textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .bold), range: globalPipeRange)
+                                pipeSearchRange.location = r.location + r.length
+                                pipeSearchRange.length = nsLine.length - pipeSearchRange.location
+                            }
+                        }
                     }
                 }
                 

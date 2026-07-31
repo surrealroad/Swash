@@ -7,13 +7,26 @@
 
 import Foundation
 
+enum TableAlignment: String, Codable, Equatable, CaseIterable {
+    case left
+    case center
+    case right
+    case defaultAlignment
+}
+
+struct MarkdownTableData: Equatable {
+    var headers: [String]
+    var alignments: [TableAlignment]
+    var rows: [[String]]
+}
+
 enum BlockType: Equatable {
     case heading(level: Int)
     case blockquote
     case codeBlock(code: String, language: String?)
     case list(isOrdered: Bool, indentLevel: Int)
     case taskList(isChecked: Bool, indentLevel: Int)
-    case table(headers: [String], rows: [[String]])
+    case table(headers: [String], alignments: [TableAlignment], rows: [[String]])
     case horizontalRule
     case paragraph
 }
@@ -29,6 +42,118 @@ struct MarkdownBlock: Identifiable, Equatable {
 }
 
 struct MarkdownParser {
+    static func parseTableCells(_ line: String) -> [String] {
+        var trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("|") {
+            trimmed.removeFirst()
+        }
+        if trimmed.hasSuffix("|") && !trimmed.hasSuffix("\\|") {
+            trimmed.removeLast()
+        }
+        
+        var cells: [String] = []
+        var currentCell = ""
+        var isEscaped = false
+        
+        for char in trimmed {
+            if isEscaped {
+                currentCell.append(char)
+                isEscaped = false
+            } else if char == "\\" {
+                isEscaped = true
+            } else if char == "|" {
+                cells.append(currentCell.trimmingCharacters(in: .whitespaces))
+                currentCell = ""
+            } else {
+                currentCell.append(char)
+            }
+        }
+        cells.append(currentCell.trimmingCharacters(in: .whitespaces))
+        return cells
+    }
+    
+    static func parseAlignments(_ line: String) -> [TableAlignment] {
+        let cells = parseTableCells(line)
+        return cells.map { cell in
+            let trimmed = cell.trimmingCharacters(in: .whitespaces)
+            let hasLeftColon = trimmed.hasPrefix(":")
+            let hasRightColon = trimmed.hasSuffix(":")
+            if hasLeftColon && hasRightColon {
+                return .center
+            } else if hasRightColon {
+                return .right
+            } else if hasLeftColon {
+                return .left
+            } else {
+                return .defaultAlignment
+            }
+        }
+    }
+    
+    static func tableToMarkdown(headers: [String], alignments: [TableAlignment], rows: [[String]]) -> String {
+        guard !headers.isEmpty else { return "" }
+        
+        let columnCount = headers.count
+        var colWidths = [Int](repeating: 3, count: columnCount)
+        
+        for (i, header) in headers.enumerated() {
+            colWidths[i] = max(colWidths[i], header.utf16.count)
+        }
+        
+        for row in rows {
+            for i in 0..<columnCount {
+                let cellText = i < row.count ? row[i] : ""
+                colWidths[i] = max(colWidths[i], cellText.utf16.count)
+            }
+        }
+        
+        // Format Header
+        var headerCells: [String] = []
+        for i in 0..<columnCount {
+            let cellText = headers[i]
+            let width = colWidths[i]
+            let padded = cellText.padding(toLength: width, withPad: " ", startingAt: 0)
+            headerCells.append(padded)
+        }
+        let headerLine = "| " + headerCells.joined(separator: " | ") + " |"
+        
+        // Format Delimiter
+        var delimiterCells: [String] = []
+        for i in 0..<columnCount {
+            let align = i < alignments.count ? alignments[i] : .defaultAlignment
+            let width = colWidths[i]
+            let dashes = String(repeating: "-", count: max(3, width))
+            switch align {
+            case .left:
+                delimiterCells.append(":" + String(dashes.dropFirst()))
+            case .center:
+                delimiterCells.append(":" + String(dashes.dropFirst().dropLast()) + ":")
+            case .right:
+                delimiterCells.append(String(dashes.dropLast()) + ":")
+            case .defaultAlignment:
+                delimiterCells.append(dashes)
+            }
+        }
+        let delimiterLine = "| " + delimiterCells.joined(separator: " | ") + " |"
+        
+        // Format Rows
+        var rowLines: [String] = []
+        for row in rows {
+            var rowCells: [String] = []
+            for i in 0..<columnCount {
+                let cellText = i < row.count ? row[i] : ""
+                let width = colWidths[i]
+                let padded = cellText.padding(toLength: width, withPad: " ", startingAt: 0)
+                rowCells.append(padded)
+            }
+            rowLines.append("| " + rowCells.joined(separator: " | ") + " |")
+        }
+        
+        var lines = [headerLine, delimiterLine]
+        lines.append(contentsOf: rowLines)
+        return lines.joined(separator: "\n")
+    }
+
     static func parse(_ text: String) -> [MarkdownBlock] {
         let lines = text.components(separatedBy: .newlines)
         var blocks: [MarkdownBlock] = []
@@ -77,30 +202,35 @@ struct MarkdownParser {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             
             // Table Detection
-            if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") && lineIndex + 1 < lines.count {
+            let isTableStart = trimmed.contains("|") && lineIndex + 1 < lines.count
+            if isTableStart {
                 let nextTrimmed = lines[lineIndex + 1].trimmingCharacters(in: .whitespaces)
-                if nextTrimmed.hasPrefix("|") && nextTrimmed.contains("-") {
-                    flushParagraph()
+                let isDelimiterLine = nextTrimmed.contains("|") && nextTrimmed.contains("-")
+                if isDelimiterLine {
+                    let headers = parseTableCells(trimmed)
+                    let alignments = parseAlignments(nextTrimmed)
                     
-                    let headers = trimmed.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }
-                    var rows: [[String]] = []
-                    
-                    // Skip header and separator line
-                    lineIndex += 2
-                    
-                    while lineIndex < lines.count {
-                        let rowLine = lines[lineIndex].trimmingCharacters(in: .whitespaces)
-                        if rowLine.hasPrefix("|") && rowLine.hasSuffix("|") {
-                            let cells = rowLine.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }
-                            rows.append(cells)
-                            lineIndex += 1
-                        } else {
-                            break
+                    if !headers.isEmpty {
+                        flushParagraph()
+                        var rows: [[String]] = []
+                        
+                        // Skip header and separator line
+                        lineIndex += 2
+                        
+                        while lineIndex < lines.count {
+                            let rowLine = lines[lineIndex].trimmingCharacters(in: .whitespaces)
+                            if rowLine.contains("|") && !rowLine.isEmpty {
+                                let cells = parseTableCells(rowLine)
+                                rows.append(cells)
+                                lineIndex += 1
+                            } else {
+                                break
+                            }
                         }
+                        
+                        blocks.append(MarkdownBlock(type: .table(headers: headers, alignments: alignments, rows: rows), text: ""))
+                        continue
                     }
-                    
-                    blocks.append(MarkdownBlock(type: .table(headers: headers, rows: rows), text: ""))
-                    continue
                 }
             }
             

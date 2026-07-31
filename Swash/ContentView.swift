@@ -548,6 +548,15 @@ struct ContentView: View {
                 let shift = blockPrefix.count - removedPrefix.count
                 newSelectedRange = NSRange(location: range.location + shift, length: range.length)
             }
+        case .table:
+            let tableTemplate = """
+            | Header 1 | Header 2 |
+            | :--- | :--- |
+            | Cell 1 | Cell 2 |
+            """
+            let newText = fullText.replacingCharacters(in: textRange, with: tableTemplate)
+            document.text = newText
+            newSelectedRange = NSRange(location: range.location, length: tableTemplate.utf16.count)
         }
         
         if let newRange = newSelectedRange, newRange.location >= 0 {

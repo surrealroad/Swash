@@ -19,6 +19,7 @@ enum FormatAction: Hashable {
     case quote
     case bulletList
     case numberedList
+    case table
 }
 
 enum CodeFormat: Hashable, CaseIterable {
@@ -173,6 +174,7 @@ struct BubbleMenuView: View {
             
             BubbleButton(systemImage: "list.bullet", textLabel: nil, tooltip: "Bullet List", isActive: activeFormats.contains(.bulletList), action: { onAction(.bulletList) })
             BubbleButton(systemImage: "list.number", textLabel: nil, tooltip: "Numbered List", isActive: activeFormats.contains(.numberedList), action: { onAction(.numberedList) })
+            BubbleButton(systemImage: "tablecells", textLabel: nil, tooltip: "Table", isActive: activeFormats.contains(.table), action: { onAction(.table) })
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
