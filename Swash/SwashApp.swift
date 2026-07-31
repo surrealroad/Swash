@@ -46,6 +46,7 @@ struct SwashApp: App {
             ContentView(document: file.$document)
         }
         .windowToolbarStyle(.expanded)
+        .defaultSize(width: 800, height: 750)
         .commands {
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates...") {

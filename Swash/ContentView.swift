@@ -115,7 +115,7 @@ struct ContentView: View {
             // Premium Bottom Status Bar
             statusView
         }
-        .frame(minWidth: 600, minHeight: 400)
+        .frame(minWidth: 600, idealWidth: 800, minHeight: 600, idealHeight: 750)
         .toolbar(id: "mainToolbar") {
             ToolbarItem(id: "flexibleSpace", placement: .automatic) {
                 Spacer()
