@@ -72,19 +72,31 @@ open build/Build/Products/Release/Swash.app
 
 ---
 
-## 🤖 Automated Distribution
+## 🤖 Automated Distribution & Code Signing
 
 Swash features a modern, automated release pipeline powered by GitHub Actions. Every push to the `main` branch automatically:
 
-1.  **Generates an ad-hoc signed build** targeting the latest Apple Silicon and Intel macOS hardware.
-2.  **Packages the app** into:
-    *   A premium, installer-ready **`.dmg` Disk Image**
-    *   A clean, lightweight **`.zip` Archive**
-3.  **Generates a changelog** detailing all commits and contributions since the previous release.
-4.  **Publishes a GitHub Release** with the assets attached and ready to download instantly!
+1.  **Imports Apple Code Signing Certificates** securely from GitHub Secrets (if configured) or falls back gracefully to ad-hoc signatures.
+2.  **Compiles and Code Signs** the native `.app` bundle, `.zip` archive, and `.dmg` disk image binaries targeting Apple Silicon and Intel Macs.
+3.  **Packages the app** into:
+    *   A signed, installer-ready **`.dmg` Disk Image**
+    *   A signed **`.zip` Archive**
+4.  **Generates a changelog** detailing all commits and contributions since the previous release.
+5.  **Publishes a GitHub Release** with the assets attached and ready to download instantly!
+
+> [!TIP]
+> **Code Signing Setup**: To sign builds with your Apple Developer Certificate:
+> 1. Export your Apple Developer Certificate from Keychain Access as a `.p12` file.
+> 2. Convert it to Base64 (`base64 -i Certificate.p12 | pbcopy`).
+> 3. Add repository secrets in **Settings > Secrets and variables > Actions**:
+>    - `MACOS_CERTIFICATE`: Base64 string of your `.p12` certificate.
+>    - `MACOS_CERTIFICATE_PWD`: Password for the `.p12` file (leave empty if no password was set).
+>    - `KEYCHAIN_PASSWORD`: Any temporary password for the CI keychain.
+>    - `CODE_SIGN_IDENTITY` *(Optional)*: Name of your certificate (auto-detected if omitted).
 
 > [!TIP]
 > Visit the [Releases](https://github.com/surrealroad/Swash/releases) section of the repository to grab the latest built application installer (`.dmg`) instantly.
+
 
 ---
 
