@@ -67,6 +67,7 @@ struct ContentView: View {
     @State private var viewMode: ViewMode = .preview
     @State private var selectedRange: NSRange? = nil
     @State private var selectionRect: NSRect? = nil
+    @State private var cellSelectionRect: NSRect? = nil
     @State private var bubbleMenuSize: CGSize = CGSize(width: 414, height: 40)
 
     var body: some View {
@@ -176,13 +177,20 @@ struct ContentView: View {
                 .help("Select Markdown format scheme (converting raw text format in place)")
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .cellSelectionDidChange)) { notification in
+            if let userInfo = notification.userInfo, let rect = userInfo["rect"] as? NSRect {
+                self.cellSelectionRect = rect
+            } else {
+                self.cellSelectionRect = nil
+            }
+        }
     }
     
     // Bubble menu overlay positioned relatively in local coordinates
     @ViewBuilder
     private var bubbleMenuOverlay: some View {
         GeometryReader { geometry in
-            if let rect = selectionRect {
+            if let rect = selectionRect ?? cellSelectionRect {
                 let activeCodeFormat = determineActiveCodeFormat()
                 let activeHeadingLevel = determineActiveHeadingLevel()
                 let bubbleContext = determineBubbleMenuContext()

@@ -196,19 +196,7 @@ struct SwashTextView: NSViewRepresentable {
         init(_ parent: SwashTextView) {
             self.parent = parent
             super.init()
-            NotificationCenter.default.addObserver(self, selector: #selector(handleCellSelectionChange(_:)), name: .cellSelectionDidChange, object: nil)
             logDebug("[SwashTextView] Coordinator.init called")
-        }
-        
-        @objc func handleCellSelectionChange(_ notification: Notification) {
-            if let userInfo = notification.userInfo,
-               let range = userInfo["range"] as? NSRange,
-               let rect = userInfo["rect"] as? NSRect {
-                self.parent.selectedRange = range
-                self.parent.selectionRect = rect
-            } else {
-                self.parent.selectionRect = nil
-            }
         }
         
         func buildRawMarkdown(from textStorage: NSTextStorage) -> String {
