@@ -157,7 +157,7 @@ struct SwashTextView: NSViewRepresentable {
         
         // Update selection if needed, preserving scroll position to prevent alt-tab jumping
         logDebug("[SwashTextView] updateNSView - selectedRange: \(String(describing: selectedRange)), textView.selectedRange(): \(textView.selectedRange())")
-        if let range = selectedRange, textView.selectedRange() != range {
+        if isFirstResponder, let range = selectedRange, textView.selectedRange() != range {
             logDebug("[SwashTextView] updateNSView - Setting selection to: \(range)")
             let savedOrigin = textView.enclosingScrollView?.contentView.bounds.origin
             textView.setSelectedRange(range)

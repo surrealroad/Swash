@@ -507,6 +507,20 @@ struct CellTextView: NSViewRepresentable {
                 }
             }
             
+            // Italics: *text* or _text_
+            let italicPattern = "(?<!\\*)\\*([^*]+)\\*(?!\\*)|(?<!_)_([^_]+)_(?!_)"
+            if let italicRegex = try? NSRegularExpression(pattern: italicPattern, options: []) {
+                let matches = italicRegex.matches(in: textView.string, options: [], range: fullRange)
+                for match in matches {
+                    let contentRange = match.range(at: 1).location != NSNotFound ? match.range(at: 1) : match.range(at: 2)
+                    let italicFont = NSFontManager.shared.convert(NSFont.systemFont(ofSize: 13, weight: .regular), toHaveTrait: .italicFontMask)
+                    textStorage.addAttribute(.font, value: italicFont, range: contentRange)
+                    
+                    hideRange(NSRange(location: match.range.location, length: 1))
+                    hideRange(NSRange(location: match.range.location + match.range.length - 1, length: 1))
+                }
+            }
+            
             // Links: [text](url)
             let linkPattern = "\\[([^\\]]+)\\]\\(([^\\)]+)\\)"
             if let linkRegex = try? NSRegularExpression(pattern: linkPattern, options: []) {

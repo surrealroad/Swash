@@ -167,6 +167,8 @@ struct InlineMarkdownText: View {
             for run in attributedString.runs {
                 if run.link != nil {
                     attributedString[run.range].underlineStyle = .single
+                    attributedString[run.range].foregroundColor = .accentColor
+                    attributedString[run.range].link = nil
                 }
             }
             return attributedString
