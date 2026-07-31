@@ -44,6 +44,7 @@ struct SwashApp: App {
         DocumentGroup(newDocument: SwashDocument()) { file in
             ContentView(document: file.$document)
         }
+        .windowToolbarStyle(.expanded)
         
         Settings {
             SettingsView()
