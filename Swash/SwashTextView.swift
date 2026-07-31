@@ -141,10 +141,13 @@ struct SwashTextView: NSViewRepresentable {
         logDebug("[SwashTextView] updateNSView - needsHighlight: \(needsHighlight), lastStyledText is Nil: \(context.coordinator.lastStyledText == nil)")
         
         if needsHighlight {
-            if isStyled {
-                context.coordinator.highlightMarkdown(in: textView)
-            } else {
-                context.coordinator.applyPlainStyle(in: textView)
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView = textView else { return }
+                if context.coordinator.parent.isStyled {
+                    context.coordinator.highlightMarkdown(in: textView)
+                } else {
+                    context.coordinator.applyPlainStyle(in: textView)
+                }
             }
         }
         
@@ -162,7 +165,8 @@ struct SwashTextView: NSViewRepresentable {
         Coordinator(self)
     }
     
-    class Coordinator: NSObject, NSTextViewDelegate {
+    // MARK: - Coordinator
+    final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: SwashTextView
         var isUpdatingFromSwiftUI = false
         var isHighlighting = false
@@ -198,7 +202,10 @@ struct SwashTextView: NSViewRepresentable {
             if !isUpdatingFromSwiftUI {
                 if parent.isStyled, let textStorage = textView.textStorage {
                     parent.text = buildRawMarkdown(from: textStorage)
-                    highlightMarkdown(in: textView)
+                    DispatchQueue.main.async { [weak self, weak textView] in
+                        guard let self = self, let textView = textView else { return }
+                        self.highlightMarkdown(in: textView)
+                    }
                 } else {
                     parent.text = textView.string
                     applyPlainStyle(in: textView)
