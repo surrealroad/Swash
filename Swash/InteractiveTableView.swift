@@ -451,6 +451,13 @@ final class TableTextAttachment: NSTextAttachment {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+    
+    override func attachmentBounds(for textContainer: NSTextContainer?, proposedLineFragment lineFrag: NSRect, glyphPosition position: CGPoint, characterIndex charIndex: Int) -> NSRect {
+        let width = lineFrag.width > 0 ? lineFrag.width : 500
+        let rowCount = tableData.rows.count + 1
+        let estimatedHeight = CGFloat(max(100, rowCount * 36 + 60))
+        return NSRect(x: 0, y: 0, width: width, height: estimatedHeight)
+    }
 }
 
 final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
@@ -462,15 +469,17 @@ final class TableAttachmentViewProvider: NSTextAttachmentViewProvider {
             flavor: attachment.flavor,
             isEditable: true,
             onChange: { [weak attachment] newTableData in
-                attachment?.onUpdate?(newTableData)
+                DispatchQueue.main.async {
+                    attachment?.onUpdate?(newTableData)
+                }
             }
         ))
-        container.autoresizingMask = [.width]
+        container.sizingOptions = []
         self.view = container
     }
     
     override var tracksTextAttachmentViewBounds: Bool {
-        get { return true }
+        get { return false }
         set { }
     }
 }
