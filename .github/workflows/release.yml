@@ -32,7 +32,7 @@ jobs:
           EXPLICIT_IDENTITY: ${{ secrets.CODE_SIGN_IDENTITY }}
         run: |
           if [ -z "$MACOS_CERTIFICATE" ]; then
-            echo "No MACOS_CERTIFICATE secret provided. Skipping certificate import."
+            echo "No MACOS_CERTIFICATE secret provided. Reverting to default ad-hoc workflow."
             exit 0
           fi
 
@@ -68,12 +68,11 @@ jobs:
               -derivedDataPath build \
               CODE_SIGN_STYLE="Manual" \
               CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
-              OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
               OTHER_CODE_SIGN_FLAGS="--options runtime --keychain $KEYCHAIN_PATH" \
               MARKETING_VERSION="$VERSION" \
               CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
           else
-            echo "No signing identity found. Falling back to ad-hoc signing."
+            echo "No MACOS_CERTIFICATE found. Falling back to default ad-hoc signing."
             xcodebuild -scheme Swash \
               -configuration Release \
               -derivedDataPath build \
@@ -86,10 +85,11 @@ jobs:
         run: |
           APP_PATH="build/Build/Products/Release/Swash.app"
 
-          # Verify App Bundle Code Signature
-          echo "Verifying Swash.app code signature..."
-          codesign --verify --verbose=4 --deep --strict "$APP_PATH" || true
-          codesign -dv --verbose=4 "$APP_PATH"
+          if [ -n "$CODE_SIGN_IDENTITY" ]; then
+            echo "Verifying Swash.app code signature..."
+            codesign --verify --verbose=4 --deep --strict "$APP_PATH" || true
+            codesign -dv --verbose=4 "$APP_PATH"
+          fi
 
           # Create ZIP archive
           cd build/Build/Products/Release
@@ -118,8 +118,7 @@ jobs:
           TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
         run: |
           if [ -z "$APPLE_ID" ] || [ -z "$PASSWORD" ] || [ -z "$TEAM_ID" ]; then
-            echo "Notarization secrets (NOTARIZATION_APPLE_ID, NOTARIZATION_PASSWORD, NOTARIZATION_TEAM_ID) omitted."
-            echo "Note: Without Apple Notarization, macOS Gatekeeper will display 'Apple could not verify...' warning."
+            echo "Notarization secrets omitted. Skipping notarization."
             exit 0
           fi
 
