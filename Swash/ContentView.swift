@@ -117,6 +117,10 @@ struct ContentView: View {
         }
         .frame(minWidth: 600, minHeight: 400)
         .toolbar(id: "mainToolbar") {
+            ToolbarItem(id: "flexibleSpace", placement: .automatic) {
+                Spacer()
+            }
+            
             ToolbarItem(id: "viewMode_edit", placement: .primaryAction) {
                 Toggle(isOn: Binding(
                     get: { viewMode == .edit },
