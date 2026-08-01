@@ -127,7 +127,8 @@ struct SwashTextView: NSViewRepresentable {
         let normalizedBinding = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         
         // Trim whitespaces and newlines for comparison to ignore trivial formatting differences
-        let textChanged = normalizedTextView.trimmingCharacters(in: .whitespacesAndNewlines) != normalizedBinding.trimmingCharacters(in: .whitespacesAndNewlines)
+        let textChanged = (context.coordinator.lastStyledText != text) &&
+                          (normalizedTextView.trimmingCharacters(in: .whitespacesAndNewlines) != normalizedBinding.trimmingCharacters(in: .whitespacesAndNewlines))
         
         let isFirstResponder = textView.window?.firstResponder == textView
         let hasSelection = textView.selectedRange().length > 0
