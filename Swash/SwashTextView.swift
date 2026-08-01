@@ -139,9 +139,11 @@ struct SwashTextView: NSViewRepresentable {
         
         var textWasUpdated = false
         if textChanged {
-            let savedOrigin = textView.enclosingScrollView?.contentView.bounds.origin
+            if let origin = textView.enclosingScrollView?.contentView.bounds.origin, origin.y > 0 {
+                context.coordinator.lastKnownScrollOrigin = origin
+            }
             textView.string = text
-            if let origin = savedOrigin, let clipView = textView.enclosingScrollView?.contentView {
+            if let origin = context.coordinator.lastKnownScrollOrigin, let clipView = textView.enclosingScrollView?.contentView {
                 clipView.scroll(to: origin)
                 textView.enclosingScrollView?.reflectScrolledClipView(clipView)
             }
@@ -196,6 +198,7 @@ struct SwashTextView: NSViewRepresentable {
         var lastIsStyled: Bool? = nil
         var lastFlavor: MarkdownFlavor? = nil
         
+        var lastKnownScrollOrigin: NSPoint? = nil
         weak var currentTextView: NSTextView? = nil
         
         init(_ parent: SwashTextView) {
@@ -472,7 +475,14 @@ struct SwashTextView: NSViewRepresentable {
             isHighlighting = true
             
             // Preserve scroll position to prevent jumps on focus loss/revert
-            let savedScrollOrigin = textView.enclosingScrollView?.contentView.bounds.origin
+            let currentScrollOrigin = textView.enclosingScrollView?.contentView.bounds.origin
+            let savedScrollOrigin: NSPoint?
+            if let origin = currentScrollOrigin, origin.y > 0 {
+                savedScrollOrigin = origin
+                lastKnownScrollOrigin = origin
+            } else {
+                savedScrollOrigin = lastKnownScrollOrigin ?? currentScrollOrigin
+            }
             
             // Clean up any old table subviews to prevent duplicate stacked views on revert or text update
             for subview in textView.subviews {
@@ -970,6 +980,12 @@ struct SwashTextView: NSViewRepresentable {
             if let origin = savedScrollOrigin, let clipView = textView.enclosingScrollView?.contentView {
                 clipView.scroll(to: origin)
                 textView.enclosingScrollView?.reflectScrolledClipView(clipView)
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak textView] in
+                    guard let clipView = textView?.enclosingScrollView?.contentView else { return }
+                    clipView.scroll(to: origin)
+                    textView?.enclosingScrollView?.reflectScrolledClipView(clipView)
+                }
             }
             
             lastStyledText = text

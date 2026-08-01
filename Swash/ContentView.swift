@@ -558,6 +558,98 @@ struct ContentView: View {
         }
     }
     
+    private func convertSelectedTextToTableMarkdown(_ text: String) -> String {
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else {
+            return """
+            | Header 1 | Header 2 |
+            | :--- | :--- |
+            | Cell 1 | Cell 2 |
+            """
+        }
+        
+        let rawLines = cleanText.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !rawLines.isEmpty else {
+            return """
+            | Header 1 | Header 2 |
+            | :--- | :--- |
+            | Cell 1 | Cell 2 |
+            """
+        }
+        
+        var parsedRows: [[String]] = []
+        for line in rawLines {
+            var cells: [String] = []
+            if line.contains("|") {
+                cells = line.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            } else if line.contains("\t") {
+                cells = line.components(separatedBy: "\t").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            } else {
+                if let regex = try? NSRegularExpression(pattern: "\\s{2,}") {
+                    let nsLine = line as NSString
+                    let matches = regex.matches(in: line, options: [], range: NSRange(location: 0, length: nsLine.length))
+                    var lastIndex = 0
+                    for match in matches {
+                        let cellRange = NSRange(location: lastIndex, length: match.range.location - lastIndex)
+                        let cellText = nsLine.substring(with: cellRange).trimmingCharacters(in: .whitespaces)
+                        if !cellText.isEmpty {
+                            cells.append(cellText)
+                        }
+                        lastIndex = match.range.location + match.range.length
+                    }
+                    if lastIndex < nsLine.length {
+                        let remaining = nsLine.substring(from: lastIndex).trimmingCharacters(in: .whitespaces)
+                        if !remaining.isEmpty {
+                            cells.append(remaining)
+                        }
+                    }
+                }
+                if cells.isEmpty {
+                    cells = [line]
+                }
+            }
+            if !cells.isEmpty {
+                parsedRows.append(cells)
+            }
+        }
+        
+        guard !parsedRows.isEmpty else {
+            return """
+            | Header 1 | Header 2 |
+            | :--- | :--- |
+            | Cell 1 | Cell 2 |
+            """
+        }
+        
+        let maxCols = max(2, parsedRows.map { $0.count }.max() ?? 2)
+        
+        var headers = parsedRows.removeFirst()
+        while headers.count < maxCols {
+            headers.append("Header \(headers.count + 1)")
+        }
+        
+        var rows: [[String]] = []
+        if parsedRows.isEmpty {
+            rows.append(Array(repeating: "", count: maxCols))
+        } else {
+            for var row in parsedRows {
+                while row.count < maxCols {
+                    row.append("")
+                }
+                rows.append(row)
+            }
+        }
+        
+        var markdownLines: [String] = []
+        markdownLines.append("| " + headers.joined(separator: " | ") + " |")
+        markdownLines.append("| " + Array(repeating: ":---", count: maxCols).joined(separator: " | ") + " |")
+        for row in rows {
+            markdownLines.append("| " + row.joined(separator: " | ") + " |")
+        }
+        
+        return markdownLines.joined(separator: "\n")
+    }
+
     // Apply formatting or toggle it off if already active
     private func applyFormatting(_ action: FormatAction) {
         guard let range = selectedRange,
@@ -771,13 +863,7 @@ struct ContentView: View {
                 cellSelectionRect = nil
                 return
             }
-            let cleanSelected = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let headerText = cleanSelected.isEmpty ? "Header 1" : cleanSelected
-            let tableTemplate = """
-            | \(headerText) | Header 2 |
-            | :--- | :--- |
-            | Cell 1 | Cell 2 |
-            """
+            let tableTemplate = convertSelectedTextToTableMarkdown(selectedText)
             let newText = fullText.replacingCharacters(in: textRange, with: tableTemplate)
             document.text = newText
             newSelectedRange = NSRange(location: range.location, length: tableTemplate.utf16.count)
