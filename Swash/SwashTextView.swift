@@ -18,6 +18,7 @@ extension NSAttributedString.Key {
 
 extension Notification.Name {
     static let cellSelectionDidChange = Notification.Name("cellSelectionDidChange")
+    static let removeCurrentTable = Notification.Name("removeCurrentTable")
 }
 
 struct ListMarkerInfo {
@@ -121,6 +122,7 @@ struct SwashTextView: NSViewRepresentable {
         
         context.coordinator.isUpdatingFromSwiftUI = true
         context.coordinator.parent = self
+        context.coordinator.currentTextView = textView
         
         let currentRawText = isStyled ? context.coordinator.buildRawMarkdown(from: textView.textStorage ?? NSTextStorage()) : textView.string
         let normalizedTextView = currentRawText.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
@@ -194,10 +196,43 @@ struct SwashTextView: NSViewRepresentable {
         var lastIsStyled: Bool? = nil
         var lastFlavor: MarkdownFlavor? = nil
         
+        weak var currentTextView: NSTextView? = nil
+        
         init(_ parent: SwashTextView) {
             self.parent = parent
             super.init()
+            NotificationCenter.default.addObserver(self, selector: #selector(handleRemoveCurrentTable(_:)), name: .removeCurrentTable, object: nil)
             logDebug("[SwashTextView] Coordinator.init called")
+        }
+        
+        @objc func handleRemoveCurrentTable(_ notification: Notification) {
+            guard let textView = currentTextView else { return }
+            guard let textStorage = textView.textStorage else { return }
+            
+            var removed = false
+            let fullRange = NSRange(location: 0, length: textStorage.length)
+            
+            textStorage.beginEditing()
+            textStorage.enumerateAttribute(.attachment, in: fullRange, options: []) { value, attachRange, stop in
+                if let _ = value as? TableTextAttachment {
+                    textStorage.replaceCharacters(in: attachRange, with: "")
+                    removed = true
+                    stop.pointee = true
+                }
+            }
+            textStorage.endEditing()
+            
+            for subview in textView.subviews {
+                if NSStringFromClass(type(of: subview)).contains("TableHostingView") {
+                    subview.removeFromSuperview()
+                }
+            }
+            
+            if removed {
+                let updatedText = buildRawMarkdown(from: textStorage)
+                self.parent.text = updatedText
+                highlightMarkdown(in: textView)
+            }
         }
         
         func buildRawMarkdown(from textStorage: NSTextStorage) -> String {

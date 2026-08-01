@@ -213,7 +213,12 @@ struct ContentView: View {
                     context: bubbleContext,
                     onAction: { action in
                         if cellSelectionRect != nil {
-                            NotificationCenter.default.post(name: .applyCellFormatting, object: nil, userInfo: ["action": action])
+                            if action == .table {
+                                NotificationCenter.default.post(name: .removeCurrentTable, object: nil)
+                                cellSelectionRect = nil
+                            } else {
+                                NotificationCenter.default.post(name: .applyCellFormatting, object: nil, userInfo: ["action": action])
+                            }
                         } else {
                             applyFormatting(action)
                         }
@@ -761,8 +766,15 @@ struct ContentView: View {
                 newSelectedRange = NSRange(location: range.location + shift, length: range.length)
             }
         case .table:
+            if cellSelectionRect != nil {
+                NotificationCenter.default.post(name: .removeCurrentTable, object: nil)
+                cellSelectionRect = nil
+                return
+            }
+            let cleanSelected = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let headerText = cleanSelected.isEmpty ? "Header 1" : cleanSelected
             let tableTemplate = """
-            | Header 1 | Header 2 |
+            | \(headerText) | Header 2 |
             | :--- | :--- |
             | Cell 1 | Cell 2 |
             """

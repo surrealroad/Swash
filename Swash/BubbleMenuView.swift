@@ -116,6 +116,16 @@ struct BubbleMenuView: View {
                 if let currentFormat = activeCodeFormat {
                     codeFormatDropdown(currentFormat: currentFormat)
                 }
+                
+                if context == .tableCell || activeFormats.contains(.table) {
+                    BubbleButton(
+                        systemImage: "tablecells",
+                        textLabel: nil,
+                        tooltip: "Remove Table",
+                        isActive: true,
+                        action: { onAction(.table) }
+                    )
+                }
             } else {
                 BubbleButton(systemImage: "bold", textLabel: nil, tooltip: "Bold (⌘B)", isActive: activeFormats.contains(.bold), action: { onAction(.bold) })
                 BubbleButton(systemImage: "italic", textLabel: nil, tooltip: "Italic (⌘I)", isActive: activeFormats.contains(.italic), action: { onAction(.italic) })
@@ -193,12 +203,12 @@ struct BubbleMenuView: View {
                     if context == .standard {
                         BubbleButton(systemImage: "tablecells", textLabel: nil, tooltip: "Table", isActive: activeFormats.contains(.table), action: { onAction(.table) })
                     }
-                } else if context == .tableCell {
+                } else if context == .tableCell || activeFormats.contains(.table) {
                     Divider()
                         .frame(height: 16)
                         .padding(.horizontal, 2)
                     
-                    BubbleButton(systemImage: "tablecells", textLabel: nil, tooltip: "Table", isActive: true, action: { onAction(.table) })
+                    BubbleButton(systemImage: "tablecells", textLabel: nil, tooltip: "Remove Table", isActive: true, action: { onAction(.table) })
                 }
             }
         }
