@@ -68,6 +68,7 @@ struct ContentView: View {
     @State private var selectedRange: NSRange? = nil
     @State private var selectionRect: NSRect? = nil
     @State private var cellSelectionRect: NSRect? = nil
+    @State private var cellActiveFormats: Set<FormatAction> = []
     @State private var bubbleMenuSize: CGSize = CGSize(width: 414, height: 40)
 
     var body: some View {
@@ -180,8 +181,14 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .cellSelectionDidChange)) { notification in
             if let userInfo = notification.userInfo, let rect = userInfo["rect"] as? NSRect {
                 self.cellSelectionRect = rect
+                if let formats = userInfo["formats"] as? Set<FormatAction> {
+                    self.cellActiveFormats = formats
+                } else {
+                    self.cellActiveFormats = []
+                }
             } else {
                 self.cellSelectionRect = nil
+                self.cellActiveFormats = []
             }
         }
     }
@@ -199,13 +206,17 @@ struct ContentView: View {
                 let measuredHeight = bubbleMenuSize.height > 0 ? bubbleMenuSize.height : 40
                 
                 BubbleMenuView(
-                    activeFormats: determineActiveFormats(),
+                    activeFormats: cellSelectionRect != nil ? cellActiveFormats : determineActiveFormats(),
                     activeCodeFormat: activeCodeFormat,
                     activeHeadingLevel: activeHeadingLevel,
                     activeLink: activeLink,
                     context: bubbleContext,
                     onAction: { action in
-                        applyFormatting(action)
+                        if cellSelectionRect != nil {
+                            NotificationCenter.default.post(name: .applyCellFormatting, object: nil, userInfo: ["action": action])
+                        } else {
+                            applyFormatting(action)
+                        }
                     },
                     onSelectCodeFormat: { format in
                         applyCodeFormat(format)

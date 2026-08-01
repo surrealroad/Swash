@@ -8,6 +8,10 @@
 import SwiftUI
 import AppKit
 
+extension Notification.Name {
+    static let applyCellFormatting = Notification.Name("applyCellFormatting")
+}
+
 struct InteractiveTableView: View {
     let initialData: MarkdownTableData
     let flavor: MarkdownFlavor
@@ -449,13 +453,17 @@ struct CellTextView: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: CellTextView
+        weak var currentTextView: NSTextView? = nil
 
         init(_ parent: CellTextView) {
             self.parent = parent
+            super.init()
+            NotificationCenter.default.addObserver(self, selector: #selector(handleApplyCellFormatting(_:)), name: .applyCellFormatting, object: nil)
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            self.currentTextView = textView
             parent.text = textView.string
             highlightCellText(in: textView)
         }
@@ -465,26 +473,132 @@ struct CellTextView: NSViewRepresentable {
             parent.onCommit()
         }
 
+        private func findMainScrollView(from view: NSView) -> NSScrollView? {
+            var curr: NSView? = view.superview
+            while let v = curr {
+                if let sv = v as? NSScrollView, sv.documentView is NSTextView {
+                    return sv
+                }
+                curr = v.superview
+            }
+            return nil
+        }
+
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            self.currentTextView = textView
             let range = textView.selectedRange()
             if range.length > 0 {
                 if let layoutManager = textView.layoutManager, let textContainer = textView.textContainer {
                     let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
                     var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
                     
-                    let rectInWindow = textView.convert(rect, to: nil)
-                    if let window = textView.window {
-                        let localRect = window.contentView?.convert(rectInWindow, from: nil) ?? rectInWindow
+                    let origin = textView.textContainerOrigin
+                    rect.origin.x += origin.x
+                    rect.origin.y += origin.y
+                    
+                    if let mainScrollView = findMainScrollView(from: textView) {
+                        let rectInClipView = textView.convert(rect, to: mainScrollView.contentView)
+                        let scrollOffset = mainScrollView.contentView.bounds.origin
+                        let swiftUIRect = NSRect(
+                            x: rectInClipView.origin.x - scrollOffset.x,
+                            y: rectInClipView.origin.y - scrollOffset.y,
+                            width: rectInClipView.width,
+                            height: rectInClipView.height
+                        )
+                        
+                        let activeFormats = detectActiveFormats(in: textView, range: range)
                         NotificationCenter.default.post(name: .cellSelectionDidChange, object: nil, userInfo: [
                             "range": range,
-                            "rect": localRect,
-                            "text": textView.string
+                            "rect": swiftUIRect,
+                            "text": textView.string,
+                            "formats": activeFormats
                         ])
                     }
                 }
             } else {
                 NotificationCenter.default.post(name: .cellSelectionDidChange, object: nil, userInfo: [:])
+            }
+        }
+
+        private func detectActiveFormats(in textView: NSTextView, range: NSRange) -> Set<FormatAction> {
+            var formats: Set<FormatAction> = []
+            let fullText = textView.string as NSString
+            guard range.location != NSNotFound, range.location + range.length <= fullText.length else { return formats }
+            
+            let selectedSubstring = range.length > 0 ? fullText.substring(with: range) : ""
+            
+            if let font = textView.textStorage?.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont {
+                let traits = NSFontManager.shared.traits(of: font)
+                if traits.contains(.boldFontMask) { formats.insert(.bold) }
+                if traits.contains(.italicFontMask) { formats.insert(.italic) }
+                if font.fontName.contains("Mono") { formats.insert(.code) }
+            }
+            
+            if selectedSubstring.hasPrefix("**") && selectedSubstring.hasSuffix("**") { formats.insert(.bold) }
+            if selectedSubstring.hasPrefix("*") && selectedSubstring.hasSuffix("*") { formats.insert(.italic) }
+            if selectedSubstring.hasPrefix("_") && selectedSubstring.hasSuffix("_") { formats.insert(.italic) }
+            if selectedSubstring.hasPrefix("`") && selectedSubstring.hasSuffix("`") { formats.insert(.code) }
+            if selectedSubstring.hasPrefix("~~") && selectedSubstring.hasSuffix("~~") { formats.insert(.strikethrough) }
+            
+            return formats
+        }
+
+        @objc func handleApplyCellFormatting(_ notification: Notification) {
+            guard let textView = currentTextView, textView.window?.firstResponder == textView else { return }
+            guard let action = notification.userInfo?["action"] as? FormatAction else { return }
+            let range = textView.selectedRange()
+            guard range.location != NSNotFound, range.length > 0 else { return }
+            
+            let fullText = textView.string as NSString
+            let selectedText = fullText.substring(with: range)
+            var replacement: String = selectedText
+            var newSelectionLength = range.length
+            
+            switch action {
+            case .bold:
+                if selectedText.hasPrefix("**") && selectedText.hasSuffix("**") && selectedText.count >= 4 {
+                    replacement = String(selectedText.dropFirst(2).dropLast(2))
+                    newSelectionLength -= 4
+                } else {
+                    replacement = "**\(selectedText)**"
+                    newSelectionLength += 4
+                }
+            case .italic:
+                if (selectedText.hasPrefix("*") && selectedText.hasSuffix("*") || selectedText.hasPrefix("_") && selectedText.hasSuffix("_")) && selectedText.count >= 2 {
+                    replacement = String(selectedText.dropFirst(1).dropLast(1))
+                    newSelectionLength -= 2
+                } else {
+                    replacement = "*\(selectedText)*"
+                    newSelectionLength += 2
+                }
+            case .code:
+                if selectedText.hasPrefix("`") && selectedText.hasSuffix("`") && selectedText.count >= 2 {
+                    replacement = String(selectedText.dropFirst(1).dropLast(1))
+                    newSelectionLength -= 2
+                } else {
+                    replacement = "`\(selectedText)`"
+                    newSelectionLength += 2
+                }
+            case .strikethrough:
+                if selectedText.hasPrefix("~~") && selectedText.hasSuffix("~~") && selectedText.count >= 4 {
+                    replacement = String(selectedText.dropFirst(2).dropLast(2))
+                    newSelectionLength -= 4
+                } else {
+                    replacement = "~~\(selectedText)~~"
+                    newSelectionLength += 4
+                }
+            default:
+                break
+            }
+            
+            if textView.shouldChangeText(in: range, replacementString: replacement) {
+                textView.replaceCharacters(in: range, with: replacement)
+                textView.didChangeText()
+                parent.text = textView.string
+                highlightCellText(in: textView)
+                let newRange = NSRange(location: range.location, length: max(0, newSelectionLength))
+                textView.setSelectedRange(newRange)
             }
         }
 
