@@ -104,11 +104,11 @@ struct BubbleMenuView: View {
     
     var body: some View {
         HStack(spacing: 4) {
-            if context == .codeBlock {
+            if context == .codeBlock || activeFormats.contains(.code) {
                 BubbleButton(
                     systemImage: "curlybraces",
                     textLabel: nil,
-                    tooltip: "Toggle Code Block Off",
+                    tooltip: "Toggle Code Off",
                     isActive: true,
                     action: { onAction(.code) }
                 )

@@ -528,32 +528,34 @@ struct CellTextView: NSViewRepresentable {
             
             let selectedSubstring = range.length > 0 ? fullText.substring(with: range) : ""
             
-            if let font = textView.textStorage?.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont {
-                let traits = NSFontManager.shared.traits(of: font)
-                if traits.contains(.boldFontMask) { formats.insert(.bold) }
-                if traits.contains(.italicFontMask) { formats.insert(.italic) }
-                if font.fontName.contains("Mono") { formats.insert(.code) }
+            let font = textView.textStorage?.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
+            let traits = font.map { NSFontManager.shared.traits(of: $0) } ?? []
+            
+            let isMonospaced = font?.fontName.contains("Mono") == true
+            let hasSurroundingCode = range.location >= 1 && range.location + range.length + 1 <= fullText.length &&
+                fullText.substring(with: NSRange(location: range.location - 1, length: 1)) == "`" &&
+                fullText.substring(with: NSRange(location: range.location + range.length, length: 1)) == "`"
+            let isCode = isMonospaced || hasSurroundingCode || (selectedSubstring.hasPrefix("`") && selectedSubstring.hasSuffix("`"))
+            
+            if isCode {
+                formats.insert(.code)
+                return formats
             }
             
             let hasSurroundingBold = range.location >= 2 && range.location + range.length + 2 <= fullText.length &&
                 fullText.substring(with: NSRange(location: range.location - 2, length: 2)) == "**" &&
                 fullText.substring(with: NSRange(location: range.location + range.length, length: 2)) == "**"
-            if hasSurroundingBold || (selectedSubstring.hasPrefix("**") && selectedSubstring.hasSuffix("**")) {
+            let isBold = traits.contains(.boldFontMask) || hasSurroundingBold || (selectedSubstring.hasPrefix("**") && selectedSubstring.hasSuffix("**"))
+            if isBold {
                 formats.insert(.bold)
             }
             
-            let hasSurroundingItalic = range.location >= 1 && range.location + range.length + 1 <= fullText.length &&
+            let hasSurroundingItalic = !hasSurroundingBold && range.location >= 1 && range.location + range.length + 1 <= fullText.length &&
                 (fullText.substring(with: NSRange(location: range.location - 1, length: 1)) == "*" || fullText.substring(with: NSRange(location: range.location - 1, length: 1)) == "_") &&
                 (fullText.substring(with: NSRange(location: range.location + range.length, length: 1)) == "*" || fullText.substring(with: NSRange(location: range.location + range.length, length: 1)) == "_")
-            if hasSurroundingItalic || (selectedSubstring.hasPrefix("*") && selectedSubstring.hasSuffix("*")) || (selectedSubstring.hasPrefix("_") && selectedSubstring.hasSuffix("_")) {
+            let isItalic = (traits.contains(.italicFontMask) && !isBold) || hasSurroundingItalic || ((selectedSubstring.hasPrefix("*") && selectedSubstring.hasSuffix("*")) || (selectedSubstring.hasPrefix("_") && selectedSubstring.hasSuffix("_"))) && !isBold
+            if isItalic {
                 formats.insert(.italic)
-            }
-            
-            let hasSurroundingCode = range.location >= 1 && range.location + range.length + 1 <= fullText.length &&
-                fullText.substring(with: NSRange(location: range.location - 1, length: 1)) == "`" &&
-                fullText.substring(with: NSRange(location: range.location + range.length, length: 1)) == "`"
-            if hasSurroundingCode || (selectedSubstring.hasPrefix("`") && selectedSubstring.hasSuffix("`")) {
-                formats.insert(.code)
             }
             
             let hasSurroundingStrikethrough = range.location >= 2 && range.location + range.length + 2 <= fullText.length &&
