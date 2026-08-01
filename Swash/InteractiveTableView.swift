@@ -535,11 +535,33 @@ struct CellTextView: NSViewRepresentable {
                 if font.fontName.contains("Mono") { formats.insert(.code) }
             }
             
-            if selectedSubstring.hasPrefix("**") && selectedSubstring.hasSuffix("**") { formats.insert(.bold) }
-            if selectedSubstring.hasPrefix("*") && selectedSubstring.hasSuffix("*") { formats.insert(.italic) }
-            if selectedSubstring.hasPrefix("_") && selectedSubstring.hasSuffix("_") { formats.insert(.italic) }
-            if selectedSubstring.hasPrefix("`") && selectedSubstring.hasSuffix("`") { formats.insert(.code) }
-            if selectedSubstring.hasPrefix("~~") && selectedSubstring.hasSuffix("~~") { formats.insert(.strikethrough) }
+            let hasSurroundingBold = range.location >= 2 && range.location + range.length + 2 <= fullText.length &&
+                fullText.substring(with: NSRange(location: range.location - 2, length: 2)) == "**" &&
+                fullText.substring(with: NSRange(location: range.location + range.length, length: 2)) == "**"
+            if hasSurroundingBold || (selectedSubstring.hasPrefix("**") && selectedSubstring.hasSuffix("**")) {
+                formats.insert(.bold)
+            }
+            
+            let hasSurroundingItalic = range.location >= 1 && range.location + range.length + 1 <= fullText.length &&
+                (fullText.substring(with: NSRange(location: range.location - 1, length: 1)) == "*" || fullText.substring(with: NSRange(location: range.location - 1, length: 1)) == "_") &&
+                (fullText.substring(with: NSRange(location: range.location + range.length, length: 1)) == "*" || fullText.substring(with: NSRange(location: range.location + range.length, length: 1)) == "_")
+            if hasSurroundingItalic || (selectedSubstring.hasPrefix("*") && selectedSubstring.hasSuffix("*")) || (selectedSubstring.hasPrefix("_") && selectedSubstring.hasSuffix("_")) {
+                formats.insert(.italic)
+            }
+            
+            let hasSurroundingCode = range.location >= 1 && range.location + range.length + 1 <= fullText.length &&
+                fullText.substring(with: NSRange(location: range.location - 1, length: 1)) == "`" &&
+                fullText.substring(with: NSRange(location: range.location + range.length, length: 1)) == "`"
+            if hasSurroundingCode || (selectedSubstring.hasPrefix("`") && selectedSubstring.hasSuffix("`")) {
+                formats.insert(.code)
+            }
+            
+            let hasSurroundingStrikethrough = range.location >= 2 && range.location + range.length + 2 <= fullText.length &&
+                fullText.substring(with: NSRange(location: range.location - 2, length: 2)) == "~~" &&
+                fullText.substring(with: NSRange(location: range.location + range.length, length: 2)) == "~~"
+            if hasSurroundingStrikethrough || (selectedSubstring.hasPrefix("~~") && selectedSubstring.hasSuffix("~~")) {
+                formats.insert(.strikethrough)
+            }
             
             return formats
         }
@@ -552,53 +574,90 @@ struct CellTextView: NSViewRepresentable {
             
             let fullText = textView.string as NSString
             let selectedText = fullText.substring(with: range)
-            var replacement: String = selectedText
-            var newSelectionLength = range.length
+            
+            var replaceRange = range
+            var replacement: String = ""
+            var newSelectionRange = range
             
             switch action {
             case .bold:
                 if selectedText.hasPrefix("**") && selectedText.hasSuffix("**") && selectedText.count >= 4 {
+                    replaceRange = range
                     replacement = String(selectedText.dropFirst(2).dropLast(2))
-                    newSelectionLength -= 4
+                    newSelectionRange = NSRange(location: range.location, length: max(0, range.length - 4))
+                } else if range.location >= 2 && range.location + range.length + 2 <= fullText.length &&
+                            fullText.substring(with: NSRange(location: range.location - 2, length: 2)) == "**" &&
+                            fullText.substring(with: NSRange(location: range.location + range.length, length: 2)) == "**" {
+                    replaceRange = NSRange(location: range.location - 2, length: range.length + 4)
+                    replacement = selectedText
+                    newSelectionRange = NSRange(location: range.location - 2, length: range.length)
                 } else {
+                    replaceRange = range
                     replacement = "**\(selectedText)**"
-                    newSelectionLength += 4
+                    newSelectionRange = NSRange(location: range.location, length: range.length + 4)
                 }
+                
             case .italic:
                 if (selectedText.hasPrefix("*") && selectedText.hasSuffix("*") || selectedText.hasPrefix("_") && selectedText.hasSuffix("_")) && selectedText.count >= 2 {
+                    replaceRange = range
                     replacement = String(selectedText.dropFirst(1).dropLast(1))
-                    newSelectionLength -= 2
+                    newSelectionRange = NSRange(location: range.location, length: max(0, range.length - 2))
+                } else if range.location >= 1 && range.location + range.length + 1 <= fullText.length &&
+                            (fullText.substring(with: NSRange(location: range.location - 1, length: 1)) == "*" || fullText.substring(with: NSRange(location: range.location - 1, length: 1)) == "_") &&
+                            (fullText.substring(with: NSRange(location: range.location + range.length, length: 1)) == "*" || fullText.substring(with: NSRange(location: range.location + range.length, length: 1)) == "_") {
+                    replaceRange = NSRange(location: range.location - 1, length: range.length + 2)
+                    replacement = selectedText
+                    newSelectionRange = NSRange(location: range.location - 1, length: range.length)
                 } else {
+                    replaceRange = range
                     replacement = "*\(selectedText)*"
-                    newSelectionLength += 2
+                    newSelectionRange = NSRange(location: range.location, length: range.length + 2)
                 }
+                
             case .code:
                 if selectedText.hasPrefix("`") && selectedText.hasSuffix("`") && selectedText.count >= 2 {
+                    replaceRange = range
                     replacement = String(selectedText.dropFirst(1).dropLast(1))
-                    newSelectionLength -= 2
+                    newSelectionRange = NSRange(location: range.location, length: max(0, range.length - 2))
+                } else if range.location >= 1 && range.location + range.length + 1 <= fullText.length &&
+                            fullText.substring(with: NSRange(location: range.location - 1, length: 1)) == "`" &&
+                            fullText.substring(with: NSRange(location: range.location + range.length, length: 1)) == "`" {
+                    replaceRange = NSRange(location: range.location - 1, length: range.length + 2)
+                    replacement = selectedText
+                    newSelectionRange = NSRange(location: range.location - 1, length: range.length)
                 } else {
+                    replaceRange = range
                     replacement = "`\(selectedText)`"
-                    newSelectionLength += 2
+                    newSelectionRange = NSRange(location: range.location, length: range.length + 2)
                 }
+                
             case .strikethrough:
                 if selectedText.hasPrefix("~~") && selectedText.hasSuffix("~~") && selectedText.count >= 4 {
+                    replaceRange = range
                     replacement = String(selectedText.dropFirst(2).dropLast(2))
-                    newSelectionLength -= 4
+                    newSelectionRange = NSRange(location: range.location, length: max(0, range.length - 4))
+                } else if range.location >= 2 && range.location + range.length + 2 <= fullText.length &&
+                            fullText.substring(with: NSRange(location: range.location - 2, length: 2)) == "~~" &&
+                            fullText.substring(with: NSRange(location: range.location + range.length, length: 2)) == "~~" {
+                    replaceRange = NSRange(location: range.location - 2, length: range.length + 4)
+                    replacement = selectedText
+                    newSelectionRange = NSRange(location: range.location - 2, length: range.length)
                 } else {
+                    replaceRange = range
                     replacement = "~~\(selectedText)~~"
-                    newSelectionLength += 4
+                    newSelectionRange = NSRange(location: range.location, length: range.length + 4)
                 }
+                
             default:
-                break
+                return
             }
             
-            if textView.shouldChangeText(in: range, replacementString: replacement) {
-                textView.replaceCharacters(in: range, with: replacement)
+            if textView.shouldChangeText(in: replaceRange, replacementString: replacement) {
+                textView.replaceCharacters(in: replaceRange, with: replacement)
                 textView.didChangeText()
                 parent.text = textView.string
                 highlightCellText(in: textView)
-                let newRange = NSRange(location: range.location, length: max(0, newSelectionLength))
-                textView.setSelectedRange(newRange)
+                textView.setSelectedRange(newSelectionRange)
             }
         }
 
