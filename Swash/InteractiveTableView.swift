@@ -44,34 +44,33 @@ struct InteractiveTableView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            VStack(alignment: .leading, spacing: 6) {
-                ScrollView(.horizontal, showsIndicators: true) {
-                    // Main Table Container
-                    VStack(spacing: 0) {
-                        // Header Row
-                        headerView
-                        
-                        Divider()
-                            .background(Color.secondary.opacity(0.3))
+        VStack(alignment: .leading, spacing: 6) {
+            ScrollView(.horizontal, showsIndicators: true) {
+                // Main Table Container
+                VStack(spacing: 0) {
+                    // Header Row
+                    headerView
+                    
+                    Divider()
+                        .background(Color.secondary.opacity(0.3))
 
-                        // Data Rows
-                        ForEach(0..<rows.count, id: \.self) { rowIndex in
-                            rowView(for: rowIndex)
-                            
-                            if rowIndex < rows.count - 1 {
-                                Divider()
-                                    .background(Color.secondary.opacity(0.15))
-                            }
+                    // Data Rows
+                    ForEach(0..<rows.count, id: \.self) { rowIndex in
+                        rowView(for: rowIndex)
+                        
+                        if rowIndex < rows.count - 1 {
+                            Divider()
+                                .background(Color.secondary.opacity(0.15))
                         }
                     }
-                    .frame(minWidth: max(300, geometry.size.width), maxWidth: .infinity)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                    )
-                    .cornerRadius(6)
                 }
+                .frame(minWidth: 300, maxWidth: .infinity)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                )
+                .cornerRadius(6)
+            }
 
             // Table Controls Footer (Visible when editable)
             if isEditable {
@@ -120,7 +119,6 @@ struct InteractiveTableView: View {
             headers = newData.headers
             alignments = newData.alignments
             rows = newData.rows
-        }
         }
     }
 
