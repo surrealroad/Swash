@@ -33,23 +33,7 @@ enum ViewMode: String, CaseIterable, Identifiable {
 
 
 
-enum MarkdownFlavor: String, CaseIterable, Identifiable {
-    case github = "GitHub"
-    case commonMark = "CommonMark"
-    case original = "Original"
-    case slack = "Slack"
-    
-    var id: String { self.rawValue }
-    
-    var displayName: String {
-        switch self {
-        case .github: return "GitHub Markdown"
-        case .commonMark: return "CommonMark"
-        case .original: return "Original Markdown"
-        case .slack: return "Slack mrkdwn"
-        }
-    }
-}
+
 
 struct BubbleMenuSizePreferenceKey: PreferenceKey {
     static var defaultValue: CGSize = .zero

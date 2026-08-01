@@ -8,10 +8,36 @@
 
 /* Begin PBXBuildFile section */
 		0460136230045F6A00853817 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0460136130045F6A00853817 /* Sparkle */; };
+		0460137130045F6800853817 /* SwashQuickLookExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460137030045F6800853817 /* SwashQuickLookExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		0460137230045F6800853817 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0460133830045F6800853817 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0460137330045F6800853817;
+			remoteInfo = SwashQuickLookExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		0460137530045F6800853817 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				0460137130045F6800853817 /* SwashQuickLookExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0460134030045F6800853817 /* Swash.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Swash.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0460137030045F6800853817 /* SwashQuickLookExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SwashQuickLookExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -22,6 +48,24 @@
 			);
 			target = 0460133F30045F6800853817 /* Swash */;
 		};
+		0460137730045F6800853817 /* Exceptions for "Swash" folder in "SwashQuickLookExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				DefaultAppManager.swift,
+				Info.plist,
+				SettingsView.swift,
+				SparkleUpdater.swift,
+				SwashApp.swift,
+			);
+			target = 0460137330045F6800853817 /* SwashQuickLookExtension */;
+		};
+		0460137E30045F6800853817 /* Exceptions for "SwashQuickLookExtension" folder in "SwashQuickLookExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 0460137330045F6800853817 /* SwashQuickLookExtension */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -29,8 +73,17 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				0460134C30045F6A00853817 /* Exceptions for "Swash" folder in "Swash" target */,
+				0460137730045F6800853817 /* Exceptions for "Swash" folder in "SwashQuickLookExtension" target */,
 			);
 			path = Swash;
+			sourceTree = "<group>";
+		};
+		0460137630045F6800853817 /* SwashQuickLookExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				0460137E30045F6800853817 /* Exceptions for "SwashQuickLookExtension" folder in "SwashQuickLookExtension" target */,
+			);
+			path = SwashQuickLookExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -44,6 +97,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0460137930045F6800853817 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -51,6 +111,7 @@
 			isa = PBXGroup;
 			children = (
 				0460134230045F6800853817 /* Swash */,
+				0460137630045F6800853817 /* SwashQuickLookExtension */,
 				0460134130045F6800853817 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -59,6 +120,7 @@
 			isa = PBXGroup;
 			children = (
 				0460134030045F6800853817 /* Swash.app */,
+				0460137030045F6800853817 /* SwashQuickLookExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -74,10 +136,12 @@
 				0460133C30045F6800853817 /* Sources */,
 				0460133D30045F6800853817 /* Frameworks */,
 				0460133E30045F6800853817 /* Resources */,
+				0460137530045F6800853817 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				0460137430045F6800853817 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				0460134230045F6800853817 /* Swash */,
@@ -90,6 +154,27 @@
 			productReference = 0460134030045F6800853817 /* Swash.app */;
 			productType = "com.apple.product-type.application";
 		};
+		0460137330045F6800853817 /* SwashQuickLookExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0460137A30045F6800853817 /* Build configuration list for PBXNativeTarget "SwashQuickLookExtension" */;
+			buildPhases = (
+				0460137830045F6800853817 /* Sources */,
+				0460137930045F6800853817 /* Frameworks */,
+				0460137B30045F6800853817 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				0460134230045F6800853817 /* Swash */,
+				0460137630045F6800853817 /* SwashQuickLookExtension */,
+			);
+			name = SwashQuickLookExtension;
+			productName = SwashQuickLookExtension;
+			productReference = 0460137030045F6800853817 /* SwashQuickLookExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -101,6 +186,9 @@
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					0460133F30045F6800853817 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					0460137330045F6800853817 = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
@@ -123,12 +211,20 @@
 			projectRoot = "";
 			targets = (
 				0460133F30045F6800853817 /* Swash */,
+				0460137330045F6800853817 /* SwashQuickLookExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		0460133E30045F6800853817 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0460137B30045F6800853817 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -166,7 +262,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0460137830045F6800853817 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0460137430045F6800853817 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0460137330045F6800853817 /* SwashQuickLookExtension */;
+			targetProxy = 0460137230045F6800853817 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		0460134E30045F6A00853817 /* Debug */ = {
@@ -349,6 +460,64 @@
 			};
 			name = Release;
 		};
+		0460137C30045F6800853817 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 27;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SwashQuickLookExtension/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../Contents/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.QuickLookExtension;
+				PRODUCT_MODULE_NAME = SwashQuickLookExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		0460137D30045F6800853817 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 27;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SwashQuickLookExtension/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../Contents/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.QuickLookExtension;
+				PRODUCT_MODULE_NAME = SwashQuickLookExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -366,6 +535,15 @@
 			buildConfigurations = (
 				0460134E30045F6A00853817 /* Debug */,
 				0460134F30045F6A00853817 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0460137A30045F6800853817 /* Build configuration list for PBXNativeTarget "SwashQuickLookExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0460137C30045F6800853817 /* Debug */,
+				0460137D30045F6800853817 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
