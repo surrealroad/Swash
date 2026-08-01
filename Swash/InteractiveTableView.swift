@@ -522,7 +522,7 @@ struct CellTextView: NSViewRepresentable {
         }
 
         private func detectActiveFormats(in textView: NSTextView, range: NSRange) -> Set<FormatAction> {
-            var formats: Set<FormatAction> = []
+            var formats: Set<FormatAction> = [.table]
             let fullText = textView.string as NSString
             guard range.location != NSNotFound, range.location + range.length <= fullText.length else { return formats }
             

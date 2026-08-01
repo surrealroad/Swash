@@ -205,17 +205,37 @@ struct SwashTextView: NSViewRepresentable {
             logDebug("[SwashTextView] Coordinator.init called")
         }
         
+        private func convertTableToPlainText(_ data: MarkdownTableData) -> String {
+            var lines: [String] = []
+            
+            let cleanHeaders = data.headers.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            if !cleanHeaders.isEmpty {
+                lines.append(cleanHeaders.joined(separator: "    "))
+            }
+            
+            for row in data.rows {
+                let cleanCells = row.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                if !cleanCells.isEmpty {
+                    lines.append(cleanCells.joined(separator: "    "))
+                }
+            }
+            
+            return lines.joined(separator: "\n")
+        }
+
         @objc func handleRemoveCurrentTable(_ notification: Notification) {
             guard let textView = currentTextView else { return }
             guard let textStorage = textView.textStorage else { return }
             
+            let savedScrollOrigin = textView.enclosingScrollView?.contentView.bounds.origin
             var removed = false
             let fullRange = NSRange(location: 0, length: textStorage.length)
             
             textStorage.beginEditing()
             textStorage.enumerateAttribute(.attachment, in: fullRange, options: []) { value, attachRange, stop in
-                if let _ = value as? TableTextAttachment {
-                    textStorage.replaceCharacters(in: attachRange, with: "")
+                if let tableAttachment = value as? TableTextAttachment {
+                    let plainText = self.convertTableToPlainText(tableAttachment.tableData)
+                    textStorage.replaceCharacters(in: attachRange, with: plainText)
                     removed = true
                     stop.pointee = true
                 }
@@ -232,6 +252,13 @@ struct SwashTextView: NSViewRepresentable {
                 let updatedText = buildRawMarkdown(from: textStorage)
                 self.parent.text = updatedText
                 highlightMarkdown(in: textView)
+                
+                if let origin = savedScrollOrigin, let clipView = textView.enclosingScrollView?.contentView {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        clipView.scroll(to: origin)
+                        textView.enclosingScrollView?.reflectScrolledClipView(clipView)
+                    }
+                }
             }
         }
         
