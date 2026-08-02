@@ -139,7 +139,7 @@ struct SwashTextView: NSViewRepresentable {
         
         var textWasUpdated = false
         if textChanged {
-            if let origin = textView.enclosingScrollView?.contentView.bounds.origin, origin.y > 0 {
+            if let origin = textView.enclosingScrollView?.contentView.bounds.origin {
                 context.coordinator.lastKnownScrollOrigin = origin
             }
             textView.string = text
@@ -327,6 +327,7 @@ struct SwashTextView: NSViewRepresentable {
             if let clipView = notification.object as? NSClipView,
                let scrollView = clipView.superview as? NSScrollView,
                let textView = scrollView.documentView as? NSTextView {
+                lastKnownScrollOrigin = clipView.bounds.origin
                 updateSelectionRect(for: textView)
             }
         }
@@ -476,12 +477,9 @@ struct SwashTextView: NSViewRepresentable {
             
             // Preserve scroll position to prevent jumps on focus loss/revert
             let currentScrollOrigin = textView.enclosingScrollView?.contentView.bounds.origin
-            let savedScrollOrigin: NSPoint?
-            if let origin = currentScrollOrigin, origin.y > 0 {
-                savedScrollOrigin = origin
+            let savedScrollOrigin = currentScrollOrigin ?? lastKnownScrollOrigin
+            if let origin = currentScrollOrigin {
                 lastKnownScrollOrigin = origin
-            } else {
-                savedScrollOrigin = lastKnownScrollOrigin ?? currentScrollOrigin
             }
             
             // Clean up any old table subviews to prevent duplicate stacked views on revert or text update
