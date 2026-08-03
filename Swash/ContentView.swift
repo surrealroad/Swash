@@ -45,6 +45,26 @@ struct BubbleMenuSizePreferenceKey: PreferenceKey {
     }
 }
 
+struct WindowAccessor: NSViewRepresentable {
+    @Binding var window: NSWindow?
+    
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            self.window = view.window
+        }
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if self.window != nsView.window {
+            DispatchQueue.main.async {
+                self.window = nsView.window
+            }
+        }
+    }
+}
+
 struct ContentView: View {
     @Binding var document: SwashDocument
     
@@ -54,6 +74,11 @@ struct ContentView: View {
     @State private var cellSelectionRect: NSRect? = nil
     @State private var cellActiveFormats: Set<FormatAction> = []
     @State private var bubbleMenuSize: CGSize = CGSize(width: 414, height: 40)
+    
+    @State private var window: NSWindow? = nil
+    @State private var previousSingleWidth: CGFloat = 800
+    @State private var previousSplitWidth: CGFloat = 1200
+    @State private var previousViewMode: ViewMode = .preview
 
     var body: some View {
         VStack(spacing: 0) {
@@ -174,6 +199,12 @@ struct ContentView: View {
                 self.cellSelectionRect = nil
                 self.cellActiveFormats = []
             }
+        }
+        .background(WindowAccessor(window: $window))
+        .onChange(of: viewMode) { newMode in
+            let oldMode = previousViewMode
+            previousViewMode = newMode
+            handleViewModeChange(from: oldMode, to: newMode)
         }
     }
     
@@ -1132,6 +1163,64 @@ struct ContentView: View {
         let chars = document.text.count
         
         return (words, chars)
+    }
+    
+    private func handleViewModeChange(from oldMode: ViewMode, to newMode: ViewMode) {
+        guard oldMode != newMode else { return }
+        guard let window = self.window, !window.styleMask.contains(.fullScreen) else { return }
+        
+        if oldMode != .split && newMode == .split {
+            // Entering split mode from single pane view
+            let currentWidth = window.frame.width
+            previousSingleWidth = currentWidth
+            
+            let targetWidth = max(previousSplitWidth, currentWidth * 1.5)
+            animateWindowWidth(to: targetWidth, window: window)
+        } else if oldMode == .split && newMode != .split {
+            // Exiting split mode to single pane view
+            let currentWidth = window.frame.width
+            previousSplitWidth = currentWidth
+            
+            let targetWidth = max(600, min(previousSingleWidth, currentWidth * 0.67))
+            animateWindowWidth(to: targetWidth, window: window)
+        }
+    }
+    
+    private func animateWindowWidth(to targetWidth: CGFloat, window: NSWindow) {
+        let currentFrame = window.frame
+        var adjustedTargetWidth = targetWidth
+        
+        if let screen = window.screen {
+            let maxAllowedWidth = screen.visibleFrame.width
+            adjustedTargetWidth = min(adjustedTargetWidth, maxAllowedWidth)
+        }
+        
+        let deltaWidth = adjustedTargetWidth - currentFrame.width
+        guard abs(deltaWidth) > 1 else { return }
+        
+        var newOriginX = currentFrame.origin.x - (deltaWidth / 2)
+        
+        if let screen = window.screen {
+            let screenFrame = screen.visibleFrame
+            if newOriginX < screenFrame.minX {
+                newOriginX = screenFrame.minX
+            } else if newOriginX + adjustedTargetWidth > screenFrame.maxX {
+                newOriginX = screenFrame.maxX - adjustedTargetWidth
+            }
+        }
+        
+        let newFrame = NSRect(
+            x: newOriginX,
+            y: currentFrame.origin.y,
+            width: adjustedTargetWidth,
+            height: currentFrame.size.height
+        )
+        
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.28
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            window.animator().setFrame(newFrame, display: true)
+        }
     }
 }
 
