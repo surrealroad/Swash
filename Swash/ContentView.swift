@@ -190,6 +190,16 @@ struct ContentView: View {
                 .labelsHidden()
                 .help("Select Markdown format scheme (converting raw text format in place)")
             }
+            
+            ToolbarItem(id: "share", placement: .primaryAction) {
+                ShareLink(
+                    item: document.text,
+                    preview: SharePreview("Markdown Document", image: Image(systemName: "doc.text"))
+                ) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                .help("Share raw Markdown text with other apps")
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .cellSelectionDidChange)) { notification in
             if let userInfo = notification.userInfo, let rect = userInfo["rect"] as? NSRect {
