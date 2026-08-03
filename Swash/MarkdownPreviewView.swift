@@ -33,7 +33,7 @@ struct MarkdownPreviewView: View {
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(Color(NSColor.textBackgroundColor).opacity(0.95))
+        .background(Color(NSColor.windowBackgroundColor).opacity(0.8))
     }
     
     @ViewBuilder

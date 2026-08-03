@@ -99,12 +99,14 @@ struct SwashTextView: NSViewRepresentable {
         
         // Premium typography and spacing styling
         textView.textColor = NSColor.textColor
-        textView.drawsBackground = false
+        textView.drawsBackground = true
+        textView.backgroundColor = NSColor.textBackgroundColor
         
         // Set standard padding/margins for a clean writing interface
         textView.textContainerInset = NSSize(width: 20, height: 20)
         
-        scrollView.drawsBackground = false
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = NSColor.textBackgroundColor
         scrollView.borderType = .noBorder
         
         NotificationCenter.default.addObserver(
