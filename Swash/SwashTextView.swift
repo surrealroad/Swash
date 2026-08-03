@@ -59,11 +59,34 @@ struct SwashTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var selectedRange: NSRange?
     @Binding var selectionRect: NSRect? // Bounding rect of selection in the local coordinate space of SwashTextView (SwiftUI top-left)
+    @Binding var scrollOriginY: CGFloat
     var isStyled: Bool
     var flavor: MarkdownFlavor
     var onCommit: (() -> Void)? = nil
     var onNextCell: (() -> Void)? = nil
     var onPrevCell: (() -> Void)? = nil
+    
+    init(
+        text: Binding<String>,
+        selectedRange: Binding<NSRange?>,
+        selectionRect: Binding<NSRect?>,
+        scrollOriginY: Binding<CGFloat> = .constant(0),
+        isStyled: Bool,
+        flavor: MarkdownFlavor,
+        onCommit: (() -> Void)? = nil,
+        onNextCell: (() -> Void)? = nil,
+        onPrevCell: (() -> Void)? = nil
+    ) {
+        self._text = text
+        self._selectedRange = selectedRange
+        self._selectionRect = selectionRect
+        self._scrollOriginY = scrollOriginY
+        self.isStyled = isStyled
+        self.flavor = flavor
+        self.onCommit = onCommit
+        self.onNextCell = onNextCell
+        self.onPrevCell = onPrevCell
+    }
     
     func makeNSView(context: Context) -> NSScrollView {
         logDebug("[SwashTextView] makeNSView called")
@@ -115,6 +138,14 @@ struct SwashTextView: NSViewRepresentable {
             name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView
         )
+        
+        DispatchQueue.main.async { [weak scrollView] in
+            guard let scrollView = scrollView else { return }
+            let clipView = scrollView.contentView
+            let targetPoint = NSPoint(x: clipView.bounds.origin.x, y: context.coordinator.parent.scrollOriginY)
+            clipView.scroll(to: targetPoint)
+            scrollView.reflectScrolledClipView(clipView)
+        }
         
         return scrollView
     }
@@ -183,6 +214,18 @@ struct SwashTextView: NSViewRepresentable {
             }
         }
         
+        // Sync scroll position if modified externally
+        let clipView = nsView.contentView
+        if abs(clipView.bounds.origin.y - scrollOriginY) > 1.0 {
+            context.coordinator.isProgrammaticScroll = true
+            let origin = NSPoint(x: clipView.bounds.origin.x, y: scrollOriginY)
+            clipView.scroll(to: origin)
+            nsView.reflectScrolledClipView(clipView)
+            DispatchQueue.main.async {
+                context.coordinator.isProgrammaticScroll = false
+            }
+        }
+        
         context.coordinator.isUpdatingFromSwiftUI = false
     }
     
@@ -194,6 +237,7 @@ struct SwashTextView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: SwashTextView
         var isUpdatingFromSwiftUI = false
+        var isProgrammaticScroll = false
         var isHighlighting = false
         
         var lastStyledText: String? = nil
@@ -330,6 +374,14 @@ struct SwashTextView: NSViewRepresentable {
                let scrollView = clipView.superview as? NSScrollView,
                let textView = scrollView.documentView as? NSTextView {
                 lastKnownScrollOrigin = clipView.bounds.origin
+                if !isUpdatingFromSwiftUI && !isProgrammaticScroll {
+                    let y = clipView.bounds.origin.y
+                    if abs(self.parent.scrollOriginY - y) > 0.5 {
+                        DispatchQueue.main.async {
+                            self.parent.scrollOriginY = y
+                        }
+                    }
+                }
                 updateSelectionRect(for: textView)
             }
         }

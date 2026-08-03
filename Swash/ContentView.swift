@@ -79,6 +79,7 @@ struct ContentView: View {
     @State private var previousSingleWidth: CGFloat = 800
     @State private var previousSplitWidth: CGFloat = 1200
     @State private var previousViewMode: ViewMode = .preview
+    @State private var scrollOriginY: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -88,6 +89,7 @@ struct ContentView: View {
                         text: $document.text,
                         selectedRange: $selectedRange,
                         selectionRect: $selectionRect,
+                        scrollOriginY: $scrollOriginY,
                         isStyled: true,
                         flavor: document.flavor
                     )
@@ -98,6 +100,7 @@ struct ContentView: View {
                         text: $document.text,
                         selectedRange: $selectedRange,
                         selectionRect: $selectionRect,
+                        scrollOriginY: $scrollOriginY,
                         isStyled: false,
                         flavor: document.flavor
                     )
@@ -109,13 +112,14 @@ struct ContentView: View {
                             text: $document.text,
                             selectedRange: $selectedRange,
                             selectionRect: $selectionRect,
+                            scrollOriginY: $scrollOriginY,
                             isStyled: false,
                             flavor: document.flavor
                         )
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)
                         
-                        MarkdownPreviewView(text: document.text, flavor: document.flavor)
+                        MarkdownPreviewView(text: document.text, flavor: document.flavor, scrollOriginY: $scrollOriginY)
                             .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

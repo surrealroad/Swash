@@ -8,14 +8,104 @@
 import SwiftUI
 import AppKit
 
+struct PreviewScrollView<Content: View>: NSViewRepresentable {
+    @Binding var scrollOriginY: CGFloat
+    @ViewBuilder let content: () -> Content
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autoresizingMask = [.width, .height]
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+
+        let hostingView = NSHostingView(rootView: content())
+        hostingView.autoresizingMask = [.width]
+        scrollView.documentView = hostingView
+
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.scrollViewDidScroll(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
+
+        DispatchQueue.main.async { [weak scrollView] in
+            guard let scrollView = scrollView else { return }
+            let clipView = scrollView.contentView
+            let targetPoint = NSPoint(x: clipView.bounds.origin.x, y: context.coordinator.parent.scrollOriginY)
+            clipView.scroll(to: targetPoint)
+            scrollView.reflectScrolledClipView(clipView)
+        }
+
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        if let hostingView = nsView.documentView as? NSHostingView<Content> {
+            hostingView.rootView = content()
+            let targetHeight = hostingView.fittingSize.height
+            let currentWidth = nsView.contentSize.width
+            if hostingView.frame.height != targetHeight || hostingView.frame.width != currentWidth {
+                hostingView.frame = NSRect(x: 0, y: 0, width: currentWidth, height: max(targetHeight, nsView.contentSize.height))
+            }
+        }
+
+        let clipView = nsView.contentView
+        if abs(clipView.bounds.origin.y - scrollOriginY) > 1.0 {
+            context.coordinator.isProgrammaticScroll = true
+            let targetPoint = NSPoint(x: clipView.bounds.origin.x, y: scrollOriginY)
+            clipView.scroll(to: targetPoint)
+            nsView.reflectScrolledClipView(clipView)
+            DispatchQueue.main.async {
+                context.coordinator.isProgrammaticScroll = false
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject {
+        var parent: PreviewScrollView
+        var isProgrammaticScroll = false
+
+        init(_ parent: PreviewScrollView) {
+            self.parent = parent
+        }
+
+        @objc func scrollViewDidScroll(_ notification: Notification) {
+            guard !isProgrammaticScroll else { return }
+            if let clipView = notification.object as? NSClipView {
+                let y = clipView.bounds.origin.y
+                if abs(parent.scrollOriginY - y) > 0.5 {
+                    DispatchQueue.main.async {
+                        self.parent.scrollOriginY = y
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct MarkdownPreviewView: View {
     let text: String
     let flavor: MarkdownFlavor
+    @Binding var scrollOriginY: CGFloat
+    
+    init(text: String, flavor: MarkdownFlavor, scrollOriginY: Binding<CGFloat> = .constant(0)) {
+        self.text = text
+        self.flavor = flavor
+        self._scrollOriginY = scrollOriginY
+    }
     
     var body: some View {
         let blocks = MarkdownParser.parse(text)
         
-        ScrollView {
+        PreviewScrollView(scrollOriginY: $scrollOriginY) {
             VStack(alignment: .leading, spacing: 14) {
                 if blocks.isEmpty {
                     Text("Nothing to preview yet. Start typing on the left!")
