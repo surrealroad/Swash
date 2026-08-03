@@ -194,7 +194,9 @@ struct ContentView: View {
             ToolbarItem(id: "share", placement: .primaryAction) {
                 ShareLink(
                     item: document.text,
-                    preview: SharePreview("Markdown Document", image: Image(systemName: "doc.text"))
+                    subject: Text(documentTitle),
+                    message: Text(document.text),
+                    preview: SharePreview(Text(documentTitle), image: sharePreviewImage)
                 ) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
@@ -220,6 +222,58 @@ struct ContentView: View {
             previousViewMode = newMode
             handleViewModeChange(from: oldMode, to: newMode)
         }
+    }
+    
+    private var documentTitle: String {
+        if let title = window?.title, !title.isEmpty {
+            let cleaned = title
+                .components(separatedBy: " — ").first?
+                .components(separatedBy: " - ").first?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !cleaned.isEmpty && cleaned != "Untitled" {
+                return cleaned
+            }
+        }
+        if let url = window?.representedURL {
+            let name = url.deletingPathExtension().lastPathComponent
+            if !name.isEmpty {
+                return name
+            }
+        }
+        let lines = document.text.components(separatedBy: .newlines)
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("# ") {
+                let title = trimmed.dropFirst(2).trimmingCharacters(in: .whitespaces)
+                if !title.isEmpty {
+                    return title
+                }
+            }
+        }
+        if let title = window?.title, !title.isEmpty {
+            let cleaned = title
+                .components(separatedBy: " — ").first?
+                .components(separatedBy: " - ").first?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !cleaned.isEmpty {
+                return cleaned
+            }
+        }
+        return "Untitled"
+    }
+
+    private var sharePreviewImage: Image {
+        let size = NSSize(width: 64, height: 64)
+        let image = NSImage(size: size)
+        image.isTemplate = false
+        
+        image.lockFocus()
+        let docIcon = NSWorkspace.shared.icon(forFileType: "md")
+        docIcon.isTemplate = false
+        docIcon.draw(in: NSRect(x: 0, y: 0, width: 64, height: 64))
+        image.unlockFocus()
+        
+        return Image(nsImage: image)
     }
     
     // Bubble menu overlay positioned relatively in local coordinates
