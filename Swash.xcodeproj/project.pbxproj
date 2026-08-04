@@ -9,6 +9,9 @@
 /* Begin PBXBuildFile section */
 		0460136230045F6A00853817 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0460136130045F6A00853817 /* Sparkle */; };
 		0460137130045F6800853817 /* SwashQuickLookExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460137030045F6800853817 /* SwashQuickLookExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0460138130045F6800853817 /* SwashShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460138030045F6800853817 /* SwashShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0460139130045F6800853817 /* SwashThumbnailExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460139030045F6800853817 /* SwashThumbnailExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		046013A130045F6800853817 /* SwashWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 046013A030045F6800853817 /* SwashWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -18,6 +21,27 @@
 			proxyType = 1;
 			remoteGlobalIDString = 0460137330045F6800853817;
 			remoteInfo = SwashQuickLookExtension;
+		};
+		0460138230045F6800853817 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0460133830045F6800853817 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0460138330045F6800853817;
+			remoteInfo = SwashShareExtension;
+		};
+		0460139230045F6800853817 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0460133830045F6800853817 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0460139330045F6800853817;
+			remoteInfo = SwashThumbnailExtension;
+		};
+		046013A230045F6800853817 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0460133830045F6800853817 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 046013A330045F6800853817;
+			remoteInfo = SwashWidgetExtension;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -29,6 +53,9 @@
 			dstSubfolderSpec = 13;
 			files = (
 				0460137130045F6800853817 /* SwashQuickLookExtension.appex in Embed App Extensions */,
+				0460138130045F6800853817 /* SwashShareExtension.appex in Embed App Extensions */,
+				0460139130045F6800853817 /* SwashThumbnailExtension.appex in Embed App Extensions */,
+				046013A130045F6800853817 /* SwashWidgetExtension.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -38,6 +65,9 @@
 /* Begin PBXFileReference section */
 		0460134030045F6800853817 /* Swash.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Swash.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0460137030045F6800853817 /* SwashQuickLookExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SwashQuickLookExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0460138030045F6800853817 /* SwashShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SwashShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0460139030045F6800853817 /* SwashThumbnailExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SwashThumbnailExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		046013A030045F6800853817 /* SwashWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SwashWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -53,9 +83,11 @@
 			membershipExceptions = (
 				DefaultAppManager.swift,
 				Info.plist,
+				ServicesProvider.swift,
 				SettingsView.swift,
 				SparkleUpdater.swift,
 				SwashApp.swift,
+				SwashAppIntents.swift,
 			);
 			target = 0460137330045F6800853817 /* SwashQuickLookExtension */;
 		};
@@ -65,6 +97,27 @@
 				Info.plist,
 			);
 			target = 0460137330045F6800853817 /* SwashQuickLookExtension */;
+		};
+		0460138E30045F6800853817 /* Exceptions for "SwashShareExtension" folder in "SwashShareExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 0460138330045F6800853817 /* SwashShareExtension */;
+		};
+		0460139E30045F6800853817 /* Exceptions for "SwashThumbnailExtension" folder in "SwashThumbnailExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 0460139330045F6800853817 /* SwashThumbnailExtension */;
+		};
+		046013AE30045F6800853817 /* Exceptions for "SwashWidgetExtension" folder in "SwashWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 046013A330045F6800853817 /* SwashWidgetExtension */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -84,6 +137,30 @@
 				0460137E30045F6800853817 /* Exceptions for "SwashQuickLookExtension" folder in "SwashQuickLookExtension" target */,
 			);
 			path = SwashQuickLookExtension;
+			sourceTree = "<group>";
+		};
+		0460138630045F6800853817 /* SwashShareExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				0460138E30045F6800853817 /* Exceptions for "SwashShareExtension" folder in "SwashShareExtension" target */,
+			);
+			path = SwashShareExtension;
+			sourceTree = "<group>";
+		};
+		0460139630045F6800853817 /* SwashThumbnailExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				0460139E30045F6800853817 /* Exceptions for "SwashThumbnailExtension" folder in "SwashThumbnailExtension" target */,
+			);
+			path = SwashThumbnailExtension;
+			sourceTree = "<group>";
+		};
+		046013A630045F6800853817 /* SwashWidgetExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				046013AE30045F6800853817 /* Exceptions for "SwashWidgetExtension" folder in "SwashWidgetExtension" target */,
+			);
+			path = SwashWidgetExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -112,6 +189,9 @@
 			children = (
 				0460134230045F6800853817 /* Swash */,
 				0460137630045F6800853817 /* SwashQuickLookExtension */,
+				0460138630045F6800853817 /* SwashShareExtension */,
+				0460139630045F6800853817 /* SwashThumbnailExtension */,
+				046013A630045F6800853817 /* SwashWidgetExtension */,
 				0460134130045F6800853817 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -121,6 +201,9 @@
 			children = (
 				0460134030045F6800853817 /* Swash.app */,
 				0460137030045F6800853817 /* SwashQuickLookExtension.appex */,
+				0460138030045F6800853817 /* SwashShareExtension.appex */,
+				0460139030045F6800853817 /* SwashThumbnailExtension.appex */,
+				046013A030045F6800853817 /* SwashWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -142,6 +225,9 @@
 			);
 			dependencies = (
 				0460137430045F6800853817 /* PBXTargetDependency */,
+				0460138430045F6800853817 /* PBXTargetDependency */,
+				0460139430045F6800853817 /* PBXTargetDependency */,
+				046013A430045F6800853817 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				0460134230045F6800853817 /* Swash */,
@@ -175,6 +261,66 @@
 			productReference = 0460137030045F6800853817 /* SwashQuickLookExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		0460138330045F6800853817 /* SwashShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0460138A30045F6800853817 /* Build configuration list for PBXNativeTarget "SwashShareExtension" */;
+			buildPhases = (
+				0460138830045F6800853817 /* Sources */,
+				0460138930045F6800853817 /* Frameworks */,
+				0460138B30045F6800853817 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				0460138630045F6800853817 /* SwashShareExtension */,
+			);
+			name = SwashShareExtension;
+			productName = SwashShareExtension;
+			productReference = 0460138030045F6800853817 /* SwashShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		0460139330045F6800853817 /* SwashThumbnailExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0460139A30045F6800853817 /* Build configuration list for PBXNativeTarget "SwashThumbnailExtension" */;
+			buildPhases = (
+				0460139830045F6800853817 /* Sources */,
+				0460139930045F6800853817 /* Frameworks */,
+				0460139B30045F6800853817 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				0460139630045F6800853817 /* SwashThumbnailExtension */,
+			);
+			name = SwashThumbnailExtension;
+			productName = SwashThumbnailExtension;
+			productReference = 0460139030045F6800853817 /* SwashThumbnailExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		046013A330045F6800853817 /* SwashWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 046013AA30045F6800853817 /* Build configuration list for PBXNativeTarget "SwashWidgetExtension" */;
+			buildPhases = (
+				046013A830045F6800853817 /* Sources */,
+				046013A930045F6800853817 /* Frameworks */,
+				046013AB30045F6800853817 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				046013A630045F6800853817 /* SwashWidgetExtension */,
+			);
+			name = SwashWidgetExtension;
+			productName = SwashWidgetExtension;
+			productReference = 046013A030045F6800853817 /* SwashWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -189,6 +335,15 @@
 						CreatedOnToolsVersion = 26.3;
 					};
 					0460137330045F6800853817 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					0460138330045F6800853817 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					0460139330045F6800853817 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					046013A330045F6800853817 = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
@@ -212,6 +367,9 @@
 			targets = (
 				0460133F30045F6800853817 /* Swash */,
 				0460137330045F6800853817 /* SwashQuickLookExtension */,
+				0460138330045F6800853817 /* SwashShareExtension */,
+				0460139330045F6800853817 /* SwashThumbnailExtension */,
+				046013A330045F6800853817 /* SwashWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -225,6 +383,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		0460137B30045F6800853817 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0460138B30045F6800853817 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0460139B30045F6800853817 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		046013AB30045F6800853817 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -269,6 +448,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0460138830045F6800853817 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0460139830045F6800853817 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		046013A830045F6800853817 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -276,6 +476,21 @@
 			isa = PBXTargetDependency;
 			target = 0460137330045F6800853817 /* SwashQuickLookExtension */;
 			targetProxy = 0460137230045F6800853817 /* PBXContainerItemProxy */;
+		};
+		0460138430045F6800853817 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0460138330045F6800853817 /* SwashShareExtension */;
+			targetProxy = 0460138230045F6800853817 /* PBXContainerItemProxy */;
+		};
+		0460139430045F6800853817 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0460139330045F6800853817 /* SwashThumbnailExtension */;
+			targetProxy = 0460139230045F6800853817 /* PBXContainerItemProxy */;
+		};
+		046013A430045F6800853817 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 046013A330045F6800853817 /* SwashWidgetExtension */;
+			targetProxy = 046013A230045F6800853817 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -518,6 +733,180 @@
 			};
 			name = Release;
 		};
+		0460138C30045F6800853817 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 27;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SwashShareExtension/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../Contents/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.ShareExtension;
+				PRODUCT_MODULE_NAME = SwashShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		0460138D30045F6800853817 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 27;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SwashShareExtension/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../Contents/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.ShareExtension;
+				PRODUCT_MODULE_NAME = SwashShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		0460139C30045F6800853817 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 27;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SwashThumbnailExtension/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../Contents/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.ThumbnailExtension;
+				PRODUCT_MODULE_NAME = SwashThumbnailExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		0460139D30045F6800853817 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 27;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SwashThumbnailExtension/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../Contents/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.ThumbnailExtension;
+				PRODUCT_MODULE_NAME = SwashThumbnailExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		046013AC30045F6800853817 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 27;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SwashWidgetExtension/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../Contents/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.WidgetExtension;
+				PRODUCT_MODULE_NAME = SwashWidgetExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		046013AD30045F6800853817 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 27;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SwashWidgetExtension/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../Contents/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.WidgetExtension;
+				PRODUCT_MODULE_NAME = SwashWidgetExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -544,6 +933,33 @@
 			buildConfigurations = (
 				0460137C30045F6800853817 /* Debug */,
 				0460137D30045F6800853817 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0460138A30045F6800853817 /* Build configuration list for PBXNativeTarget "SwashShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0460138C30045F6800853817 /* Debug */,
+				0460138D30045F6800853817 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0460139A30045F6800853817 /* Build configuration list for PBXNativeTarget "SwashThumbnailExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0460139C30045F6800853817 /* Debug */,
+				0460139D30045F6800853817 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		046013AA30045F6800853817 /* Build configuration list for PBXNativeTarget "SwashWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				046013AC30045F6800853817 /* Debug */,
+				046013AD30045F6800853817 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
