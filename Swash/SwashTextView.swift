@@ -55,6 +55,17 @@ final class SwashLayoutManager: NSLayoutManager {
     }
 }
 
+final class SwashCustomTextView: NSTextView {
+    override func cursorUpdate(with event: NSEvent) {
+        let windowPoint = event.locationInWindow
+        if let window = window, let hitView = window.contentView?.hitTest(windowPoint), hitView !== self && !hitView.isDescendant(of: self) {
+            NSCursor.arrow.set()
+            return
+        }
+        super.cursorUpdate(with: event)
+    }
+}
+
 struct SwashTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var selectedRange: NSRange?
@@ -100,7 +111,7 @@ struct SwashTextView: NSViewRepresentable {
         textContainer.heightTracksTextView = false
         layoutManager.addTextContainer(textContainer)
         
-        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        let textView = SwashCustomTextView(frame: .zero, textContainer: textContainer)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]

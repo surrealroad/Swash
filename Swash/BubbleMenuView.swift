@@ -228,7 +228,7 @@ struct BubbleMenuView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
         )
-        .cursor(.pointingHand)
+        .cursor(.arrow)
     }
     
     @ViewBuilder
@@ -260,7 +260,7 @@ struct BubbleMenuView: View {
             .cornerRadius(6)
         }
         .menuStyle(.borderlessButton)
-        .cursor(.pointingHand)
+        .cursor(.arrow)
         .frame(width: 72)
         .help("Select code format or language")
         .transition(.asymmetric(
@@ -298,7 +298,7 @@ struct BubbleMenuView: View {
             .cornerRadius(6)
         }
         .menuStyle(.borderlessButton)
-        .cursor(.pointingHand)
+        .cursor(.arrow)
         .frame(width: 48)
         .help("Select heading level")
         .transition(.asymmetric(
@@ -373,7 +373,7 @@ struct LinkEditorPopoverView: View {
                         .foregroundColor(.red)
                     }
                     .buttonStyle(.plain)
-                    .cursor(.pointingHand)
+                    .cursor(.arrow)
                     .help("Remove link and keep text")
                 }
                 
@@ -381,7 +381,7 @@ struct LinkEditorPopoverView: View {
                 
                 Button("Cancel", action: onCancel)
                     .buttonStyle(.plain)
-                    .cursor(.pointingHand)
+                    .cursor(.arrow)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                 
@@ -395,7 +395,7 @@ struct LinkEditorPopoverView: View {
                         .cornerRadius(5)
                 }
                 .buttonStyle(.plain)
-                .cursor(.pointingHand)
+                .cursor(.arrow)
                 .disabled(urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -442,7 +442,7 @@ struct BubbleButton: View {
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
-        .cursor(.pointingHand)
+        .cursor(.arrow)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.1)) {
                 isHovered = hovering
@@ -479,10 +479,12 @@ final class NSCursorTrackingView: NSView {
     var cursor: NSCursor {
         didSet {
             if oldValue != cursor {
-                window?.invalidateCursorRects(for: self)
+                updateTrackingAreas()
             }
         }
     }
+
+    private var trackingArea: NSTrackingArea?
 
     init(cursor: NSCursor) {
         self.cursor = cursor
@@ -491,6 +493,36 @@ final class NSCursorTrackingView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = trackingArea {
+            removeTrackingArea(existing)
+        }
+        let options: NSTrackingArea.Options = [
+            .cursorUpdate,
+            .mouseEnteredAndExited,
+            .mouseMoved,
+            .activeInKeyWindow,
+            .activeInActiveApp,
+            .inVisibleRect
+        ]
+        let newArea = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        addTrackingArea(newArea)
+        trackingArea = newArea
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        cursor.set()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        cursor.set()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        cursor.set()
     }
 
     override func resetCursorRects() {
