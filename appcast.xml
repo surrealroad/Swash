@@ -3,12 +3,12 @@
     <channel>
         <title>Swash</title>
         <item>
-            <title>1.0.88</title>
-            <pubDate>Tue, 04 Aug 2026 08:10:56 +0000</pubDate>
-            <sparkle:version>88</sparkle:version>
-            <sparkle:shortVersionString>1.0.88</sparkle:shortVersionString>
+            <title>1.0.93</title>
+            <pubDate>Tue, 04 Aug 2026 10:08:46 +0000</pubDate>
+            <sparkle:version>93</sparkle:version>
+            <sparkle:shortVersionString>1.0.93</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.7</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/surrealroad/Swash/releases/download/v1.0.88/Swash-macOS.zip" length="6816802" type="application/octet-stream" sparkle:edSignature="el2iDtZ1baEPjD8y/nJGzgs29mbWMtjZZQ0BdF/y2U3KQ7xd634Ip4WsBv4uuQSNLdhVZixrcu/iSOmsYFXYBg=="/>
+            <enclosure url="https://github.com/surrealroad/Swash/releases/download/v1.0.93/Swash-macOS.zip" length="6816798" type="application/octet-stream" sparkle:edSignature="pIarYlxAbVJ6udsyqhVWBoc2UDnbBadkV+CT2S1sZftTqyzn+LWuZt/O22u6az7qFqeCyqKK8C5QhA27ILOWDA=="/>
         </item>
     </channel>
 </rss>
