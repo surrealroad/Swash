@@ -228,7 +228,6 @@ struct BubbleMenuView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
         )
-        .cursor(.arrow)
     }
     
     @ViewBuilder
@@ -260,7 +259,6 @@ struct BubbleMenuView: View {
             .cornerRadius(6)
         }
         .menuStyle(.borderlessButton)
-        .cursor(.arrow)
         .frame(width: 72)
         .help("Select code format or language")
         .transition(.asymmetric(
@@ -298,7 +296,6 @@ struct BubbleMenuView: View {
             .cornerRadius(6)
         }
         .menuStyle(.borderlessButton)
-        .cursor(.arrow)
         .frame(width: 48)
         .help("Select heading level")
         .transition(.asymmetric(
@@ -345,7 +342,6 @@ struct LinkEditorPopoverView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, design: .monospaced))
                     .focused($isTextFieldFocused)
-                    .cursor(.iBeam)
                     .onSubmit {
                         submit()
                     }
@@ -373,7 +369,6 @@ struct LinkEditorPopoverView: View {
                         .foregroundColor(.red)
                     }
                     .buttonStyle(.plain)
-                    .cursor(.arrow)
                     .help("Remove link and keep text")
                 }
                 
@@ -381,7 +376,6 @@ struct LinkEditorPopoverView: View {
                 
                 Button("Cancel", action: onCancel)
                     .buttonStyle(.plain)
-                    .cursor(.arrow)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                 
@@ -395,7 +389,6 @@ struct LinkEditorPopoverView: View {
                         .cornerRadius(5)
                 }
                 .buttonStyle(.plain)
-                .cursor(.arrow)
                 .disabled(urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -442,7 +435,6 @@ struct BubbleButton: View {
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
-        .cursor(.arrow)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.1)) {
                 isHovered = hovering
@@ -452,87 +444,52 @@ struct BubbleButton: View {
     }
 }
 
-// MARK: - NSCursor Helpers
+// MARK: - Bubble Menu AppKit Host View
 
-struct CursorModifier: ViewModifier {
-    let cursor: NSCursor
-
-    func body(content: Content) -> some View {
-        content
-            .background(CursorView(cursor: cursor))
-    }
-}
-
-struct CursorView: NSViewRepresentable {
-    let cursor: NSCursor
-
-    func makeNSView(context: Context) -> NSCursorTrackingView {
-        return NSCursorTrackingView(cursor: cursor)
-    }
-
-    func updateNSView(_ nsView: NSCursorTrackingView, context: Context) {
-        nsView.cursor = cursor
-    }
-}
-
-final class NSCursorTrackingView: NSView {
-    var cursor: NSCursor {
-        didSet {
-            if oldValue != cursor {
-                updateTrackingAreas()
-            }
-        }
-    }
-
-    private var trackingArea: NSTrackingArea?
-
-    init(cursor: NSCursor) {
-        self.cursor = cursor
-        super.init(frame: .zero)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
+final class BubbleMenuHostingView<Content: View>: NSHostingView<Content> {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let existing = trackingArea {
-            removeTrackingArea(existing)
-        }
+        trackingAreas.forEach { removeTrackingArea($0) }
         let options: NSTrackingArea.Options = [
-            .cursorUpdate,
             .mouseEnteredAndExited,
-            .mouseMoved,
+            .cursorUpdate,
             .activeInKeyWindow,
             .activeInActiveApp,
             .inVisibleRect
         ]
-        let newArea = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
-        addTrackingArea(newArea)
-        trackingArea = newArea
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        cursor.set()
+        let area = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        addTrackingArea(area)
     }
 
     override func mouseEntered(with event: NSEvent) {
-        cursor.set()
+        super.mouseEntered(with: event)
+        window?.invalidateCursorRects(for: self)
+        NSCursor.arrow.set()
     }
 
-    override func mouseMoved(with event: NSEvent) {
-        cursor.set()
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.arrow.set()
     }
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        addCursorRect(bounds, cursor: cursor)
+        discardCursorRects()
+        addCursorRect(visibleRect, cursor: .arrow)
     }
 }
 
-extension View {
-    func cursor(_ cursor: NSCursor) -> some View {
-        self.modifier(CursorModifier(cursor: cursor))
+struct BubbleMenuHostView<Content: View>: NSViewRepresentable {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    func makeNSView(context: Context) -> BubbleMenuHostingView<Content> {
+        return BubbleMenuHostingView(rootView: content)
+    }
+
+    func updateNSView(_ nsView: BubbleMenuHostingView<Content>, context: Context) {
+        nsView.rootView = content
     }
 }

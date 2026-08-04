@@ -288,37 +288,39 @@ struct ContentView: View {
                 let measuredWidth = bubbleMenuSize.width > 0 ? bubbleMenuSize.width : (activeCodeFormat != nil ? 426 : 380)
                 let measuredHeight = bubbleMenuSize.height > 0 ? bubbleMenuSize.height : 40
                 
-                BubbleMenuView(
-                    activeFormats: cellSelectionRect != nil ? cellActiveFormats : determineActiveFormats(),
-                    activeCodeFormat: activeCodeFormat,
-                    activeHeadingLevel: activeHeadingLevel,
-                    activeLink: activeLink,
-                    context: bubbleContext,
-                    onAction: { action in
-                        if cellSelectionRect != nil {
-                            if action == .table {
-                                NotificationCenter.default.post(name: .removeCurrentTable, object: nil)
-                                cellSelectionRect = nil
+                BubbleMenuHostView {
+                    BubbleMenuView(
+                        activeFormats: cellSelectionRect != nil ? cellActiveFormats : determineActiveFormats(),
+                        activeCodeFormat: activeCodeFormat,
+                        activeHeadingLevel: activeHeadingLevel,
+                        activeLink: activeLink,
+                        context: bubbleContext,
+                        onAction: { action in
+                            if cellSelectionRect != nil {
+                                if action == .table {
+                                    NotificationCenter.default.post(name: .removeCurrentTable, object: nil)
+                                    cellSelectionRect = nil
+                                } else {
+                                    NotificationCenter.default.post(name: .applyCellFormatting, object: nil, userInfo: ["action": action])
+                                }
                             } else {
-                                NotificationCenter.default.post(name: .applyCellFormatting, object: nil, userInfo: ["action": action])
+                                applyFormatting(action)
                             }
-                        } else {
-                            applyFormatting(action)
+                        },
+                        onSelectCodeFormat: { format in
+                            applyCodeFormat(format)
+                        },
+                        onSelectHeadingLevel: { level in
+                            applyHeadingLevel(level)
+                        },
+                        onApplyLink: { url in
+                            applyLink(url: url, activeLink: activeLink)
+                        },
+                        onRemoveLink: {
+                            removeLink(activeLink: activeLink)
                         }
-                    },
-                    onSelectCodeFormat: { format in
-                        applyCodeFormat(format)
-                    },
-                    onSelectHeadingLevel: { level in
-                        applyHeadingLevel(level)
-                    },
-                    onApplyLink: { url in
-                        applyLink(url: url, activeLink: activeLink)
-                    },
-                    onRemoveLink: {
-                        removeLink(activeLink: activeLink)
-                    }
-                )
+                    )
+                }
                 .background(
                     GeometryReader { menuGeo in
                         Color.clear.preference(key: BubbleMenuSizePreferenceKey.self, value: menuGeo.size)

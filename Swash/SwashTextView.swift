@@ -56,65 +56,10 @@ final class SwashLayoutManager: NSLayoutManager {
 }
 
 final class SwashCustomTextView: NSTextView {
-    var currentSelectionRect: NSRect? {
-        didSet {
-            if oldValue != currentSelectionRect {
-                window?.invalidateCursorRects(for: self)
-            }
-        }
-    }
-    
-    var currentBubbleMenuSize: CGSize = CGSize(width: 414, height: 40) {
-        didSet {
-            if oldValue != currentBubbleMenuSize {
-                window?.invalidateCursorRects(for: self)
-            }
-        }
-    }
-
-    private func calculateBubbleMenuFrame(selectionRect: NSRect) -> NSRect {
-        let width = currentBubbleMenuSize.width > 0 ? currentBubbleMenuSize.width : 414
-        let height = currentBubbleMenuSize.height > 0 ? currentBubbleMenuSize.height : 40
-        let spacing: CGFloat = 8
-        let padding: CGFloat = 12
-        
-        let viewWidth = bounds.width > 0 ? bounds.width : 800
-        let halfWidth = width / 2
-        let midX = selectionRect.midX
-        let minX = halfWidth + padding
-        let maxX = viewWidth - halfWidth - padding
-        let centerX = max(minX, min(midX, maxX))
-        let originX = centerX - halfWidth
-        
-        let showBelow = (selectionRect.minY - height - spacing) < 8
-        let originY: CGFloat
-        if showBelow {
-            originY = selectionRect.maxY + spacing
-        } else {
-            originY = selectionRect.minY - height - spacing
-        }
-        
-        return NSRect(x: originX - 4, y: max(0, originY - 4), width: width + 8, height: height + 8)
-    }
-
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        if let selectionRect = currentSelectionRect, !selectionRect.isEmpty {
-            let menuFrame = calculateBubbleMenuFrame(selectionRect: selectionRect)
-            addCursorRect(menuFrame, cursor: .arrow)
-        }
-    }
-
     override func cursorUpdate(with event: NSEvent) {
         let windowPoint = event.locationInWindow
-        if let window = window, let hitView = window.contentView?.hitTest(windowPoint), hitView !== self && !hitView.isDescendant(of: self) {
-            NSCursor.arrow.set()
-            return
-        }
-        if let selectionRect = currentSelectionRect, !selectionRect.isEmpty {
-            let menuFrame = calculateBubbleMenuFrame(selectionRect: selectionRect)
-            let mousePoint = convert(windowPoint, from: nil)
-            if menuFrame.contains(mousePoint) {
+        if let window = window, let hitView = window.contentView?.hitTest(windowPoint) {
+            if hitView !== self && !hitView.isDescendant(of: self) {
                 NSCursor.arrow.set()
                 return
             }
@@ -220,8 +165,6 @@ struct SwashTextView: NSViewRepresentable {
     
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? SwashCustomTextView else { return }
-        
-        textView.currentSelectionRect = selectionRect
         
         context.coordinator.isUpdatingFromSwiftUI = true
         context.coordinator.parent = self
