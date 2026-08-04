@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import AppKit
 
 enum FormatAction: Hashable {
     case bold
@@ -441,55 +440,5 @@ struct BubbleButton: View {
             }
         }
         .help(tooltip)
-    }
-}
-
-// MARK: - Bubble Menu AppKit Host View
-
-final class BubbleMenuHostingView<Content: View>: NSHostingView<Content> {
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        let options: NSTrackingArea.Options = [
-            .mouseEnteredAndExited,
-            .cursorUpdate,
-            .activeInKeyWindow,
-            .activeInActiveApp,
-            .inVisibleRect
-        ]
-        let area = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
-        addTrackingArea(area)
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        super.mouseEntered(with: event)
-        window?.invalidateCursorRects(for: self)
-        NSCursor.arrow.set()
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        NSCursor.arrow.set()
-    }
-
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        discardCursorRects()
-        addCursorRect(visibleRect, cursor: .arrow)
-    }
-}
-
-struct BubbleMenuHostView<Content: View>: NSViewRepresentable {
-    let content: Content
-
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-
-    func makeNSView(context: Context) -> BubbleMenuHostingView<Content> {
-        return BubbleMenuHostingView(rootView: content)
-    }
-
-    func updateNSView(_ nsView: BubbleMenuHostingView<Content>, context: Context) {
-        nsView.rootView = content
     }
 }
