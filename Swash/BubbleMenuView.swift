@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 enum FormatAction: Hashable {
     case bold
@@ -227,6 +228,7 @@ struct BubbleMenuView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
         )
+        .cursor(.pointingHand)
     }
     
     @ViewBuilder
@@ -258,6 +260,7 @@ struct BubbleMenuView: View {
             .cornerRadius(6)
         }
         .menuStyle(.borderlessButton)
+        .cursor(.pointingHand)
         .frame(width: 72)
         .help("Select code format or language")
         .transition(.asymmetric(
@@ -295,6 +298,7 @@ struct BubbleMenuView: View {
             .cornerRadius(6)
         }
         .menuStyle(.borderlessButton)
+        .cursor(.pointingHand)
         .frame(width: 48)
         .help("Select heading level")
         .transition(.asymmetric(
@@ -341,6 +345,7 @@ struct LinkEditorPopoverView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, design: .monospaced))
                     .focused($isTextFieldFocused)
+                    .cursor(.iBeam)
                     .onSubmit {
                         submit()
                     }
@@ -368,6 +373,7 @@ struct LinkEditorPopoverView: View {
                         .foregroundColor(.red)
                     }
                     .buttonStyle(.plain)
+                    .cursor(.pointingHand)
                     .help("Remove link and keep text")
                 }
                 
@@ -375,6 +381,7 @@ struct LinkEditorPopoverView: View {
                 
                 Button("Cancel", action: onCancel)
                     .buttonStyle(.plain)
+                    .cursor(.pointingHand)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                 
@@ -388,6 +395,7 @@ struct LinkEditorPopoverView: View {
                         .cornerRadius(5)
                 }
                 .buttonStyle(.plain)
+                .cursor(.pointingHand)
                 .disabled(urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -434,11 +442,65 @@ struct BubbleButton: View {
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
+        .cursor(.pointingHand)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.1)) {
                 isHovered = hovering
             }
         }
         .help(tooltip)
+    }
+}
+
+// MARK: - NSCursor Helpers
+
+struct CursorModifier: ViewModifier {
+    let cursor: NSCursor
+
+    func body(content: Content) -> some View {
+        content
+            .background(CursorView(cursor: cursor))
+    }
+}
+
+struct CursorView: NSViewRepresentable {
+    let cursor: NSCursor
+
+    func makeNSView(context: Context) -> NSCursorTrackingView {
+        return NSCursorTrackingView(cursor: cursor)
+    }
+
+    func updateNSView(_ nsView: NSCursorTrackingView, context: Context) {
+        nsView.cursor = cursor
+    }
+}
+
+final class NSCursorTrackingView: NSView {
+    var cursor: NSCursor {
+        didSet {
+            if oldValue != cursor {
+                window?.invalidateCursorRects(for: self)
+            }
+        }
+    }
+
+    init(cursor: NSCursor) {
+        self.cursor = cursor
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: cursor)
+    }
+}
+
+extension View {
+    func cursor(_ cursor: NSCursor) -> some View {
+        self.modifier(CursorModifier(cursor: cursor))
     }
 }
