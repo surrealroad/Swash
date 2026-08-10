@@ -16,7 +16,7 @@ struct SwashDocument: FileDocument {
     var text: String
     var flavor: MarkdownFlavor
 
-    init(text: String = "Hello, world!", flavor: MarkdownFlavor? = nil) {
+    init(text: String = "", flavor: MarkdownFlavor? = nil) {
         self.text = text
         self.flavor = flavor ?? MarkdownParser.detectFlavor(text)
     }
