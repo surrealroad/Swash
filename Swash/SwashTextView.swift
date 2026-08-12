@@ -202,6 +202,21 @@ class SwashNSTextView: NSTextView {
                         }
                     }
                     
+                    // Strip textBlocks from paragraphStyle so code blocks don't export as RTF table cells in target apps
+                    mutableChunk.enumerateAttribute(.paragraphStyle, in: chunkRange, options: []) { paraValue, subRange, _ in
+                        if let para = paraValue as? NSParagraphStyle, !para.textBlocks.isEmpty {
+                            let mutablePara = para.mutableCopy() as! NSMutableParagraphStyle
+                            mutablePara.textBlocks = []
+                            mutableChunk.addAttribute(.paragraphStyle, value: mutablePara, range: subRange)
+                            
+                            // Apply subtle background color fill for code blocks in rich text exports
+                            if mutableChunk.attribute(.backgroundColor, at: subRange.location, effectiveRange: nil) == nil {
+                                let codeBg = NSColor.textColor.withAlphaComponent(0.04)
+                                mutableChunk.addAttribute(.backgroundColor, value: codeBg, range: subRange)
+                            }
+                        }
+                    }
+                    
                     result.append(mutableChunk)
                 }
             } else {
