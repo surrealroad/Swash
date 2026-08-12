@@ -82,7 +82,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				DefaultAppManager.swift,
-				ExtensionManager.swift,
 				Info.plist,
 				ServicesProvider.swift,
 				SettingsView.swift,
@@ -267,6 +266,7 @@
 			buildConfigurationList = 0460138A30045F6800853817 /* Build configuration list for PBXNativeTarget "SwashShareExtension" */;
 			buildPhases = (
 				0460138830045F6800853817 /* Sources */,
+				0460138930045F6800853817 /* Frameworks */,
 				0460138B30045F6800853817 /* Resources */,
 			);
 			buildRules = (
@@ -286,6 +286,7 @@
 			buildConfigurationList = 0460139A30045F6800853817 /* Build configuration list for PBXNativeTarget "SwashThumbnailExtension" */;
 			buildPhases = (
 				0460139830045F6800853817 /* Sources */,
+				0460139930045F6800853817 /* Frameworks */,
 				0460139B30045F6800853817 /* Resources */,
 			);
 			buildRules = (
@@ -305,6 +306,7 @@
 			buildConfigurationList = 046013AA30045F6800853817 /* Build configuration list for PBXNativeTarget "SwashWidgetExtension" */;
 			buildPhases = (
 				046013A830045F6800853817 /* Sources */,
+				046013A930045F6800853817 /* Frameworks */,
 				046013AB30045F6800853817 /* Resources */,
 			);
 			buildRules = (
