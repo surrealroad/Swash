@@ -59,32 +59,44 @@ class SwashNSTextView: NSTextView {
     var isStyled: Bool = true
     var flavor: MarkdownFlavor = .github
     
-    override func copy(_ sender: Any?) {
-        guard isStyled else {
-            super.copy(sender)
-            return
+    override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        if isStyled {
+            return [.rtfd, .rtf, .html, .string]
         }
-        
-        let range = selectedRange()
-        guard range.length > 0, let textStorage = textStorage else {
-            super.copy(sender)
-            return
-        }
-        
-        copyFormattedWithRawFallback(range: range, textStorage: textStorage)
+        return super.writablePasteboardTypes
     }
     
-    private func copyFormattedWithRawFallback(range: NSRange, textStorage: NSTextStorage) {
-        let pasteboard = NSPasteboard.general
+    override func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
+        if isStyled {
+            return copyFormattedWithRawFallback(range: selectedRange(), pasteboard: pboard)
+        }
+        return super.writeSelection(to: pboard, types: types)
+    }
+    
+    override func writeSelection(to pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        if isStyled {
+            return copyFormattedWithRawFallback(range: selectedRange(), pasteboard: pboard)
+        }
+        return super.writeSelection(to: pboard, type: type)
+    }
+    
+    override func copy(_ sender: Any?) {
+        if isStyled {
+            _ = copyFormattedWithRawFallback(range: selectedRange(), pasteboard: NSPasteboard.general)
+        } else {
+            super.copy(sender)
+        }
+    }
+    
+    @discardableResult
+    private func copyFormattedWithRawFallback(range: NSRange, pasteboard: NSPasteboard) -> Bool {
+        guard range.length > 0, let textStorage = textStorage else { return false }
+        
         pasteboard.clearContents()
         
         let item = NSPasteboardItem()
         
-        // 1. Raw Markdown string (Fallback for plain-text applications)
-        let rawMarkdown = buildRawMarkdownSubstring(from: textStorage, range: range)
-        item.setString(rawMarkdown, forType: .string)
-        
-        // 2. Clean Formatted AttributedString (for Rich Text applications)
+        // 1. Clean Formatted AttributedString (Rich Text) - Set FIRST so rich text types are prioritized
         let cleanFormattedAttrString = createCleanFormattedAttributedString(from: textStorage, range: range)
         let fullCleanRange = NSRange(location: 0, length: cleanFormattedAttrString.length)
         
@@ -107,7 +119,11 @@ class SwashNSTextView: NSTextView {
             }
         }
         
-        pasteboard.writeObjects([item])
+        // 2. Raw Markdown string (Fallback for plain-text applications) - Set LAST as fallback
+        let rawMarkdown = buildRawMarkdownSubstring(from: textStorage, range: range)
+        item.setString(rawMarkdown, forType: .string)
+        
+        return pasteboard.writeObjects([item])
     }
     
     private func buildRawMarkdownSubstring(from textStorage: NSTextStorage, range: NSRange) -> String {
