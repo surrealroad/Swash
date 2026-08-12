@@ -76,22 +76,24 @@ final class DefaultAppManager: ObservableObject {
         }
     }
 
-    /// Prompts the user on launch if Swash is not the default app for .md files.
-    func checkAndPromptIfNecessary() {
-        guard !hasCheckedThisSession else { return }
+    /// Prompts the user on launch if Swash is not the default app for .md files. Returns true if prompt was shown.
+    @discardableResult
+    func checkAndPromptIfNecessary() -> Bool {
+        guard !hasCheckedThisSession else { return false }
         hasCheckedThisSession = true
 
         // Do not prompt if user explicitly chose "No" previously
         if UserDefaults.standard.bool(forKey: suppressKey) {
-            return
+            return false
         }
 
         // Do not prompt if Swash is already the default app
         if isSwashDefaultApp() {
-            return
+            return false
         }
 
         presentDefaultAppAlert()
+        return true
     }
 
     private func presentDefaultAppAlert() {
