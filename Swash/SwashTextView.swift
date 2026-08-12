@@ -147,14 +147,22 @@ class SwashNSTextView: NSTextView {
     private func createCleanFormattedAttributedString(from textStorage: NSTextStorage, range: NSRange) -> NSAttributedString {
         let subAttrString = textStorage.attributedSubstring(from: range)
         let result = NSMutableAttributedString()
+        let fullRange = NSRange(location: 0, length: subAttrString.length)
         
-        var idx = 0
-        let totalLen = subAttrString.length
+        let allowedKeys: Set<NSAttributedString.Key> = [
+            .font,
+            .foregroundColor,
+            .backgroundColor,
+            .underlineStyle,
+            .underlineColor,
+            .strikethroughStyle,
+            .strikethroughColor,
+            .link,
+            .paragraphStyle,
+            .attachment
+        ]
         
-        while idx < totalLen {
-            var effectiveRange = NSRange()
-            let attrs = subAttrString.attributes(at: idx, effectiveRange: &effectiveRange)
-            
+        subAttrString.enumerateAttributes(in: fullRange, options: []) { attrs, runRange, _ in
             var isHiddenTag = false
             if let font = attrs[.font] as? NSFont, font.pointSize < 1.0 {
                 isHiddenTag = true
@@ -164,18 +172,6 @@ class SwashNSTextView: NSTextView {
             }
             
             if !isHiddenTag {
-                let chunk = subAttrString.attributedSubstring(from: effectiveRange)
-                let mutableChunk = NSMutableAttributedString(attributedString: chunk)
-                
-                let chunkRange = NSRange(location: 0, length: mutableChunk.length)
-                mutableChunk.enumerateAttribute(.foregroundColor, in: chunkRange, options: []) { colorValue, attrRange, _ in
-                    if let color = colorValue as? NSColor {
-                        if color == NSColor.textColor || color == NSColor.labelColor || color == NSColor.clear {
-                            mutableChunk.removeAttribute(.foregroundColor, range: attrRange)
-                        }
-                    }
-                }
-                
                 if let attachment = attrs[.attachment] as? TableTextAttachment {
                     let tableText = convertTableToFormattedText(attachment.tableData)
                     let tableAttr = NSAttributedString(string: tableText, attributes: [
@@ -183,6 +179,29 @@ class SwashNSTextView: NSTextView {
                     ])
                     result.append(tableAttr)
                 } else {
+                    let chunk = subAttrString.attributedSubstring(from: runRange)
+                    let mutableChunk = NSMutableAttributedString(attributedString: chunk)
+                    
+                    let chunkRange = NSRange(location: 0, length: mutableChunk.length)
+                    
+                    // Strip non-standard / custom attributes (e.g. .listMarker) that break RTF serialization
+                    mutableChunk.enumerateAttributes(in: chunkRange, options: []) { chunkAttrs, subRange, _ in
+                        for key in chunkAttrs.keys {
+                            if !allowedKeys.contains(key) {
+                                mutableChunk.removeAttribute(key, range: subRange)
+                            }
+                        }
+                    }
+                    
+                    // Remove default text colors so pasted text adapts cleanly to target apps
+                    mutableChunk.enumerateAttribute(.foregroundColor, in: chunkRange, options: []) { colorValue, attrRange, _ in
+                        if let color = colorValue as? NSColor {
+                            if color == NSColor.textColor || color == NSColor.labelColor || color == NSColor.clear {
+                                mutableChunk.removeAttribute(.foregroundColor, range: attrRange)
+                            }
+                        }
+                    }
+                    
                     result.append(mutableChunk)
                 }
             } else {
@@ -193,8 +212,6 @@ class SwashNSTextView: NSTextView {
                     result.append(markerAttr)
                 }
             }
-            
-            idx = effectiveRange.location + effectiveRange.length
         }
         
         return result
