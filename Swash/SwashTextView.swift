@@ -990,7 +990,7 @@ struct SwashTextView: NSViewRepresentable {
                             textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             
                             // SwashLayoutManager draws a non-selectable "•" in the gutter margin
-                            textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: "•", indent: indent), range: validLineRange)
+                            textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: "•", indent: indent), range: rawMarkerRange)
                         } else if let numMarkerRange = trimmedLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
                             let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
                             let fullMarkerStr = String(trimmedLine[numMarkerRange])
@@ -1010,7 +1010,7 @@ struct SwashTextView: NSViewRepresentable {
                             textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             
                             // SwashLayoutManager draws a non-selectable "1." in the gutter margin using standard text color
-                            textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: numberDotStr, indent: indent), range: validLineRange)
+                            textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: numberDotStr, indent: indent), range: rawMarkerRange)
                         }
                     }
                 }
