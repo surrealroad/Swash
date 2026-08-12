@@ -55,6 +55,149 @@ final class SwashLayoutManager: NSLayoutManager {
     }
 }
 
+class SwashNSTextView: NSTextView {
+    var isStyled: Bool = true
+    var flavor: MarkdownFlavor = .github
+    
+    override func copy(_ sender: Any?) {
+        guard isStyled else {
+            super.copy(sender)
+            return
+        }
+        
+        let range = selectedRange()
+        guard range.length > 0, let textStorage = textStorage else {
+            super.copy(sender)
+            return
+        }
+        
+        copyFormattedWithRawFallback(range: range, textStorage: textStorage)
+    }
+    
+    private func copyFormattedWithRawFallback(range: NSRange, textStorage: NSTextStorage) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        
+        let item = NSPasteboardItem()
+        
+        // 1. Raw Markdown string (Fallback for plain-text applications)
+        let rawMarkdown = buildRawMarkdownSubstring(from: textStorage, range: range)
+        item.setString(rawMarkdown, forType: .string)
+        
+        // 2. Clean Formatted AttributedString (for Rich Text applications)
+        let cleanFormattedAttrString = createCleanFormattedAttributedString(from: textStorage, range: range)
+        let fullCleanRange = NSRange(location: 0, length: cleanFormattedAttrString.length)
+        
+        if fullCleanRange.length > 0 {
+            // RTF
+            if let rtfData = try? cleanFormattedAttrString.data(from: fullCleanRange, documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) {
+                item.setData(rtfData, forType: .rtf)
+            }
+            
+            // RTFD if attachments are present
+            if cleanFormattedAttrString.containsAttachments(in: fullCleanRange) {
+                if let rtfdData = try? cleanFormattedAttrString.data(from: fullCleanRange, documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]) {
+                    item.setData(rtfdData, forType: .rtfd)
+                }
+            }
+            
+            // HTML
+            if let htmlData = try? cleanFormattedAttrString.data(from: fullCleanRange, documentAttributes: [.documentType: NSAttributedString.DocumentType.html]) {
+                item.setData(htmlData, forType: .html)
+            }
+        }
+        
+        pasteboard.writeObjects([item])
+    }
+    
+    private func buildRawMarkdownSubstring(from textStorage: NSTextStorage, range: NSRange) -> String {
+        let selectedSubstring = textStorage.attributedSubstring(from: range)
+        let result = NSMutableString(string: selectedSubstring.string)
+        let fullRange = NSRange(location: 0, length: selectedSubstring.length)
+        
+        selectedSubstring.enumerateAttribute(.attachment, in: fullRange, options: .reverse) { value, attRange, _ in
+            if let tableAttachment = value as? TableTextAttachment {
+                let markdown = MarkdownParser.tableToMarkdown(
+                    headers: tableAttachment.tableData.headers,
+                    alignments: tableAttachment.tableData.alignments,
+                    rows: tableAttachment.tableData.rows
+                )
+                result.replaceCharacters(in: attRange, with: markdown)
+            }
+        }
+        return result as String
+    }
+    
+    private func createCleanFormattedAttributedString(from textStorage: NSTextStorage, range: NSRange) -> NSAttributedString {
+        let subAttrString = textStorage.attributedSubstring(from: range)
+        let result = NSMutableAttributedString()
+        
+        var idx = 0
+        let totalLen = subAttrString.length
+        
+        while idx < totalLen {
+            var effectiveRange = NSRange()
+            let attrs = subAttrString.attributes(at: idx, effectiveRange: &effectiveRange)
+            
+            var isHiddenTag = false
+            if let font = attrs[.font] as? NSFont, font.pointSize < 1.0 {
+                isHiddenTag = true
+            }
+            if let color = attrs[.foregroundColor] as? NSColor, color == .clear {
+                isHiddenTag = true
+            }
+            
+            if !isHiddenTag {
+                let chunk = subAttrString.attributedSubstring(from: effectiveRange)
+                let mutableChunk = NSMutableAttributedString(attributedString: chunk)
+                
+                let chunkRange = NSRange(location: 0, length: mutableChunk.length)
+                mutableChunk.enumerateAttribute(.foregroundColor, in: chunkRange, options: []) { colorValue, attrRange, _ in
+                    if let color = colorValue as? NSColor {
+                        if color == NSColor.textColor || color == NSColor.labelColor || color == NSColor.clear {
+                            mutableChunk.removeAttribute(.foregroundColor, range: attrRange)
+                        }
+                    }
+                }
+                
+                if let attachment = attrs[.attachment] as? TableTextAttachment {
+                    let tableText = convertTableToFormattedText(attachment.tableData)
+                    let tableAttr = NSAttributedString(string: tableText, attributes: [
+                        .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+                    ])
+                    result.append(tableAttr)
+                } else {
+                    result.append(mutableChunk)
+                }
+            } else {
+                if let markerInfo = attrs[.listMarker] as? ListMarkerInfo {
+                    let markerStr = "\(markerInfo.text) "
+                    let font = NSFont.systemFont(ofSize: 14, weight: .bold)
+                    let markerAttr = NSAttributedString(string: markerStr, attributes: [.font: font])
+                    result.append(markerAttr)
+                }
+            }
+            
+            idx = effectiveRange.location + effectiveRange.length
+        }
+        
+        return result
+    }
+    
+    private func convertTableToFormattedText(_ data: MarkdownTableData) -> String {
+        var lines: [String] = []
+        let cleanHeaders = data.headers.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        if !cleanHeaders.isEmpty {
+            lines.append(cleanHeaders.joined(separator: "\t"))
+        }
+        for row in data.rows {
+            let cleanCells = row.map { $0.trimmingCharacters(in: .whitespaces) }
+            lines.append(cleanCells.joined(separator: "\t"))
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
 struct SwashTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var selectedRange: NSRange?
@@ -100,7 +243,9 @@ struct SwashTextView: NSViewRepresentable {
         textContainer.heightTracksTextView = false
         layoutManager.addTextContainer(textContainer)
         
-        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        let textView = SwashNSTextView(frame: .zero, textContainer: textContainer)
+        textView.isStyled = isStyled
+        textView.flavor = flavor
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
@@ -151,7 +296,9 @@ struct SwashTextView: NSViewRepresentable {
     }
     
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-        guard let textView = nsView.documentView as? NSTextView else { return }
+        guard let textView = nsView.documentView as? SwashNSTextView else { return }
+        textView.isStyled = isStyled
+        textView.flavor = flavor
         
         context.coordinator.isUpdatingFromSwiftUI = true
         context.coordinator.parent = self
@@ -883,15 +1030,22 @@ struct SwashTextView: NSViewRepresentable {
                             let urlRange = match.range(at: 2)
                             let textRange = match.range(at: 3)
                             let rightPart = match.range(at: 4)
+                            let urlString = nsString.substring(with: urlRange)
                             
                             let validUrl = NSIntersectionRange(urlRange, NSRange(location: 0, length: textStorage.length))
                             if validUrl.length > 0 {
                                 textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: validUrl)
                                 textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: validUrl)
+                                if let url = URL(string: urlString) {
+                                    textStorage.addAttribute(.link, value: url, range: validUrl)
+                                }
                             }
                             
                             textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: textRange)
                             textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: textRange)
+                            if let url = URL(string: urlString) {
+                                textStorage.addAttribute(.link, value: url, range: textRange)
+                            }
                             hideRange(leftPart)
                             hideRange(rightPart)
                         }
@@ -907,8 +1061,12 @@ struct SwashTextView: NSViewRepresentable {
                             let leftPart = match.range(at: 1)
                             let urlRange = match.range(at: 2)
                             let rightPart = match.range(at: 3)
+                            let urlString = nsString.substring(with: urlRange)
                             textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: urlRange)
                             textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: urlRange)
+                            if let url = URL(string: urlString) {
+                                textStorage.addAttribute(.link, value: url, range: urlRange)
+                            }
                             hideRange(leftPart)
                             hideRange(rightPart)
                         }
@@ -958,17 +1116,32 @@ struct SwashTextView: NSViewRepresentable {
                 }
                 
                 // Links: [text](url)
-                applyRegex(pattern: "\\[(.*?)\\]\\((.*?)\\)", in: text) { matchRange, contentRange in
-                    textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: contentRange)
-                    textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
-                    
-                    let leftBracket = NSRange(location: matchRange.location, length: 1)
-                    let rightPartStart = contentRange.location + contentRange.length
-                    let rightPartLen = matchRange.location + matchRange.length - rightPartStart
-                    let rightPartRange = NSRange(location: rightPartStart, length: rightPartLen)
-                    
-                    hideRange(leftBracket)
-                    hideRange(rightPartRange)
+                if let markdownLinkRegex = try? NSRegularExpression(pattern: "\\[(.*?)\\]\\((.*?)\\)", options: []) {
+                    let nsString = text as NSString
+                    let matches = markdownLinkRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+                    for match in matches {
+                        if match.numberOfRanges >= 3 {
+                            let matchRange = match.range(at: 0)
+                            if isRangeInCodeBlock(matchRange, in: text) { continue }
+                            let contentRange = match.range(at: 1)
+                            let urlRange = match.range(at: 2)
+                            let urlString = nsString.substring(with: urlRange)
+                            
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: contentRange)
+                            textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
+                            if let url = URL(string: urlString) ?? URL(string: urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "") {
+                                textStorage.addAttribute(.link, value: url, range: contentRange)
+                            }
+                            
+                            let leftBracket = NSRange(location: matchRange.location, length: 1)
+                            let rightPartStart = contentRange.location + contentRange.length
+                            let rightPartLen = matchRange.location + matchRange.length - rightPartStart
+                            let rightPartRange = NSRange(location: rightPartStart, length: rightPartLen)
+                            
+                            hideRange(leftBracket)
+                            hideRange(rightPartRange)
+                        }
+                    }
                 }
             }
             
@@ -997,8 +1170,12 @@ struct SwashTextView: NSViewRepresentable {
                             isHidden = true
                         }
                         if !isHidden {
+                            let urlString = nsString.substring(with: validMatch)
                             textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: validMatch)
                             textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: validMatch)
+                            if let url = URL(string: urlString) ?? URL(string: urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "") {
+                                textStorage.addAttribute(.link, value: url, range: validMatch)
+                            }
                         }
                     }
                 }

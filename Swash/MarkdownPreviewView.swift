@@ -122,6 +122,7 @@ struct MarkdownPreviewView: View {
             .padding(.horizontal, 28)
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
         }
         .background(Color(NSColor.windowBackgroundColor).opacity(0.8))
     }

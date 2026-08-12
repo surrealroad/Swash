@@ -418,7 +418,9 @@ struct CellTextView: NSViewRepresentable {
         textContainer.lineFragmentPadding = 0
         layoutManager.addTextContainer(textContainer)
         
-        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        let textView = SwashNSTextView(frame: .zero, textContainer: textContainer)
+        textView.isStyled = true
+        textView.flavor = flavor
         textView.drawsBackground = false
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
@@ -439,6 +441,10 @@ struct CellTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ textView: NSTextView, context: Context) {
+        if let swashTextView = textView as? SwashNSTextView {
+            swashTextView.isStyled = true
+            swashTextView.flavor = flavor
+        }
         if textView.string != text {
             textView.string = text
             context.coordinator.highlightCellText(in: textView)
