@@ -1,12 +1,16 @@
 # Swash
 
-A **Native, High-Performance** macOS Markdown Editor crafted with Swift and SwiftUI.
+A **Native, High-Performance** macOS Markdown Editor crafted with Swift, SwiftUI, and AppKit.
 
-## Features
+## Feature Overview
 
-- ⚡ **Blazing-Fast Native Engine** – Instant rendering and smooth typing with `NSTextView`.
-- 🎨 **Styled Markdown & Code** – Rich typography with hidden markup delimiters.
-- 🫧 **Contextual Formatting** – Floating selection bubble menu for quick formatting.
+| Feature | Description | Engine |
+| :--- | :--- | :--- |
+| **Native Speed** | Instant rendering & low memory | AppKit `NSTextView` |
+| **Rich Styling** | Auto-styled pro markup & syntax | Custom `MarkdownParser` |
+| **Bubble Menu** | Contextual formatting overlay | SwiftUI Floating View |
+
+## Code Highlighting
 
 ```swift
 func greet(name: String) -> String {
@@ -16,4 +20,4 @@ func greet(name: String) -> String {
 }
 ```
 
-Enjoy writing in a calm, distraction-free environment designed for macOS.
+Enjoy a sleek, distraction-free writing environment designed natively for macOS.

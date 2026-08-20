@@ -434,6 +434,7 @@ struct SwashTextView: NSViewRepresentable {
         var isUpdatingFromSwiftUI = false
         var isProgrammaticScroll = false
         var isHighlighting = false
+        var didAutoSelect = false
         
         var lastStyledText: String? = nil
         var lastIsStyled: Bool? = nil
@@ -1268,6 +1269,22 @@ struct SwashTextView: NSViewRepresentable {
             lastStyledText = text
             lastIsStyled = true
             lastFlavor = parent.flavor
+            
+            let autoSelectRequested = ProcessInfo.processInfo.arguments.contains("--select-sample") || ProcessInfo.processInfo.environment["SWASH_AUTO_SELECT"] == "1"
+            if autoSelectRequested && !didAutoSelect {
+                didAutoSelect = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self, weak textView] in
+                    guard let self = self, let textView = textView else { return }
+                    textView.window?.makeKeyAndOrderFront(nil)
+                    textView.window?.makeFirstResponder(textView)
+                    let str = textView.string
+                    if let targetRange = str.range(of: "Native, High-Performance") {
+                        let nsRange = NSRange(targetRange, in: str)
+                        textView.setSelectedRange(nsRange)
+                        self.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification, object: textView))
+                    }
+                }
+            }
         }
         
         func applyPlainStyle(in textView: NSTextView) {

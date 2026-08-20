@@ -6,7 +6,8 @@ guard let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? 
 }
 
 for win in windowList {
-    if let owner = win[kCGWindowOwnerName as String] as? String, owner == "Swash",
+    if let owner = win[kCGWindowOwnerName as String] as? String,
+       owner.contains("Swash"),
        let windowID = win[kCGWindowNumber as String] as? Int,
        let bounds = win[kCGWindowBounds as String] as? [String: CGFloat],
        let width = bounds["Width"], width > 200 {

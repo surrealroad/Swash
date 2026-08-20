@@ -16,7 +16,7 @@ if [ ! -d "$APP_PATH" ]; then
 fi
 
 echo "Launching Swash with sample preview file..."
-open -a "$APP_PATH" "$SAMPLE_FILE"
+open -a "$APP_PATH" "$SAMPLE_FILE" --args --select-sample
 
 echo "Waiting for app window to render..."
 sleep 3
