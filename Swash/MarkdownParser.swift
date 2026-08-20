@@ -24,7 +24,7 @@ enum BlockType: Equatable {
     case heading(level: Int)
     case blockquote
     case codeBlock(code: String, language: String?)
-    case list(isOrdered: Bool, indentLevel: Int)
+    case list(isOrdered: Bool, indentLevel: Int, itemNumber: Int = 1)
     case taskList(isChecked: Bool, indentLevel: Int)
     case table(headers: [String], alignments: [TableAlignment], rows: [[String]])
     case horizontalRule
@@ -307,7 +307,7 @@ struct MarkdownParser {
             if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ") {
                 flushParagraph()
                 let indent = line.prefix(while: { $0 == " " || $0 == "\t" }).count / 2
-                blocks.append(MarkdownBlock(type: .list(isOrdered: false, indentLevel: indent), text: String(trimmed.dropFirst(2))))
+                blocks.append(MarkdownBlock(type: .list(isOrdered: false, indentLevel: indent, itemNumber: 1), text: String(trimmed.dropFirst(2))))
                 lineIndex += 1
                 continue
             }
@@ -317,8 +317,11 @@ struct MarkdownParser {
             if let range = trimmed.range(of: pattern, options: .regularExpression) {
                 flushParagraph()
                 let indent = line.prefix(while: { $0 == " " || $0 == "\t" }).count / 2
+                let prefixString = String(trimmed[range])
+                let numberString = prefixString.prefix(while: { $0.isNumber })
+                let itemNumber = Int(numberString) ?? 1
                 let content = trimmed.replacingCharacters(in: range, with: "")
-                blocks.append(MarkdownBlock(type: .list(isOrdered: true, indentLevel: indent), text: content))
+                blocks.append(MarkdownBlock(type: .list(isOrdered: true, indentLevel: indent, itemNumber: itemNumber), text: content))
                 lineIndex += 1
                 continue
             }

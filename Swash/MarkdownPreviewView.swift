@@ -46,8 +46,11 @@ struct PreviewScrollView<Content: View>: NSViewRepresentable {
         context.coordinator.parent = self
         if let hostingView = nsView.documentView as? NSHostingView<Content> {
             hostingView.rootView = content()
-            let targetHeight = hostingView.fittingSize.height
             let currentWidth = nsView.contentSize.width
+            if currentWidth > 0 {
+                hostingView.frame.size.width = currentWidth
+            }
+            let targetHeight = hostingView.fittingSize.height
             if hostingView.frame.height != targetHeight || hostingView.frame.width != currentWidth {
                 hostingView.frame = NSRect(x: 0, y: 0, width: currentWidth, height: max(targetHeight, nsView.contentSize.height))
             }
@@ -173,13 +176,13 @@ struct MarkdownPreviewView: View {
         case .codeBlock(let code, let language):
             CodeBlockView(code: code, language: language)
             
-        case .list(let isOrdered, let indentLevel):
+        case .list(let isOrdered, let indentLevel, let itemNumber):
             HStack(alignment: .top, spacing: 8) {
                 Spacer()
                     .frame(width: CGFloat(indentLevel * 18))
                 
                 if isOrdered {
-                    Text("1.")
+                    Text("\(itemNumber).")
                         .font(.body)
                         .foregroundColor(.secondary)
                 } else {
@@ -192,6 +195,7 @@ struct MarkdownPreviewView: View {
                 InlineMarkdownText(text: block.text, flavor: flavor)
                     .font(.body)
                     .lineSpacing(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.vertical, 1)
             
@@ -208,6 +212,7 @@ struct MarkdownPreviewView: View {
                 InlineMarkdownText(text: block.text, flavor: flavor)
                     .font(.body)
                     .lineSpacing(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.vertical, 1)
             
@@ -228,6 +233,7 @@ struct MarkdownPreviewView: View {
                 .font(.body)
                 .lineSpacing(4)
                 .foregroundColor(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
     
@@ -270,6 +276,7 @@ struct InlineMarkdownText: View {
     
     var body: some View {
         Text(attributedContent)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
