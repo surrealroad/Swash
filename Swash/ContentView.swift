@@ -480,53 +480,139 @@ struct ContentView: View {
         }
         
         // 5. Line-based blocks
-        let lineRange = (fullText as NSString).lineRange(for: range)
-        if let fullLineRange = Range(lineRange, in: fullText) {
-            let lineText = String(fullText[fullLineRange]).trimmingCharacters(in: .whitespaces)
-            if lineText.hasPrefix("###### ") {
-                active.insert(.h6)
-                active.insert(.heading)
-            } else if lineText.hasPrefix("##### ") {
-                active.insert(.h5)
-                active.insert(.heading)
-            } else if lineText.hasPrefix("#### ") {
-                active.insert(.h4)
-                active.insert(.heading)
-            } else if lineText.hasPrefix("### ") {
-                active.insert(.h3)
-                active.insert(.heading)
-            } else if lineText.hasPrefix("## ") {
-                active.insert(.h2)
-                active.insert(.heading)
-            } else if lineText.hasPrefix("# ") {
-                active.insert(.h1)
-                active.insert(.heading)
-            } else if lineText.hasPrefix("> ") {
-                active.insert(.quote)
-            } else if lineText.hasPrefix("- ") || lineText.hasPrefix("* ") || lineText.hasPrefix("+ ") {
-                active.insert(.bulletList)
-            } else if let _ = lineText.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
-                active.insert(.numberedList)
+        if let block = extractSelectedBlockLines(from: fullText, range: range) {
+            let lines = block.lines
+            let nonEmptyLines = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            let targetLines = nonEmptyLines.isEmpty ? lines : nonEmptyLines
+            
+            if !targetLines.isEmpty {
+                let infos = targetLines.map { parseLinePrefix($0) }
+                
+                if infos.allSatisfy({ $0.kind == .bulletList }) {
+                    active.insert(.bulletList)
+                }
+                if infos.allSatisfy({ $0.kind == .numberedList }) {
+                    active.insert(.numberedList)
+                }
+                if infos.allSatisfy({ $0.kind == .quote }) {
+                    active.insert(.quote)
+                }
+                if infos.allSatisfy({ if case .heading = $0.kind { return true }; return false }) {
+                    active.insert(.heading)
+                    if let firstKind = infos.first?.kind, infos.allSatisfy({ $0.kind == firstKind }) {
+                        switch firstKind {
+                        case .heading(1): active.insert(.h1)
+                        case .heading(2): active.insert(.h2)
+                        case .heading(3): active.insert(.h3)
+                        case .heading(4): active.insert(.h4)
+                        case .heading(5): active.insert(.h5)
+                        case .heading(6): active.insert(.h6)
+                        default: break
+                        }
+                    }
+                }
             }
         }
         
         return active
     }
     
-    private func determineActiveHeadingLevel() -> Int? {
-        guard let range = selectedRange else { return nil }
-        let fullText = document.text
+    // MARK: - Line & Block Helpers
+    
+    struct LinePrefixInfo {
+        let leadingSpaces: String
+        let rawPrefix: String
+        let cleanLine: String
+        let kind: Kind
+        
+        enum Kind: Equatable {
+            case none
+            case heading(level: Int)
+            case quote
+            case bulletList
+            case numberedList
+        }
+    }
+    
+    private func parseLinePrefix(_ line: String) -> LinePrefixInfo {
+        let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
+        let leadingSpaces = String(line.prefix(leadingSpacesCount))
+        let trimmed = String(line.dropFirst(leadingSpacesCount))
+        
+        if trimmed.hasPrefix("###### ") {
+            return LinePrefixInfo(leadingSpaces: leadingSpaces, rawPrefix: "###### ", cleanLine: String(trimmed.dropFirst(7)), kind: .heading(level: 6))
+        } else if trimmed.hasPrefix("##### ") {
+            return LinePrefixInfo(leadingSpaces: leadingSpaces, rawPrefix: "##### ", cleanLine: String(trimmed.dropFirst(6)), kind: .heading(level: 5))
+        } else if trimmed.hasPrefix("#### ") {
+            return LinePrefixInfo(leadingSpaces: leadingSpaces, rawPrefix: "#### ", cleanLine: String(trimmed.dropFirst(5)), kind: .heading(level: 4))
+        } else if trimmed.hasPrefix("### ") {
+            return LinePrefixInfo(leadingSpaces: leadingSpaces, rawPrefix: "### ", cleanLine: String(trimmed.dropFirst(4)), kind: .heading(level: 3))
+        } else if trimmed.hasPrefix("## ") {
+            return LinePrefixInfo(leadingSpaces: leadingSpaces, rawPrefix: "## ", cleanLine: String(trimmed.dropFirst(3)), kind: .heading(level: 2))
+        } else if trimmed.hasPrefix("# ") {
+            return LinePrefixInfo(leadingSpaces: leadingSpaces, rawPrefix: "# ", cleanLine: String(trimmed.dropFirst(2)), kind: .heading(level: 1))
+        } else if trimmed.hasPrefix("> ") {
+            return LinePrefixInfo(leadingSpaces: leadingSpaces, rawPrefix: "> ", cleanLine: String(trimmed.dropFirst(2)), kind: .quote)
+        } else if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ") {
+            return LinePrefixInfo(leadingSpaces: leadingSpaces, rawPrefix: String(trimmed.prefix(2)), cleanLine: String(trimmed.dropFirst(2)), kind: .bulletList)
+        } else if let matchRange = trimmed.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
+            let matchLen = trimmed[matchRange].count
+            let prefixStr = String(trimmed.prefix(matchLen))
+            return LinePrefixInfo(leadingSpaces: leadingSpaces, rawPrefix: prefixStr, cleanLine: String(trimmed.dropFirst(matchLen)), kind: .numberedList)
+        } else {
+            return LinePrefixInfo(leadingSpaces: leadingSpaces, rawPrefix: "", cleanLine: trimmed, kind: .none)
+        }
+    }
+    
+    struct SelectedBlock {
+        let lines: [String]
+        let hasTrailingNewline: Bool
+        let fullLineRange: Range<String.Index>
+    }
+    
+    private func extractSelectedBlockLines(from fullText: String, range: NSRange) -> SelectedBlock? {
         let lineRange = (fullText as NSString).lineRange(for: range)
         guard let fullLineRange = Range(lineRange, in: fullText) else { return nil }
-        let lineText = String(fullText[fullLineRange]).trimmingCharacters(in: .whitespaces)
         
-        if lineText.hasPrefix("###### ") { return 6 }
-        if lineText.hasPrefix("##### ") { return 5 }
-        if lineText.hasPrefix("#### ") { return 4 }
-        if lineText.hasPrefix("### ") { return 3 }
-        if lineText.hasPrefix("## ") { return 2 }
-        if lineText.hasPrefix("# ") { return 1 }
-        return nil
+        var selectedSubstring = String(fullText[fullLineRange])
+        let hasTrailingNewline = selectedSubstring.hasSuffix("\n")
+        if hasTrailingNewline {
+            selectedSubstring.removeLast()
+            if selectedSubstring.hasSuffix("\r") {
+                selectedSubstring.removeLast()
+            }
+        }
+        
+        let lines = selectedSubstring.components(separatedBy: "\n").map { line -> String in
+            if line.hasSuffix("\r") { return String(line.dropLast()) }
+            return line
+        }
+        
+        return SelectedBlock(lines: lines, hasTrailingNewline: hasTrailingNewline, fullLineRange: fullLineRange)
+    }
+    
+    private func determineActiveHeadingLevel() -> Int? {
+        guard let range = selectedRange,
+              let block = extractSelectedBlockLines(from: document.text, range: range) else { return nil }
+        
+        let nonEmptyLines = block.lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let targetLines = nonEmptyLines.isEmpty ? block.lines : nonEmptyLines
+        guard !targetLines.isEmpty else { return nil }
+        
+        var foundLevel: Int? = nil
+        for line in targetLines {
+            let info = parseLinePrefix(line)
+            if case .heading(let level) = info.kind {
+                if foundLevel == nil {
+                    foundLevel = level
+                } else if foundLevel != level {
+                    return nil
+                }
+            } else {
+                return nil
+            }
+        }
+        return foundLevel
     }
     
     private func determineSmartHeadingLevel() -> Int {
@@ -539,19 +625,10 @@ struct ContentView: View {
         let lines = precedingText.components(separatedBy: .newlines)
         
         for line in lines.reversed() {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("###### ") {
-                return 6
-            } else if trimmed.hasPrefix("##### ") {
-                return 5
-            } else if trimmed.hasPrefix("#### ") {
-                return 4
-            } else if trimmed.hasPrefix("### ") {
-                return 3
-            } else if trimmed.hasPrefix("## ") {
-                return 2
-            } else if trimmed.hasPrefix("# ") {
-                return 2
+            let info = parseLinePrefix(line)
+            if case .heading(let level) = info.kind {
+                if level == 1 { return 2 }
+                return level
             }
         }
         return 1
@@ -562,82 +639,74 @@ struct ContentView: View {
             return .codeBlock
         }
         
-        guard let range = selectedRange else { return .standard }
-        let fullText = document.text
-        let lineRange = (fullText as NSString).lineRange(for: range)
-        guard let fullLineRange = Range(lineRange, in: fullText) else { return .standard }
-        let lineText = String(fullText[fullLineRange]).trimmingCharacters(in: .whitespaces)
+        guard let range = selectedRange,
+              let block = extractSelectedBlockLines(from: document.text, range: range) else { return .standard }
         
-        if lineText.hasPrefix("|") || lineText.hasSuffix("|") || lineText.contains(" | ") {
-            return .tableCell
-        }
+        let nonEmptyLines = block.lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let targetLines = nonEmptyLines.isEmpty ? block.lines : nonEmptyLines
         
-        if lineText.hasPrefix("#") {
-            let hashes = lineText.prefix(while: { $0 == "#" })
-            if hashes.count >= 1 && hashes.count <= 6 && lineText.dropFirst(hashes.count).hasPrefix(" ") {
-                return .heading
+        for line in targetLines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("|") || trimmed.hasSuffix("|") || trimmed.contains(" | ") {
+                return .tableCell
             }
         }
         
-        if lineText.hasPrefix("> ") {
+        let kinds = targetLines.map { parseLinePrefix($0).kind }
+        if kinds.allSatisfy({ if case .heading = $0 { return true }; return false }) {
+            return .heading
+        }
+        if kinds.allSatisfy({ if case .quote = $0 { return true }; return false }) {
             return .blockquote
         }
-        
-        if lineText.hasPrefix("- ") || lineText.hasPrefix("* ") || lineText.hasPrefix("+ ") || lineText.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) != nil {
+        if kinds.allSatisfy({ if case .bulletList = $0 { return true }; return false }) ||
+           kinds.allSatisfy({ if case .numberedList = $0 { return true }; return false }) {
             return .listItem
+        }
+        
+        if kinds.contains(where: { if case .bulletList = $0 { return true }; if case .numberedList = $0 { return true }; return false }) {
+            return .listItem
+        }
+        if kinds.contains(where: { if case .heading = $0 { return true }; return false }) {
+            return .heading
+        }
+        if kinds.contains(where: { if case .quote = $0 { return true }; return false }) {
+            return .blockquote
         }
         
         return .standard
     }
     
     private func applyHeadingLevel(_ level: Int) {
-        guard let range = selectedRange else { return }
+        guard let range = selectedRange,
+              let block = extractSelectedBlockLines(from: document.text, range: range) else { return }
+        
         let fullText = document.text
-        let lineRange = (fullText as NSString).lineRange(for: range)
-        guard let fullLineRange = Range(lineRange, in: fullText) else { return }
+        let blockPrefix = String(repeating: "#", count: level) + " "
         
-        let lineText = String(fullText[fullLineRange])
-        var cleanLine = lineText
-        var removedPrefix = ""
-        
-        if cleanLine.hasPrefix("###### ") {
-            removedPrefix = "###### "
-            cleanLine.removeFirst(7)
-        } else if cleanLine.hasPrefix("##### ") {
-            removedPrefix = "##### "
-            cleanLine.removeFirst(6)
-        } else if cleanLine.hasPrefix("#### ") {
-            removedPrefix = "#### "
-            cleanLine.removeFirst(5)
-        } else if cleanLine.hasPrefix("### ") {
-            removedPrefix = "### "
-            cleanLine.removeFirst(4)
-        } else if cleanLine.hasPrefix("## ") {
-            removedPrefix = "## "
-            cleanLine.removeFirst(3)
-        } else if cleanLine.hasPrefix("# ") {
-            removedPrefix = "# "
-            cleanLine.removeFirst(2)
-        } else if cleanLine.hasPrefix("> ") {
-            removedPrefix = "> "
-            cleanLine.removeFirst(2)
-        } else if cleanLine.hasPrefix("- ") || cleanLine.hasPrefix("* ") || cleanLine.hasPrefix("+ ") {
-            removedPrefix = String(cleanLine.prefix(2))
-            cleanLine.removeFirst(2)
-        } else if let matchRange = cleanLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
-            let matchLen = cleanLine[matchRange].count
-            removedPrefix = String(cleanLine.prefix(matchLen))
-            cleanLine.removeFirst(matchLen)
+        var newLines: [String] = []
+        var firstLineShift = 0
+        for (index, line) in block.lines.enumerated() {
+            let info = parseLinePrefix(line)
+            newLines.append("\(info.leadingSpaces)\(blockPrefix)\(info.cleanLine)")
+            if index == 0 {
+                firstLineShift = blockPrefix.count - info.rawPrefix.count
+            }
         }
         
-        let blockPrefix = String(repeating: "#", count: level) + " "
-        let formatted = "\(blockPrefix)\(cleanLine)"
-        let newText = fullText.replacingCharacters(in: fullLineRange, with: formatted)
+        var formatted = newLines.joined(separator: "\n")
+        if block.hasTrailingNewline { formatted += "\n" }
+        
+        let newText = fullText.replacingCharacters(in: block.fullLineRange, with: formatted)
         document.text = newText
         
-        let shift = blockPrefix.count - removedPrefix.count
-        if range.location + shift >= 0 {
-            selectedRange = NSRange(location: range.location + shift, length: range.length)
+        let oldNSRange = NSRange(block.fullLineRange, in: fullText)
+        if range.length == 0 {
+            let newLoc = max(0, range.location + firstLineShift)
+            selectedRange = NSRange(location: newLoc, length: 0)
+        } else {
+            let newLen = (formatted as NSString).length - (block.hasTrailingNewline ? 1 : 0)
+            selectedRange = NSRange(location: oldNSRange.location, length: max(0, newLen))
         }
     }
     
@@ -751,35 +820,30 @@ struct ContentView: View {
         case .heading:
             if determineActiveHeadingLevel() != nil {
                 // Toggle heading OFF
-                let lineRange = (fullText as NSString).lineRange(for: range)
-                guard let fullLineRange = Range(lineRange, in: fullText) else { return }
-                let lineText = String(fullText[fullLineRange])
-                var cleanLine = lineText
-                var removedPrefix = ""
-                
-                if cleanLine.hasPrefix("###### ") {
-                    removedPrefix = "###### "
-                    cleanLine.removeFirst(7)
-                } else if cleanLine.hasPrefix("##### ") {
-                    removedPrefix = "##### "
-                    cleanLine.removeFirst(6)
-                } else if cleanLine.hasPrefix("#### ") {
-                    removedPrefix = "#### "
-                    cleanLine.removeFirst(5)
-                } else if cleanLine.hasPrefix("### ") {
-                    removedPrefix = "### "
-                    cleanLine.removeFirst(4)
-                } else if cleanLine.hasPrefix("## ") {
-                    removedPrefix = "## "
-                    cleanLine.removeFirst(3)
-                } else if cleanLine.hasPrefix("# ") {
-                    removedPrefix = "# "
-                    cleanLine.removeFirst(2)
+                guard let block = extractSelectedBlockLines(from: fullText, range: range) else { return }
+                var newLines: [String] = []
+                var firstLineShift = 0
+                for (index, line) in block.lines.enumerated() {
+                    let info = parseLinePrefix(line)
+                    newLines.append("\(info.leadingSpaces)\(info.cleanLine)")
+                    if index == 0 {
+                        firstLineShift = -info.rawPrefix.count
+                    }
                 }
+                var formatted = newLines.joined(separator: "\n")
+                if block.hasTrailingNewline { formatted += "\n" }
                 
-                let newText = fullText.replacingCharacters(in: fullLineRange, with: cleanLine)
+                let newText = fullText.replacingCharacters(in: block.fullLineRange, with: formatted)
                 document.text = newText
-                newSelectedRange = NSRange(location: max(0, range.location - removedPrefix.count), length: range.length)
+                
+                let oldNSRange = NSRange(block.fullLineRange, in: fullText)
+                if range.length == 0 {
+                    let newLoc = max(0, range.location + firstLineShift)
+                    newSelectedRange = NSRange(location: newLoc, length: 0)
+                } else {
+                    let newLen = (formatted as NSString).length - (block.hasTrailingNewline ? 1 : 0)
+                    newSelectedRange = NSRange(location: oldNSRange.location, length: max(0, newLen))
+                }
             } else {
                 // Toggle heading ON with smart level based on context
                 let targetLevel = determineSmartHeadingLevel()
@@ -881,64 +945,52 @@ struct ContentView: View {
             }
             
         case .quote, .bulletList, .numberedList:
-            let lineRange = (fullText as NSString).lineRange(for: range)
-            guard let fullLineRange = Range(lineRange, in: fullText) else { return }
+            guard let block = extractSelectedBlockLines(from: fullText, range: range) else { return }
+            let lines = block.lines
             
-            let lineText = String(fullText[fullLineRange])
-            var cleanLine = lineText
-            
-            var removedPrefix = ""
-            if cleanLine.hasPrefix("# ") {
-                removedPrefix = "# "
-                cleanLine.removeFirst(2)
-            } else if cleanLine.hasPrefix("## ") {
-                removedPrefix = "## "
-                cleanLine.removeFirst(3)
-            } else if cleanLine.hasPrefix("### ") {
-                removedPrefix = "### "
-                cleanLine.removeFirst(4)
-            } else if cleanLine.hasPrefix("#### ") {
-                removedPrefix = "#### "
-                cleanLine.removeFirst(5)
-            } else if cleanLine.hasPrefix("##### ") {
-                removedPrefix = "##### "
-                cleanLine.removeFirst(6)
-            } else if cleanLine.hasPrefix("###### ") {
-                removedPrefix = "###### "
-                cleanLine.removeFirst(7)
-            } else if cleanLine.hasPrefix("> ") {
-                removedPrefix = "> "
-                cleanLine.removeFirst(2)
-            } else if cleanLine.hasPrefix("- ") || cleanLine.hasPrefix("* ") || cleanLine.hasPrefix("+ ") {
-                removedPrefix = String(cleanLine.prefix(2))
-                cleanLine.removeFirst(2)
-            } else if let matchRange = cleanLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
-                let matchLen = cleanLine[matchRange].count
-                removedPrefix = String(cleanLine.prefix(matchLen))
-                cleanLine.removeFirst(matchLen)
-            }
-            
-            let blockPrefix: String
-            switch action {
-            case .quote: blockPrefix = "> "
-            case .bulletList: blockPrefix = "- "
-            case .numberedList: blockPrefix = "1. "
-            default: blockPrefix = ""
-            }
+            var newLines: [String] = []
+            var firstLineShift = 0
             
             if isActive {
-                formatted = cleanLine
-                let newText = fullText.replacingCharacters(in: fullLineRange, with: formatted)
-                document.text = newText
-                
-                newSelectedRange = NSRange(location: range.location - removedPrefix.count, length: range.length)
+                // UNTOGGLE (remove block formatting)
+                for (index, line) in lines.enumerated() {
+                    let info = parseLinePrefix(line)
+                    newLines.append("\(info.leadingSpaces)\(info.cleanLine)")
+                    if index == 0 {
+                        firstLineShift = -info.rawPrefix.count
+                    }
+                }
             } else {
-                formatted = "\(blockPrefix)\(cleanLine)"
-                let newText = fullText.replacingCharacters(in: fullLineRange, with: formatted)
-                document.text = newText
-                
-                let shift = blockPrefix.count - removedPrefix.count
-                newSelectedRange = NSRange(location: range.location + shift, length: range.length)
+                // TOGGLE ON (apply block formatting)
+                for (index, line) in lines.enumerated() {
+                    let info = parseLinePrefix(line)
+                    let blockPrefix: String
+                    switch action {
+                    case .quote: blockPrefix = "> "
+                    case .bulletList: blockPrefix = "- "
+                    case .numberedList: blockPrefix = "\(index + 1). "
+                    default: blockPrefix = ""
+                    }
+                    newLines.append("\(info.leadingSpaces)\(blockPrefix)\(info.cleanLine)")
+                    if index == 0 {
+                        firstLineShift = blockPrefix.count - info.rawPrefix.count
+                    }
+                }
+            }
+            
+            var formatted = newLines.joined(separator: "\n")
+            if block.hasTrailingNewline { formatted += "\n" }
+            
+            let newText = fullText.replacingCharacters(in: block.fullLineRange, with: formatted)
+            document.text = newText
+            
+            let oldNSRange = NSRange(block.fullLineRange, in: fullText)
+            if range.length == 0 {
+                let newLoc = max(0, range.location + firstLineShift)
+                newSelectedRange = NSRange(location: newLoc, length: 0)
+            } else {
+                let newLen = (formatted as NSString).length - (block.hasTrailingNewline ? 1 : 0)
+                newSelectedRange = NSRange(location: oldNSRange.location, length: max(0, newLen))
             }
         case .table:
             if cellSelectionRect != nil {
