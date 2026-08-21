@@ -228,6 +228,68 @@ struct MarkdownPreviewView: View {
             Divider()
                 .padding(.vertical, 12)
             
+        case .alertCallout(let type, let text):
+            let color: Color = {
+                switch type {
+                case .note: return .blue
+                case .tip: return .green
+                case .important: return .purple
+                case .warning: return .orange
+                case .caution: return .red
+                }
+            }()
+            let iconName: String = {
+                switch type {
+                case .note: return "info.circle.fill"
+                case .tip: return "lightbulb.fill"
+                case .important: return "exclamationmark.circle.fill"
+                case .warning: return "exclamationmark.triangle.fill"
+                case .caution: return "octagon.fill"
+                }
+            }()
+            
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(color)
+                    .frame(width: 4)
+                
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: iconName)
+                            .foregroundColor(color)
+                            .font(.system(size: 13, weight: .bold))
+                        Text(type.title)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(color)
+                    }
+                    
+                    if !text.isEmpty {
+                        InlineMarkdownText(text: text, flavor: flavor)
+                            .font(.body)
+                            .lineSpacing(3)
+                            .foregroundColor(.primary)
+                    }
+                }
+                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(color.opacity(0.06))
+            }
+            .cornerRadius(6)
+            .padding(.vertical, 6)
+            
+        case .footnoteDefinition(let label, let text):
+            HStack(alignment: .top, spacing: 6) {
+                Text("[\(label)]:")
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(.secondary)
+                InlineMarkdownText(text: text, flavor: flavor)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.vertical, 2)
+            
         case .paragraph:
             InlineMarkdownText(text: block.text, flavor: flavor)
                 .font(.body)
@@ -248,13 +310,122 @@ struct MarkdownPreviewView: View {
     }
 }
 
-// Safely handles inline markdown components via standard AttributedString
+struct MarkdownImageView: View {
+    let alt: String
+    let urlString: String
+    
+    var body: some View {
+        if let url = URL(string: urlString), url.scheme == "http" || url.scheme == "https" {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .empty:
+                    HStack {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(alt.isEmpty ? "Loading image..." : alt)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(8)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(6)
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .cornerRadius(6)
+                case .failure:
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo.badge.exclamationmark")
+                            .foregroundColor(.secondary)
+                        Text(alt.isEmpty ? urlString : alt)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(8)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(6)
+                @unknown default:
+                    EmptyView()
+                }
+            }
+        } else if let nsImage = NSImage(contentsOfFile: urlString) ?? NSImage(contentsOf: URL(fileURLWithPath: urlString)) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .cornerRadius(6)
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: "photo")
+                    .foregroundColor(.secondary)
+                Text(alt.isEmpty ? urlString : alt)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(8)
+            .background(Color.secondary.opacity(0.1))
+            .cornerRadius(6)
+        }
+    }
+}
+
+// Safely handles inline markdown components via standard AttributedString and inline image extraction
 struct InlineMarkdownText: View {
     let text: String
     let flavor: MarkdownFlavor
     
-    private var attributedContent: AttributedString {
-        let processedText = flavor == .slack ? MarkdownParser.convertSlackToGithub(text) : text
+    private enum Segment: Identifiable {
+        var id: String {
+            switch self {
+            case .text(let str): return "t_\(str.hashValue)"
+            case .image(let alt, let url): return "i_\(alt)_\(url)"
+            }
+        }
+        case text(String)
+        case image(alt: String, url: String)
+    }
+    
+    private var segments: [Segment] {
+        var result: [Segment] = []
+        let pattern = "!\\[(.*?)\\]\\((.*?)\\)"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return [.text(text)]
+        }
+        
+        let nsString = text as NSString
+        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+        
+        if matches.isEmpty {
+            return [.text(text)]
+        }
+        
+        var lastIndex = 0
+        for match in matches {
+            let matchRange = match.range(at: 0)
+            if matchRange.location > lastIndex {
+                let sub = nsString.substring(with: NSRange(location: lastIndex, length: matchRange.location - lastIndex))
+                if !sub.isEmpty {
+                    result.append(.text(sub))
+                }
+            }
+            let alt = match.numberOfRanges > 1 ? nsString.substring(with: match.range(at: 1)) : ""
+            let url = match.numberOfRanges > 2 ? nsString.substring(with: match.range(at: 2)) : ""
+            result.append(.image(alt: alt, url: url))
+            lastIndex = matchRange.location + matchRange.length
+        }
+        
+        if lastIndex < nsString.length {
+            let sub = nsString.substring(with: NSRange(location: lastIndex, length: nsString.length - lastIndex))
+            if !sub.isEmpty {
+                result.append(.text(sub))
+            }
+        }
+        
+        return result
+    }
+    
+    private func attributedContent(for rawText: String) -> AttributedString {
+        let processedText = flavor == .slack ? MarkdownParser.convertSlackToGithub(rawText) : rawText
         let autolinkedText = MarkdownParser.autolinkBareURLs(processedText)
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace,
@@ -265,18 +436,26 @@ struct InlineMarkdownText: View {
                 if run.link != nil {
                     attributedString[run.range].underlineStyle = .single
                     attributedString[run.range].foregroundColor = .accentColor
-                    attributedString[run.range].link = nil
                 }
             }
             return attributedString
         } else {
-            return AttributedString(text)
+            return AttributedString(rawText)
         }
     }
     
     var body: some View {
-        Text(attributedContent)
-            .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(segments) { segment in
+                switch segment {
+                case .text(let str):
+                    Text(attributedContent(for: str))
+                        .fixedSize(horizontal: false, vertical: true)
+                case .image(let alt, let url):
+                    MarkdownImageView(alt: alt, urlString: url)
+                }
+            }
+        }
     }
 }
 

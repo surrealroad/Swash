@@ -983,6 +983,14 @@ struct SwashTextView: NSViewRepresentable {
                         textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 15, weight: .bold), range: validLineRange)
                         let hashRange = NSRange(location: currentOffset, length: min(lineLength, 5))
                         hideRange(hashRange)
+                    } else if line.hasPrefix("##### ") {
+                        textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 14, weight: .bold), range: validLineRange)
+                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, 6))
+                        hideRange(hashRange)
+                    } else if line.hasPrefix("###### ") {
+                        textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 13, weight: .bold), range: validLineRange)
+                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, 7))
+                        hideRange(hashRange)
                     } else if line.hasPrefix("> ") {
                         textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: validLineRange)
                         let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
@@ -1124,6 +1132,14 @@ struct SwashTextView: NSViewRepresentable {
             } else {
                 // GitHub / Standard Markdown
                 
+                // Combined Bold + Italic: ***text***
+                applyRegex(pattern: "(?<!\\*)\\*\\*\\*([^*\\n]+?)\\*\\*\\*(?!\\*)", in: text) { matchRange, contentRange in
+                    let boldItalicFont = NSFontManager.shared.convert(NSFont.systemFont(ofSize: 14, weight: .bold), toHaveTrait: .italicFontMask)
+                    textStorage.addAttribute(.font, value: boldItalicFont, range: contentRange)
+                    hideRange(NSRange(location: matchRange.location, length: 3))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - 3, length: 3))
+                }
+                
                 // Bold: **text**
                 applyRegex(pattern: "(?<!\\*)\\*\\*([^*\\n]+?)\\*\\*(?!\\*)", in: text) { matchRange, contentRange in
                     let boldFont = NSFont.systemFont(ofSize: 14, weight: .bold)
@@ -1156,12 +1172,13 @@ struct SwashTextView: NSViewRepresentable {
                     hideRange(NSRange(location: matchRange.location + matchRange.length - 2, length: 2))
                 }
                 
-                // Inline Code: `code`
-                applyRegex(pattern: "`([^`\\n]+)`", in: text) { matchRange, contentRange in
+                // Multi-backtick / Single-backtick Inline Code: ``code`` or `code`
+                applyRegex(pattern: "(?:``([^`\\n]+?)``|`([^`\\n]+)`)", in: text) { matchRange, contentRange in
                     textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: contentRange)
                     textStorage.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: contentRange)
-                    hideRange(NSRange(location: matchRange.location, length: 1))
-                    hideRange(NSRange(location: matchRange.location + matchRange.length - 1, length: 1))
+                    let fenceLen = (text as NSString).substring(with: matchRange).hasPrefix("``") ? 2 : 1
+                    hideRange(NSRange(location: matchRange.location, length: fenceLen))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - fenceLen, length: fenceLen))
                 }
                 
                 // Links: [text](url)
@@ -1194,8 +1211,9 @@ struct SwashTextView: NSViewRepresentable {
                 }
             }
             
-            // Bare URLs for both flavors: https?://...
-            if let bareUrlRegex = try? NSRegularExpression(pattern: "https?://[^\\s<>\"'\\)]+", options: []) {
+            // Bare URLs, www. domains, and emails for both flavors
+            let urlPattern = "(?:https?://|www\\.)[^\\s<>\"'\\)]+|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+            if let bareUrlRegex = try? NSRegularExpression(pattern: urlPattern, options: []) {
                 let nsString = text as NSString
                 let matches = bareUrlRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
                 for match in matches {
@@ -1220,9 +1238,17 @@ struct SwashTextView: NSViewRepresentable {
                         }
                         if !isHidden {
                             let urlString = nsString.substring(with: validMatch)
+                            let targetUrlString: String
+                            if urlString.hasPrefix("www.") {
+                                targetUrlString = "https://\(urlString)"
+                            } else if urlString.contains("@") && !urlString.hasPrefix("http") {
+                                targetUrlString = "mailto:\(urlString)"
+                            } else {
+                                targetUrlString = urlString
+                            }
                             textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: validMatch)
                             textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: validMatch)
-                            if let url = URL(string: urlString) ?? URL(string: urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "") {
+                            if let url = URL(string: targetUrlString) ?? URL(string: targetUrlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "") {
                                 textStorage.addAttribute(.link, value: url, range: validMatch)
                             }
                         }
