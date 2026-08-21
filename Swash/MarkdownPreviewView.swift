@@ -318,25 +318,58 @@ struct MarkdownImageView: View {
     var baseURL: URL? = nil
     
     private var resolvedNSImage: NSImage? {
-        if let direct = NSImage(contentsOfFile: urlString) ?? NSImage(contentsOf: URL(fileURLWithPath: urlString)) {
+        let cleanURLString = urlString.trimmingCharacters(in: .whitespaces)
+        
+        // 1. Direct path check
+        if let direct = NSImage(contentsOfFile: cleanURLString) ?? NSImage(contentsOf: URL(fileURLWithPath: cleanURLString)) {
             return direct
         }
+        
+        // 2. Percent-decoded direct path check
+        if let decoded = cleanURLString.removingPercentEncoding,
+           let img = NSImage(contentsOfFile: decoded) ?? NSImage(contentsOf: URL(fileURLWithPath: decoded)) {
+            return img
+        }
+        
+        // 3. Collect candidate base URLs
+        var candidateBaseURLs: [URL] = []
         if let base = baseURL {
-            let folderURL = base.hasDirectoryPath ? base : base.deletingLastPathComponent()
-            let resolvedURL = folderURL.appendingPathComponent(urlString)
-            if let img = NSImage(contentsOfFile: resolvedURL.path) ?? NSImage(contentsOf: resolvedURL) {
-                return img
-            }
-            let parentURL = folderURL.deletingLastPathComponent().appendingPathComponent(urlString)
-            if let img = NSImage(contentsOfFile: parentURL.path) ?? NSImage(contentsOf: parentURL) {
-                return img
+            candidateBaseURLs.append(base)
+        }
+        for doc in NSDocumentController.shared.documents {
+            if let docURL = doc.fileURL {
+                candidateBaseURLs.append(docURL)
             }
         }
+        
+        // 4. Test candidate base URLs and parent/ancestor folders
+        for base in candidateBaseURLs {
+            let folderURL = base.hasDirectoryPath ? base : base.deletingLastPathComponent()
+            var currentFolder = folderURL
+            for _ in 0..<3 { // Search up to 3 parent directory levels
+                let targetURL = currentFolder.appendingPathComponent(cleanURLString)
+                if let img = NSImage(contentsOfFile: targetURL.path) ?? NSImage(contentsOf: targetURL) {
+                    return img
+                }
+                if let decoded = cleanURLString.removingPercentEncoding {
+                    let decodedTarget = currentFolder.appendingPathComponent(decoded)
+                    if let img = NSImage(contentsOfFile: decodedTarget.path) ?? NSImage(contentsOf: decodedTarget) {
+                        return img
+                    }
+                }
+                let parent = currentFolder.deletingLastPathComponent()
+                if parent == currentFolder { break }
+                currentFolder = parent
+            }
+        }
+        
+        // 5. Check relative to current working directory
         let currentDir = FileManager.default.currentDirectoryPath
-        let cwdPath = (currentDir as NSString).appendingPathComponent(urlString)
+        let cwdPath = (currentDir as NSString).appendingPathComponent(cleanURLString)
         if let img = NSImage(contentsOfFile: cwdPath) {
             return img
         }
+        
         return nil
     }
     
