@@ -1,5 +1,7 @@
 # Swash
 
+![Swash Interface Screenshot](Screenshot.png)
+
 A **Native, High-Performance** macOS Markdown Editor crafted with Swift, SwiftUI, and AppKit.
 
 > [!NOTE]
