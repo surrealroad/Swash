@@ -97,11 +97,13 @@ struct PreviewScrollView<Content: View>: NSViewRepresentable {
 struct MarkdownPreviewView: View {
     let text: String
     let flavor: MarkdownFlavor
+    let baseURL: URL?
     @Binding var scrollOriginY: CGFloat
     
-    init(text: String, flavor: MarkdownFlavor, scrollOriginY: Binding<CGFloat> = .constant(0)) {
+    init(text: String, flavor: MarkdownFlavor, baseURL: URL? = nil, scrollOriginY: Binding<CGFloat> = .constant(0)) {
         self.text = text
         self.flavor = flavor
+        self.baseURL = baseURL
         self._scrollOriginY = scrollOriginY
     }
     
@@ -135,7 +137,7 @@ struct MarkdownPreviewView: View {
         switch block.type {
         case .heading(let level):
             VStack(alignment: .leading, spacing: 6) {
-                InlineMarkdownText(text: block.text, flavor: flavor)
+                InlineMarkdownText(text: block.text, flavor: flavor, baseURL: baseURL)
                     .font(headingFont(for: level))
                     .fontWeight(.bold)
                     .foregroundColor(.primary)
@@ -159,7 +161,7 @@ struct MarkdownPreviewView: View {
                     .frame(width: 4)
                 
                 VStack(alignment: .leading) {
-                    InlineMarkdownText(text: block.text, flavor: flavor)
+                    InlineMarkdownText(text: block.text, flavor: flavor, baseURL: baseURL)
                         .font(.system(.body, design: .serif))
                         .italic()
                         .foregroundColor(.secondary)
@@ -192,7 +194,7 @@ struct MarkdownPreviewView: View {
                         .frame(width: 10, alignment: .center)
                 }
                 
-                InlineMarkdownText(text: block.text, flavor: flavor)
+                InlineMarkdownText(text: block.text, flavor: flavor, baseURL: baseURL)
                     .font(.body)
                     .lineSpacing(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -209,7 +211,7 @@ struct MarkdownPreviewView: View {
                     .font(.system(size: 14))
                     .frame(width: 16, height: 16, alignment: .center)
                 
-                InlineMarkdownText(text: block.text, flavor: flavor)
+                InlineMarkdownText(text: block.text, flavor: flavor, baseURL: baseURL)
                     .font(.body)
                     .lineSpacing(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -264,7 +266,7 @@ struct MarkdownPreviewView: View {
                     }
                     
                     if !text.isEmpty {
-                        InlineMarkdownText(text: text, flavor: flavor)
+                        InlineMarkdownText(text: text, flavor: flavor, baseURL: baseURL)
                             .font(.body)
                             .lineSpacing(3)
                             .foregroundColor(.primary)
@@ -284,14 +286,14 @@ struct MarkdownPreviewView: View {
                     .font(.caption)
                     .fontWeight(.bold)
                     .foregroundColor(.secondary)
-                InlineMarkdownText(text: text, flavor: flavor)
+                InlineMarkdownText(text: text, flavor: flavor, baseURL: baseURL)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
             .padding(.vertical, 2)
             
         case .paragraph:
-            InlineMarkdownText(text: block.text, flavor: flavor)
+            InlineMarkdownText(text: block.text, flavor: flavor, baseURL: baseURL)
                 .font(.body)
                 .lineSpacing(4)
                 .foregroundColor(.primary)
@@ -313,9 +315,33 @@ struct MarkdownPreviewView: View {
 struct MarkdownImageView: View {
     let alt: String
     let urlString: String
+    var baseURL: URL? = nil
+    
+    private var resolvedNSImage: NSImage? {
+        if let direct = NSImage(contentsOfFile: urlString) ?? NSImage(contentsOf: URL(fileURLWithPath: urlString)) {
+            return direct
+        }
+        if let base = baseURL {
+            let folderURL = base.hasDirectoryPath ? base : base.deletingLastPathComponent()
+            let resolvedURL = folderURL.appendingPathComponent(urlString)
+            if let img = NSImage(contentsOfFile: resolvedURL.path) ?? NSImage(contentsOf: resolvedURL) {
+                return img
+            }
+            let parentURL = folderURL.deletingLastPathComponent().appendingPathComponent(urlString)
+            if let img = NSImage(contentsOfFile: parentURL.path) ?? NSImage(contentsOf: parentURL) {
+                return img
+            }
+        }
+        let currentDir = FileManager.default.currentDirectoryPath
+        let cwdPath = (currentDir as NSString).appendingPathComponent(urlString)
+        if let img = NSImage(contentsOfFile: cwdPath) {
+            return img
+        }
+        return nil
+    }
     
     var body: some View {
-        if let url = URL(string: urlString), url.scheme == "http" || url.scheme == "https" {
+        if let url = URL(string: urlString), (url.scheme == "http" || url.scheme == "https") {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .empty:
@@ -349,7 +375,7 @@ struct MarkdownImageView: View {
                     EmptyView()
                 }
             }
-        } else if let nsImage = NSImage(contentsOfFile: urlString) ?? NSImage(contentsOf: URL(fileURLWithPath: urlString)) {
+        } else if let nsImage = resolvedNSImage {
             Image(nsImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
@@ -373,6 +399,7 @@ struct MarkdownImageView: View {
 struct InlineMarkdownText: View {
     let text: String
     let flavor: MarkdownFlavor
+    var baseURL: URL? = nil
     
     private enum Segment: Identifiable {
         var id: String {
@@ -452,7 +479,7 @@ struct InlineMarkdownText: View {
                     Text(attributedContent(for: str))
                         .fixedSize(horizontal: false, vertical: true)
                 case .image(let alt, let url):
-                    MarkdownImageView(alt: alt, urlString: url)
+                    MarkdownImageView(alt: alt, urlString: url, baseURL: baseURL)
                 }
             }
         }
