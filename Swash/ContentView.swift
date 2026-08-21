@@ -67,6 +67,7 @@ struct WindowAccessor: NSViewRepresentable {
 
 struct ContentView: View {
     @Binding var document: SwashDocument
+    var fileURL: URL? = nil
     
     @State private var viewMode: ViewMode = .preview
     @State private var selectedRange: NSRange? = nil
@@ -119,7 +120,7 @@ struct ContentView: View {
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)
                         
-                        MarkdownPreviewView(text: document.text, flavor: document.flavor, scrollOriginY: $scrollOriginY)
+                        MarkdownPreviewView(text: document.text, flavor: document.flavor, baseURL: fileURL, scrollOriginY: $scrollOriginY)
                             .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
