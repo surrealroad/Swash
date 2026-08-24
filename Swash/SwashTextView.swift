@@ -691,7 +691,16 @@ struct SwashTextView: NSViewRepresentable {
             
             let nsString = text as NSString
             while searchRange.location < nsString.length {
-                let r = nsString.range(of: "```", options: [], range: searchRange)
+                let r3 = nsString.range(of: "```", options: [], range: searchRange)
+                let rt = nsString.range(of: "~~~", options: [], range: searchRange)
+                let r: NSRange
+                if r3.location != NSNotFound && rt.location != NSNotFound {
+                    r = r3.location < rt.location ? r3 : rt
+                } else if r3.location != NSNotFound {
+                    r = r3
+                } else {
+                    r = rt
+                }
                 if r.location == NSNotFound {
                     break
                 }
@@ -869,7 +878,7 @@ struct SwashTextView: NSViewRepresentable {
                 let lineLength = line.utf16.count
                 let lineRange = NSRange(location: currentOffset, length: lineLength)
                 
-                if line.hasPrefix("```") {
+                if line.hasPrefix("```") || line.hasPrefix("~~~") {
                     inCodeBlock = !inCodeBlock
                     if inCodeBlock {
                         let lang = line.dropFirst(3).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -991,12 +1000,42 @@ struct SwashTextView: NSViewRepresentable {
                         textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 13, weight: .bold), range: validLineRange)
                         let hashRange = NSRange(location: currentOffset, length: min(lineLength, 7))
                         hideRange(hashRange)
-                    } else if line.hasPrefix("> ") {
-                        textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: validLineRange)
-                        let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
-                        textStorage.addAttribute(.font, value: italicFont, range: validLineRange)
-                        let quoteRange = NSRange(location: currentOffset, length: min(lineLength, 2))
-                        hideRange(quoteRange)
+                    } else if line.hasPrefix("> ") || line == ">" {
+                        let quoteContent = line.hasPrefix("> ") ? String(line.dropFirst(2)) : ""
+                        let alertPattern = "^\\[\\!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\\]"
+                        if let alertRegex = try? NSRegularExpression(pattern: alertPattern, options: [.caseInsensitive]),
+                           let match = alertRegex.firstMatch(in: quoteContent, options: [], range: NSRange(location: 0, length: (quoteContent as NSString).length)) {
+                            let typeStr = (quoteContent as NSString).substring(with: match.range(at: 1)).lowercased()
+                            let calloutColor: NSColor
+                            switch typeStr {
+                            case "tip": calloutColor = NSColor.systemGreen
+                            case "important": calloutColor = NSColor.systemPurple
+                            case "warning": calloutColor = NSColor.systemOrange
+                            case "caution": calloutColor = NSColor.systemRed
+                            default: calloutColor = NSColor.systemBlue
+                            }
+                            
+                            textStorage.addAttribute(.foregroundColor, value: calloutColor, range: validLineRange)
+                            textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 13, weight: .bold), range: validLineRange)
+                            let block = NSTextBlock()
+                            block.backgroundColor = calloutColor.withAlphaComponent(0.08)
+                            block.setValue(100, type: .percentageValueType, for: .width)
+                            block.setBorderColor(calloutColor, for: .minX)
+                            block.setWidth(4.0, type: .absoluteValueType, for: .border, edge: .minX)
+                            block.setWidth(6, type: .absoluteValueType, for: .padding)
+                            block.setWidth(10, type: .absoluteValueType, for: .padding, edge: .minX)
+                            let para = NSMutableParagraphStyle()
+                            para.textBlocks = [block]
+                            textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
+                            let quoteRange = NSRange(location: currentOffset, length: min(lineLength, 2))
+                            hideRange(quoteRange)
+                        } else {
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: validLineRange)
+                            let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
+                            textStorage.addAttribute(.font, value: italicFont, range: validLineRange)
+                            let quoteRange = NSRange(location: currentOffset, length: min(lineLength, line.hasPrefix("> ") ? 2 : 1))
+                            hideRange(quoteRange)
+                        }
                     } else {
                         if let listMarkerRange = trimmedLine.range(of: "^[-*+]\\s+", options: .regularExpression) {
                             let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
@@ -1206,6 +1245,22 @@ struct SwashTextView: NSViewRepresentable {
                             
                             hideRange(leftBracket)
                             hideRange(rightPartRange)
+                        }
+                    }
+                }
+                
+                // Inline Footnote References: [^label]
+                if let fnRegex = try? NSRegularExpression(pattern: "\\[\\^([^\\]]+)\\](?!:)", options: []) {
+                    let nsString = text as NSString
+                    let matches = fnRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+                    for match in matches {
+                        let matchRange = match.range(at: 0)
+                        if isRangeInCodeBlock(matchRange, in: text) { continue }
+                        let valid = NSIntersectionRange(matchRange, NSRange(location: 0, length: textStorage.length))
+                        if valid.length > 0 {
+                            textStorage.addAttribute(.baselineOffset, value: 4, range: valid)
+                            textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 10, weight: .semibold), range: valid)
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: valid)
                         }
                     }
                 }

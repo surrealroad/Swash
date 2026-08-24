@@ -357,24 +357,63 @@ struct MarkdownParser {
             // GitHub Alerts & Blockquotes
             if trimmed.hasPrefix("> ") || trimmed == ">" {
                 flushParagraph()
-                let quoteText = trimmed.hasPrefix("> ") ? String(trimmed.dropFirst(2)) : ""
+                let firstQuoteText = trimmed.hasPrefix("> ") ? String(trimmed.dropFirst(2)) : ""
                 
                 // Check GitHub Alert pattern: > [!NOTE], > [!TIP], > [!IMPORTANT], > [!WARNING], > [!CAUTION]
                 let alertPattern = "^\\[\\!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\\]\\s*(.*)$"
                 if let alertRegex = try? NSRegularExpression(pattern: alertPattern, options: [.caseInsensitive]),
-                   let match = alertRegex.firstMatch(in: quoteText, options: [], range: NSRange(location: 0, length: (quoteText as NSString).length)) {
-                    let nsQuote = quoteText as NSString
+                   let match = alertRegex.firstMatch(in: firstQuoteText, options: [], range: NSRange(location: 0, length: (firstQuoteText as NSString).length)) {
+                    let nsQuote = firstQuoteText as NSString
                     let typeStr = nsQuote.substring(with: match.range(at: 1)).lowercased()
-                    let alertContent = nsQuote.substring(with: match.range(at: 2))
+                    let firstLineContent = nsQuote.substring(with: match.range(at: 2))
                     if let alertType = AlertType(rawValue: typeStr) {
-                        blocks.append(MarkdownBlock(type: .alertCallout(type: alertType, text: alertContent), text: ""))
+                        var alertLines: [String] = []
+                        if !firstLineContent.trimmingCharacters(in: .whitespaces).isEmpty {
+                            alertLines.append(firstLineContent)
+                        }
                         lineIndex += 1
+                        
+                        while lineIndex < lines.count {
+                            let lTrimmed = lines[lineIndex].trimmingCharacters(in: .whitespaces)
+                            if lTrimmed.hasPrefix("> ") {
+                                alertLines.append(String(lTrimmed.dropFirst(2)))
+                                lineIndex += 1
+                            } else if lTrimmed == ">" {
+                                alertLines.append("")
+                                lineIndex += 1
+                            } else if lTrimmed.hasPrefix(">") {
+                                alertLines.append(String(lTrimmed.dropFirst(1)))
+                                lineIndex += 1
+                            } else {
+                                break
+                            }
+                        }
+                        
+                        let combinedText = alertLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                        blocks.append(MarkdownBlock(type: .alertCallout(type: alertType, text: combinedText), text: ""))
                         continue
                     }
                 }
                 
-                blocks.append(MarkdownBlock(type: .blockquote, text: quoteText))
-                lineIndex += 1
+                // Normal Blockquote
+                var quoteLines: [String] = []
+                while lineIndex < lines.count {
+                    let lTrimmed = lines[lineIndex].trimmingCharacters(in: .whitespaces)
+                    if lTrimmed.hasPrefix("> ") {
+                        quoteLines.append(String(lTrimmed.dropFirst(2)))
+                        lineIndex += 1
+                    } else if lTrimmed == ">" {
+                        quoteLines.append("")
+                        lineIndex += 1
+                    } else if lTrimmed.hasPrefix(">") {
+                        quoteLines.append(String(lTrimmed.dropFirst(1)))
+                        lineIndex += 1
+                    } else {
+                        break
+                    }
+                }
+                
+                blocks.append(MarkdownBlock(type: .blockquote, text: quoteLines.joined(separator: "\n")))
                 continue
             }
             
@@ -792,6 +831,15 @@ struct MarkdownParser {
         }
         
         return result
+    }
+    
+    /// Pre-processes inline footnote references [^label] into markdown links [[label]](#fn-label)
+    static func formatFootnoteReferences(_ text: String) -> String {
+        let pattern = "\\[\\^([^\\]]+)\\](?!:)"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
+        let nsText = text as NSString
+        let range = NSRange(location: 0, length: nsText.length)
+        return regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "[[$1]](#fn-$1)")
     }
 }
 

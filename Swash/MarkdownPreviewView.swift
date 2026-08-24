@@ -320,50 +320,52 @@ struct MarkdownImageView: View {
     private var resolvedNSImage: NSImage? {
         let cleanURLString = urlString.trimmingCharacters(in: .whitespaces)
         
-        // 1. Direct path check
-        if let direct = NSImage(contentsOfFile: cleanURLString) ?? NSImage(contentsOf: URL(fileURLWithPath: cleanURLString)) {
-            return direct
-        }
-        
-        // 2. Percent-decoded direct path check
-        if let decoded = cleanURLString.removingPercentEncoding,
-           let img = NSImage(contentsOfFile: decoded) ?? NSImage(contentsOf: URL(fileURLWithPath: decoded)) {
-            return img
-        }
-        
-        // 3. Collect candidate base URLs
-        var candidateBaseURLs: [URL] = []
-        if let base = baseURL {
-            candidateBaseURLs.append(base)
-        }
-        for doc in NSDocumentController.shared.documents {
-            if let docURL = doc.fileURL {
-                candidateBaseURLs.append(docURL)
+        // 1. Direct absolute path check
+        if cleanURLString.hasPrefix("/") || cleanURLString.hasPrefix("file://") {
+            if let direct = NSImage(contentsOfFile: cleanURLString) ?? NSImage(contentsOf: URL(fileURLWithPath: cleanURLString)) {
+                return direct
+            }
+            if let decoded = cleanURLString.removingPercentEncoding,
+               let img = NSImage(contentsOfFile: decoded) ?? NSImage(contentsOf: URL(fileURLWithPath: decoded)) {
+                return img
             }
         }
         
-        // 4. Test candidate base URLs and parent/ancestor folders
-        for base in candidateBaseURLs {
-            let folderURL = base.hasDirectoryPath ? base : base.deletingLastPathComponent()
-            var currentFolder = folderURL
-            for _ in 0..<3 { // Search up to 3 parent directory levels
-                let targetURL = currentFolder.appendingPathComponent(cleanURLString)
-                if let img = NSImage(contentsOfFile: targetURL.path) ?? NSImage(contentsOf: targetURL) {
+        // 2. Identify candidate document base URL
+        var documentURL: URL? = baseURL
+        if documentURL == nil {
+            for window in NSApp.windows {
+                if let url = window.representedURL {
+                    documentURL = url
+                    break
+                }
+            }
+        }
+        if documentURL == nil {
+            for doc in NSDocumentController.shared.documents {
+                if let docURL = doc.fileURL {
+                    documentURL = docURL
+                    break
+                }
+            }
+        }
+        
+        // 3. Resolve strictly relative to document folder
+        if let docURL = documentURL {
+            let folderURL = docURL.hasDirectoryPath ? docURL : docURL.deletingLastPathComponent()
+            let targetURL = folderURL.appendingPathComponent(cleanURLString)
+            if let img = NSImage(contentsOfFile: targetURL.path) ?? NSImage(contentsOf: targetURL) {
+                return img
+            }
+            if let decoded = cleanURLString.removingPercentEncoding {
+                let decodedTarget = folderURL.appendingPathComponent(decoded)
+                if let img = NSImage(contentsOfFile: decodedTarget.path) ?? NSImage(contentsOf: decodedTarget) {
                     return img
                 }
-                if let decoded = cleanURLString.removingPercentEncoding {
-                    let decodedTarget = currentFolder.appendingPathComponent(decoded)
-                    if let img = NSImage(contentsOfFile: decodedTarget.path) ?? NSImage(contentsOf: decodedTarget) {
-                        return img
-                    }
-                }
-                let parent = currentFolder.deletingLastPathComponent()
-                if parent == currentFolder { break }
-                currentFolder = parent
             }
         }
         
-        // 5. Check relative to current working directory
+        // 4. Fallback relative to current working directory
         let currentDir = FileManager.default.currentDirectoryPath
         let cwdPath = (currentDir as NSString).appendingPathComponent(cleanURLString)
         if let img = NSImage(contentsOfFile: cwdPath) {
@@ -408,11 +410,13 @@ struct MarkdownImageView: View {
                     EmptyView()
                 }
             }
+            .padding(.vertical, 6)
         } else if let nsImage = resolvedNSImage {
             Image(nsImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .cornerRadius(6)
+                .padding(.vertical, 6)
         } else {
             HStack(spacing: 6) {
                 Image(systemName: "photo")
@@ -424,11 +428,11 @@ struct MarkdownImageView: View {
             .padding(8)
             .background(Color.secondary.opacity(0.1))
             .cornerRadius(6)
+            .padding(.vertical, 6)
         }
     }
 }
 
-// Safely handles inline markdown components via standard AttributedString and inline image extraction
 struct InlineMarkdownText: View {
     let text: String
     let flavor: MarkdownFlavor
@@ -486,16 +490,24 @@ struct InlineMarkdownText: View {
     
     private func attributedContent(for rawText: String) -> AttributedString {
         let processedText = flavor == .slack ? MarkdownParser.convertSlackToGithub(rawText) : rawText
-        let autolinkedText = MarkdownParser.autolinkBareURLs(processedText)
+        let formattedFootnotesText = MarkdownParser.formatFootnoteReferences(processedText)
+        let autolinkedText = MarkdownParser.autolinkBareURLs(formattedFootnotesText)
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace,
             failurePolicy: .returnPartiallyParsedIfPossible
         )
         if var attributedString = try? AttributedString(markdown: autolinkedText, options: options) {
             for run in attributedString.runs {
-                if run.link != nil {
-                    attributedString[run.range].underlineStyle = .single
-                    attributedString[run.range].foregroundColor = .accentColor
+                if let link = run.link {
+                    let linkStr = link.absoluteString
+                    if linkStr.hasPrefix("#fn-") || linkStr.hasPrefix("#fnref-") {
+                        attributedString[run.range].baselineOffset = 4
+                        attributedString[run.range].font = .system(size: 10, weight: .semibold)
+                        attributedString[run.range].foregroundColor = .accentColor
+                    } else {
+                        attributedString[run.range].underlineStyle = .single
+                        attributedString[run.range].foregroundColor = .accentColor
+                    }
                 }
             }
             return attributedString
