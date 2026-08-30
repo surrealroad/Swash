@@ -231,6 +231,18 @@ jobs:
           chmod +x scripts/generate_screenshot.sh
           ./scripts/generate_screenshot.sh || echo "Screenshot generation skipped or failed gracefully."
 
+      - name: Commit Version Bumps & Repository Assets on Main Branch
+        if: steps.changeset_check.outputs.count > 0 || github.event_name == 'workflow_dispatch'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Screenshot.png appcast.xml package.json package-lock.json CHANGELOG.md .changeset
+          if git commit -m "chore(release): v${{ env.VERSION }} [skip ci]"; then
+            git push origin HEAD:main || true
+          fi
+
       - name: Create GitHub Release
         if: steps.changeset_check.outputs.count > 0 || github.event_name == 'workflow_dispatch'
         id: create_release
@@ -247,19 +259,6 @@ jobs:
             Swash-macOS.dmg
             Swash-macOS.zip
             appcast.xml
-
-      - name: Update Repository Assets on Main Branch
-        if: steps.changeset_check.outputs.count > 0 || github.event_name == 'workflow_dispatch'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Screenshot.png appcast.xml package.json package-lock.json CHANGELOG.md .changeset
-          if git commit -m "chore(release): v${{ env.VERSION }} [skip ci]"; then
-            git tag -a "v${{ env.VERSION }}" -m "Release v${{ env.VERSION }}"
-            git push origin HEAD:main --tags || true
-          fi
 
       - name: Clean up Keychain
         if: always()
