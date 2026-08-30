@@ -1,6 +1,6 @@
 {
   "name": "swash",
-  "version": "1.0.0",
+  "version": "1.0.113",
   "private": true,
   "description": "Native macOS Markdown Editor",
   "type": "module",
