@@ -1,0 +1,15 @@
+{
+  "name": "swash",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Native macOS Markdown Editor",
+  "type": "module",
+  "scripts": {
+    "changeset": "changeset",
+    "version": "changeset version",
+    "changeset:status": "changeset status --since=origin/main"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.1"
+  }
+}

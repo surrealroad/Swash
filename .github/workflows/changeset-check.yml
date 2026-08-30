@@ -1,0 +1,39 @@
+name: Changeset Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    branches:
+      - main
+
+jobs:
+  check-changeset:
+    name: Validate Changeset
+    runs-on: macos-latest
+    if: "!contains(github.event.pull_request.labels.*.name, 'skip-changeset') && !contains(github.event.pull_request.title, 'Version Packages')"
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Check for Changesets
+        run: |
+          CHANGESET_FILES=$(git diff --name-only origin/main...HEAD -- '.changeset/*.md' '!.changeset/README.md')
+          if [ -z "$CHANGESET_FILES" ]; then
+            echo "::error::No changeset found! Please add a changeset using 'npx changeset' or by adding a markdown file to .changeset/."
+            echo "If this PR should be exempt from versioning, add the 'skip-changeset' label."
+            exit 1
+          fi
+          echo "Found changeset file(s):"
+          echo "$CHANGESET_FILES"
+          npx changeset status --since=origin/main
