@@ -1,5 +1,11 @@
 # swash
 
+## 1.1.2
+
+### Patch Changes
+
+- b5be2cf: Update AGENTS.md to mandate maintaining and checking GOTCHAS.md for issues, pitfalls, solutions, and workarounds.
+
 ## 1.1.1
 
 ### Patch Changes
