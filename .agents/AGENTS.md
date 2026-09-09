@@ -1,5 +1,9 @@
 # Repository Rules
 
+## Gotchas & Known Pitfalls
+- **Check GOTCHAS.md**: Check `GOTCHAS.md` before starting work and when encountering issues for known pitfalls, issues, and their solutions and workarounds.
+- **Maintain GOTCHAS.md**: Maintain and populate `GOTCHAS.md` with any issues and pitfalls encountered, along with their solutions and workarounds.
+
 On completion of any work, agents must execute the following workflow:
 
 ## 1. Validation & Testing
