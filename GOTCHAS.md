@@ -20,3 +20,8 @@
 - **Issue**: Running `npx changeset status --since=origin/main` when working directly on `main` before committing fails with `Error: Failed to find where HEAD diverged from "origin/main"` because HEAD has not diverged from origin/main yet.
 - **Solution**: Manually verify that `.changeset/<unique-name>.md` conforms to the valid frontmatter format (`--- \n "swash": <type> \n ---`), or check status after creating local commits on a branch or relative to `HEAD~1`.
 
+## 6. App Sandbox vs. Sibling Document Assets (Images)
+- **Issue**: When `ENABLE_APP_SANDBOX = YES` is set on the main app target, macOS sandbox Powerbox only grants security access to the exact user-selected Markdown file, not its containing directory. Any relative asset links (such as `![Screenshot](Screenshot.png)`) fail to load at runtime because file reading (`isReadableFile`, `NSImage(contentsOfFile:)`) is denied by sandbox kernel rules, causing the editor to render placeholder badges instead of images.
+- **Solution**: Keep `ENABLE_APP_SANDBOX = NO` on the main `Swash` application target (while maintaining `ENABLE_APP_SANDBOX = YES` on system app extensions like Quick Look, Share, Thumbnail, and Widgets), allowing direct read access to relative media located in document folders.
+
+
