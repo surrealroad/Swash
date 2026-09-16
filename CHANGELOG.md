@@ -1,5 +1,11 @@
 # swash
 
+## 1.1.3
+
+### Patch Changes
+
+- a7be6b4: Add automated GFM spec compliance testing and headless visual snapshot test harness for Tables and Task Lists.
+
 ## 1.1.2
 
 ### Patch Changes
