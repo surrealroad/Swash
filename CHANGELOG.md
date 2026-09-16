@@ -1,5 +1,11 @@
 # swash
 
+## 1.4.0
+
+### Minor Changes
+
+- 3dacd09: Re-enable macOS App Sandbox with runtime folder permission prompts and persistent security-scoped bookmarks for document assets.
+
 ## 1.3.3
 
 ### Patch Changes
