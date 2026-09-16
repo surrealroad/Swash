@@ -31,6 +31,15 @@ func greet(name: String) -> String {
 }
 ~~~
 
+## Tasks & Checklist
+
+- [x] Full GFM block parser compliance
+- [x] Continuous alert callout cards
+- [x] Interactive task lists in Formatted mode
+- [ ] Explore custom theme settings
+
+***
+
 ## Extended Formatting
 
 - ***Combined Bold & Italic*** with multi-backtick spans like ``func main()``
