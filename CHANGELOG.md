@@ -1,5 +1,11 @@
 # swash
 
+## 1.3.2
+
+### Patch Changes
+
+- c194542: Fix inline image preview resolution in formatted editor by tracking baseURL updates and window lifecycle representedURL fallbacks
+
 ## 1.3.1
 
 ### Patch Changes
