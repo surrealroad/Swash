@@ -118,6 +118,30 @@ struct InlineTestSuite: Decodable {
     let cases: [InlineTestCase]
 }
 
+struct FootnoteTestCase: Decodable {
+    let id: String
+    let example: Int
+    let description: String
+    let markdown: String
+}
+
+struct FootnoteTestSuite: Decodable {
+    let section: String
+    let cases: [FootnoteTestCase]
+}
+
+struct ImageTestCase: Decodable {
+    let id: String
+    let example: Int
+    let description: String
+    let markdown: String
+}
+
+struct ImageTestSuite: Decodable {
+    let section: String
+    let cases: [ImageTestCase]
+}
+
 // MARK: - Snapshot Renderer
 
 final class HeadlessSnapshotRenderer {
@@ -136,8 +160,20 @@ final class HeadlessSnapshotRenderer {
         // Pump main run loop to allow SwiftUI/AppKit coordinator updates and async dispatches
         RunLoop.main.run(until: Date().addingTimeInterval(0.08))
         
-        let fitting = hostingView.fittingSize
-        let finalHeight = max(minHeight, ceil(fitting.height))
+        var finalHeight = max(minHeight, ceil(hostingView.fittingSize.height))
+        func findScrollView(in v: NSView) -> NSScrollView? {
+            if let sv = v as? NSScrollView { return sv }
+            for sub in v.subviews {
+                if let found = findScrollView(in: sub) { return found }
+            }
+            return nil
+        }
+        if let sv = findScrollView(in: hostingView), let doc = sv.documentView {
+            let docH = doc.fittingSize.height
+            if docH > finalHeight {
+                finalHeight = max(finalHeight, ceil(docH))
+            }
+        }
         hostingView.frame = NSRect(x: 0, y: 0, width: width, height: finalHeight)
         hostingView.layoutSubtreeIfNeeded()
         
@@ -231,6 +267,22 @@ struct GFMSpecRunner {
         let inlinesFixtureURL = fixturesDir.appendingPathComponent("inlines.json")
         if fileManager.fileExists(atPath: inlinesFixtureURL.path) {
             let (passed, failed) = runInlineTests(from: inlinesFixtureURL, snapshotsDir: snapshotsBaseDir)
+            totalPassed += passed
+            totalFailed += failed
+        }
+        
+        // 8. Run Footnote Tests
+        let footnotesFixtureURL = fixturesDir.appendingPathComponent("footnotes.json")
+        if fileManager.fileExists(atPath: footnotesFixtureURL.path) {
+            let (passed, failed) = runFootnoteTests(from: footnotesFixtureURL, snapshotsDir: snapshotsBaseDir)
+            totalPassed += passed
+            totalFailed += failed
+        }
+        
+        // 9. Run Image Tests
+        let imagesFixtureURL = fixturesDir.appendingPathComponent("images.json")
+        if fileManager.fileExists(atPath: imagesFixtureURL.path) {
+            let (passed, failed) = runImageTests(from: imagesFixtureURL, snapshotsDir: snapshotsBaseDir)
             totalPassed += passed
             totalFailed += failed
         }
@@ -702,6 +754,111 @@ struct GFMSpecRunner {
                 scrollOriginY: .constant(0),
                 isStyled: true,
                 flavor: .github
+            )
+            
+            let previewSaved = HeadlessSnapshotRenderer.shared.renderViewToPNG(previewView, targetURL: previewPNG)
+            let editorSaved = HeadlessSnapshotRenderer.shared.renderViewToPNG(editorView, targetURL: editorPNG)
+            
+            if astSuccess {
+                print("    ✓ AST: PASS | Preview Snapshot: \(previewSaved ? "✓" : "❌") | Editor Snapshot: \(editorSaved ? "✓" : "❌")")
+                passed += 1
+            } else {
+                print("    ❌ AST: FAIL - \(astFailureReason)")
+                print("       Preview Snapshot: \(previewSaved ? "✓" : "❌") | Editor Snapshot: \(editorSaved ? "✓" : "❌")")
+                failed += 1
+            }
+        }
+        
+        return (passed, failed)
+    }
+    
+    // MARK: - Footnote Test Execution
+    
+    static func runFootnoteTests(from fixtureURL: URL, snapshotsDir: URL) -> (Int, Int) {
+        guard let data = try? Data(contentsOf: fixtureURL),
+              let suite = try? JSONDecoder().decode(FootnoteTestSuite.self, from: data) else {
+            print("❌ Failed to decode footnotes fixture: \(fixtureURL.path)")
+            return (0, 1)
+        }
+        
+        print("\n▶ Running Section: \(suite.section)")
+        var passed = 0
+        var failed = 0
+        
+        for testCase in suite.cases {
+            print("  Case [\(testCase.id)] (GFM #\(testCase.example)): \(testCase.description)")
+            
+            let blocks = MarkdownParser.parse(testCase.markdown)
+            let footnoteDef = blocks.first(where: {
+                if case .footnoteDefinition = $0.type { return true }
+                return false
+            })
+            
+            let astSuccess = footnoteDef != nil
+            let astFailureReason = astSuccess ? "" : "No .footnoteDefinition block found in AST: \(blocks.map { "\($0.type)" })"
+            
+            let previewPNG = snapshotsDir.appendingPathComponent("preview/\(testCase.id).png")
+            let editorPNG = snapshotsDir.appendingPathComponent("editor/\(testCase.id).png")
+            
+            let previewView = MarkdownPreviewView(text: testCase.markdown, flavor: .github)
+            let editorView = SwashTextView(
+                text: .constant(testCase.markdown),
+                selectedRange: .constant(nil),
+                selectionRect: .constant(nil),
+                scrollOriginY: .constant(0),
+                isStyled: true,
+                flavor: .github
+            )
+            
+            let previewSaved = HeadlessSnapshotRenderer.shared.renderViewToPNG(previewView, targetURL: previewPNG)
+            let editorSaved = HeadlessSnapshotRenderer.shared.renderViewToPNG(editorView, targetURL: editorPNG)
+            
+            if astSuccess {
+                print("    ✓ AST: PASS | Preview Snapshot: \(previewSaved ? "✓" : "❌") | Editor Snapshot: \(editorSaved ? "✓" : "❌")")
+                passed += 1
+            } else {
+                print("    ❌ AST: FAIL - \(astFailureReason)")
+                print("       Preview Snapshot: \(previewSaved ? "✓" : "❌") | Editor Snapshot: \(editorSaved ? "✓" : "❌")")
+                failed += 1
+            }
+        }
+        
+        return (passed, failed)
+    }
+    
+    // MARK: - Image Test Execution
+    
+    static func runImageTests(from fixtureURL: URL, snapshotsDir: URL) -> (Int, Int) {
+        guard let data = try? Data(contentsOf: fixtureURL),
+              let suite = try? JSONDecoder().decode(ImageTestSuite.self, from: data) else {
+            print("❌ Failed to decode images fixture: \(fixtureURL.path)")
+            return (0, 1)
+        }
+        
+        print("\n▶ Running Section: \(suite.section)")
+        var passed = 0
+        var failed = 0
+        
+        for testCase in suite.cases {
+            print("  Case [\(testCase.id)] (GFM #\(testCase.example)): \(testCase.description)")
+            
+            let blocks = MarkdownParser.parse(testCase.markdown)
+            let astSuccess = !blocks.isEmpty
+            let astFailureReason = astSuccess ? "" : "Parser produced no blocks"
+            
+            let previewPNG = snapshotsDir.appendingPathComponent("preview/\(testCase.id).png")
+            let editorPNG = snapshotsDir.appendingPathComponent("editor/\(testCase.id).png")
+            let baseScriptsURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("scripts")
+            
+            let previewView = MarkdownPreviewView(text: testCase.markdown, flavor: .github, baseURL: baseScriptsURL)
+            let editorView = SwashTextView(
+                text: .constant(testCase.markdown),
+                selectedRange: .constant(nil),
+                selectionRect: .constant(nil),
+                scrollOriginY: .constant(0),
+                isStyled: true,
+                flavor: .github,
+                baseURL: baseScriptsURL
             )
             
             let previewSaved = HeadlessSnapshotRenderer.shared.renderViewToPNG(previewView, targetURL: previewPNG)

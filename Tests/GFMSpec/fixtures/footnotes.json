@@ -1,0 +1,29 @@
+{
+  "section": "GFM Extension: Footnotes",
+  "cases": [
+    {
+      "id": "footnote-basic-numeric",
+      "example": 1002,
+      "description": "Basic numeric footnote reference and definition",
+      "markdown": "Here is a statement.[^1]\n\n[^1]: This is the footnote text."
+    },
+    {
+      "id": "footnote-alphanumeric-label",
+      "example": 1003,
+      "description": "Footnote with alphanumeric label and punctuation",
+      "markdown": "Some claim [^note-a].\n\n[^note-a]: Explanation of note A."
+    },
+    {
+      "id": "footnote-multiline-continuation",
+      "example": 1004,
+      "description": "Footnote with indented multi-line continuation paragraph",
+      "markdown": "Reference to long footnote.[^long]\n\n[^long]: First paragraph of note.\n    Second indented continuation paragraph."
+    },
+    {
+      "id": "footnote-with-reference-links",
+      "example": 1005,
+      "description": "Footnote containing reference-style links resolved within footnote",
+      "markdown": "See source.[^src]\n\n[^src]: Based on [documentation][doc-link].\n\n[doc-link]: https://example.com/docs"
+    }
+  ]
+}

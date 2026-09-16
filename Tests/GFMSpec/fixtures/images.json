@@ -1,0 +1,41 @@
+{
+  "section": "GFM Images: Inline, Titles, Angles, References & Shortcuts",
+  "cases": [
+    {
+      "id": "image-inline-basic",
+      "example": 572,
+      "description": "Basic inline image with alt text and destination",
+      "markdown": "Here is an image: ![Logo](icon.png)"
+    },
+    {
+      "id": "image-with-title",
+      "example": 573,
+      "description": "Inline image with title in double quotes",
+      "markdown": "Look at ![App Icon](icon.png \"Application Icon\") in the header."
+    },
+    {
+      "id": "image-with-angle-brackets",
+      "example": 574,
+      "description": "Image with angle bracket URL and single quote title",
+      "markdown": "Diagram: ![Architecture](<icon.png> 'System Architecture')"
+    },
+    {
+      "id": "image-reference-style",
+      "example": 580,
+      "description": "Reference-style image with label definition",
+      "markdown": "Overview: ![Screenshot][img-ref]\n\n[img-ref]: icon.png \"Screenshot Preview\""
+    },
+    {
+      "id": "image-collapsed-shortcut",
+      "example": 590,
+      "description": "Collapsed shortcut reference image",
+      "markdown": "Quick logo: ![icon]\n\n[icon]: icon.png"
+    },
+    {
+      "id": "image-sample-preview-screenshot",
+      "example": 595,
+      "description": "Screenshot from sample_preview.md in relative folder",
+      "markdown": "![Swash Interface Screenshot](Screenshot.png)\n\nDocument text follows."
+    }
+  ]
+}

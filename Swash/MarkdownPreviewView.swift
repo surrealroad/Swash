@@ -109,6 +109,16 @@ struct MarkdownPreviewView: View {
     
     var body: some View {
         let blocks = MarkdownParser.parse(text)
+        let mainBlocks = blocks.filter {
+            if case .footnoteDefinition = $0.type { return false }
+            return true
+        }
+        let footnoteBlocks = blocks.compactMap { block -> (label: String, text: String)? in
+            if case .footnoteDefinition(let label, let text) = block.type {
+                return (label, text)
+            }
+            return nil
+        }
         
         PreviewScrollView(scrollOriginY: $scrollOriginY) {
             VStack(alignment: .leading, spacing: 14) {
@@ -119,8 +129,35 @@ struct MarkdownPreviewView: View {
                         .italic()
                         .padding(.top, 24)
                 } else {
-                    ForEach(blocks) { block in
+                    ForEach(mainBlocks) { block in
                         renderBlock(block)
+                    }
+                    
+                    if !footnoteBlocks.isEmpty {
+                        Divider()
+                            .background(Color.secondary.opacity(0.3))
+                            .padding(.top, 16)
+                            .padding(.bottom, 6)
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(footnoteBlocks, id: \.label) { fn in
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Text("[\(fn.label)]")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                    
+                                    InlineMarkdownText(text: fn.text, flavor: flavor, baseURL: baseURL)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                    
+                                    Link("↩", destination: URL(string: "#fnref-\(fn.label)") ?? URL(string: "about:blank")!)
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(.accentColor)
+                                }
+                                .id("fn-\(fn.label)")
+                                .padding(.vertical, 2)
+                            }
+                        }
                     }
                 }
             }
@@ -320,66 +357,19 @@ struct MarkdownImageView: View {
     let urlString: String
     var baseURL: URL? = nil
     
+    private var cleanedData: (url: String, title: String?) {
+        MarkdownParser.cleanImageURLAndTitle(urlString)
+    }
+    
     private var resolvedNSImage: NSImage? {
-        let cleanURLString = urlString.trimmingCharacters(in: .whitespaces)
-        
-        // 1. Direct absolute path check
-        if cleanURLString.hasPrefix("/") || cleanURLString.hasPrefix("file://") {
-            if let direct = NSImage(contentsOfFile: cleanURLString) ?? NSImage(contentsOf: URL(fileURLWithPath: cleanURLString)) {
-                return direct
-            }
-            if let decoded = cleanURLString.removingPercentEncoding,
-               let img = NSImage(contentsOfFile: decoded) ?? NSImage(contentsOf: URL(fileURLWithPath: decoded)) {
-                return img
-            }
-        }
-        
-        // 2. Identify candidate document base URL
-        var documentURL: URL? = baseURL
-        if documentURL == nil {
-            for window in NSApp.windows {
-                if let url = window.representedURL {
-                    documentURL = url
-                    break
-                }
-            }
-        }
-        if documentURL == nil {
-            for doc in NSDocumentController.shared.documents {
-                if let docURL = doc.fileURL {
-                    documentURL = docURL
-                    break
-                }
-            }
-        }
-        
-        // 3. Resolve strictly relative to document folder
-        if let docURL = documentURL {
-            let folderURL = docURL.hasDirectoryPath ? docURL : docURL.deletingLastPathComponent()
-            let targetURL = folderURL.appendingPathComponent(cleanURLString)
-            if let img = NSImage(contentsOfFile: targetURL.path) ?? NSImage(contentsOf: targetURL) {
-                return img
-            }
-            if let decoded = cleanURLString.removingPercentEncoding {
-                let decodedTarget = folderURL.appendingPathComponent(decoded)
-                if let img = NSImage(contentsOfFile: decodedTarget.path) ?? NSImage(contentsOf: decodedTarget) {
-                    return img
-                }
-            }
-        }
-        
-        // 4. Fallback relative to current working directory
-        let currentDir = FileManager.default.currentDirectoryPath
-        let cwdPath = (currentDir as NSString).appendingPathComponent(cleanURLString)
-        if let img = NSImage(contentsOfFile: cwdPath) {
-            return img
-        }
-        
-        return nil
+        MarkdownParser.resolveImage(urlString: cleanedData.url, baseURL: baseURL)
     }
     
     var body: some View {
-        if let url = URL(string: urlString), (url.scheme == "http" || url.scheme == "https") {
+        let (cleanURL, title) = cleanedData
+        let tooltip = title ?? alt
+        
+        if let url = URL(string: cleanURL), (url.scheme == "http" || url.scheme == "https") {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .empty:
@@ -398,11 +388,12 @@ struct MarkdownImageView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .cornerRadius(6)
+                        .help(tooltip)
                 case .failure:
                     HStack(spacing: 6) {
                         Image(systemName: "photo.badge.exclamationmark")
                             .foregroundColor(.secondary)
-                        Text(alt.isEmpty ? urlString : alt)
+                        Text(alt.isEmpty ? cleanURL : alt)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -419,12 +410,13 @@ struct MarkdownImageView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .cornerRadius(6)
+                .help(tooltip)
                 .padding(.vertical, 6)
         } else {
             HStack(spacing: 6) {
                 Image(systemName: "photo")
                     .foregroundColor(.secondary)
-                Text(alt.isEmpty ? urlString : alt)
+                Text(alt.isEmpty ? cleanURL : alt)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

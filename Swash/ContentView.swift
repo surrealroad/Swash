@@ -92,7 +92,8 @@ struct ContentView: View {
                         selectionRect: $selectionRect,
                         scrollOriginY: $scrollOriginY,
                         isStyled: true,
-                        flavor: document.flavor
+                        flavor: document.flavor,
+                        baseURL: fileURL
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -103,7 +104,8 @@ struct ContentView: View {
                         selectionRect: $selectionRect,
                         scrollOriginY: $scrollOriginY,
                         isStyled: false,
-                        flavor: document.flavor
+                        flavor: document.flavor,
+                        baseURL: fileURL
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -115,7 +117,8 @@ struct ContentView: View {
                             selectionRect: $selectionRect,
                             scrollOriginY: $scrollOriginY,
                             isStyled: false,
-                            flavor: document.flavor
+                            flavor: document.flavor,
+                            baseURL: fileURL
                         )
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)

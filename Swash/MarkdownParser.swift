@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import AppKit
 
 enum TableAlignment: String, Codable, Equatable, CaseIterable {
     case left
@@ -230,6 +231,152 @@ struct MarkdownParser {
         return result
     }
     
+    static func cleanImageURLAndTitle(_ rawDestination: String) -> (url: String, title: String?) {
+        var trimmed = rawDestination.trimmingCharacters(in: .whitespacesAndNewlines)
+        var title: String? = nil
+        
+        // Match optional trailing title: "title", 'title', or (title)
+        let titlePattern = "(?:\\s+[\"'(](.*?)[\"')])\\s*$"
+        if let regex = try? NSRegularExpression(pattern: titlePattern),
+           let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: (trimmed as NSString).length)) {
+            if match.numberOfRanges > 1 {
+                title = (trimmed as NSString).substring(with: match.range(at: 1))
+            }
+            let nsTrimmed = trimmed as NSString
+            trimmed = nsTrimmed.substring(with: NSRange(location: 0, length: match.range(at: 0).location)).trimmingCharacters(in: .whitespaces)
+        }
+        
+        // Strip angle brackets <...>
+        if trimmed.hasPrefix("<") && trimmed.hasSuffix(">") && trimmed.count >= 2 {
+            trimmed = String(trimmed.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+        }
+        
+        return (trimmed, title)
+    }
+    
+    static func resolveImage(urlString: String, baseURL: URL? = nil, windowURL: URL? = nil) -> NSImage? {
+        let (cleanedURL, _) = cleanImageURLAndTitle(urlString)
+        guard !cleanedURL.isEmpty else { return nil }
+        
+        // 1. Direct path check
+        if cleanedURL.hasPrefix("file://") {
+            if let fileURL = URL(string: cleanedURL), fileURL.isFileURL {
+                if let direct = NSImage(contentsOf: fileURL) {
+                    return direct
+                }
+            }
+            let directPath = cleanedURL.replacingOccurrences(of: "file://", with: "")
+            if let direct = NSImage(contentsOfFile: directPath) {
+                return direct
+            }
+        } else if cleanedURL.hasPrefix("/") {
+            if let direct = NSImage(contentsOfFile: cleanedURL) {
+                return direct
+            }
+            if let decoded = cleanedURL.removingPercentEncoding,
+               let direct = NSImage(contentsOfFile: decoded) {
+                return direct
+            }
+        }
+        
+        // 2. Identify candidate document base URL
+        var documentURL: URL? = baseURL
+        if documentURL == nil {
+            documentURL = windowURL
+        }
+        if documentURL == nil {
+            for window in NSApp.windows {
+                if let url = window.representedURL {
+                    documentURL = url
+                    break
+                }
+            }
+        }
+        if documentURL == nil {
+            for doc in NSDocumentController.shared.documents {
+                if let docURL = doc.fileURL {
+                    documentURL = docURL
+                    break
+                }
+            }
+        }
+        
+        // 3. Resolve strictly relative to document folder
+        if let docURL = documentURL {
+            let folderURL = docURL.hasDirectoryPath ? docURL : docURL.deletingLastPathComponent()
+            let targetURL = folderURL.appendingPathComponent(cleanedURL)
+            if let img = NSImage(contentsOfFile: targetURL.path) ?? NSImage(contentsOf: targetURL) {
+                return img
+            }
+            if let decoded = cleanedURL.removingPercentEncoding {
+                let decodedTarget = folderURL.appendingPathComponent(decoded)
+                if let img = NSImage(contentsOfFile: decodedTarget.path) ?? NSImage(contentsOf: decodedTarget) {
+                    return img
+                }
+            }
+        }
+        
+        // 4. Fallback relative to current working directory
+        let currentDir = FileManager.default.currentDirectoryPath
+        let cwdURL = URL(fileURLWithPath: currentDir).appendingPathComponent(cleanedURL)
+        if let img = NSImage(contentsOfFile: cwdURL.path) {
+            return img
+        }
+        if let decoded = cleanedURL.removingPercentEncoding {
+            let decodedCwd = URL(fileURLWithPath: currentDir).appendingPathComponent(decoded)
+            if let img = NSImage(contentsOfFile: decodedCwd.path) {
+                return img
+            }
+        }
+        
+        return nil
+    }
+    
+    static func scaleImageForEditor(_ image: NSImage, maxWidth: CGFloat = 550) -> NSImage {
+        let originalSize = image.size
+        guard originalSize.width > 0, originalSize.height > 0 else { return image }
+        if originalSize.width <= maxWidth {
+            return image
+        }
+        let scale = maxWidth / originalSize.width
+        let targetSize = NSSize(width: maxWidth, height: ceil(originalSize.height * scale))
+        let newImage = NSImage(size: targetSize)
+        newImage.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: targetSize),
+                   from: NSRect(origin: .zero, size: originalSize),
+                   operation: .copy,
+                   fraction: 1.0)
+        newImage.unlockFocus()
+        return newImage
+    }
+    
+    static func placeholderImage(alt: String) -> NSImage {
+        let displayText = alt.isEmpty ? "Image" : alt
+        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+        let textSize = (displayText as NSString).size(withAttributes: attrs)
+        let badgeWidth = min(max(textSize.width + 44, 80), 550)
+        let badgeHeight: CGFloat = 28
+        let img = NSImage(size: NSSize(width: badgeWidth, height: badgeHeight))
+        img.lockFocus()
+        let rect = NSRect(x: 0, y: 0, width: badgeWidth, height: badgeHeight)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
+        NSColor.secondaryLabelColor.withAlphaComponent(0.12).setFill()
+        path.fill()
+        if let icon = NSImage(systemSymbolName: "photo", accessibilityDescription: nil) {
+            let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+            if let configured = icon.withSymbolConfiguration(config) {
+                configured.draw(in: NSRect(x: 8, y: (badgeHeight - 12) / 2, width: 14, height: 12))
+            }
+        }
+        (displayText as NSString).draw(at: NSPoint(x: 28, y: (badgeHeight - textSize.height) / 2), withAttributes: attrs)
+        img.unlockFocus()
+        return img
+    }
+    
     static func parseAlignments(_ line: String) -> [TableAlignment] {
         let cells = parseTableCells(line)
         return cells.map { cell in
@@ -415,16 +562,42 @@ struct MarkdownParser {
                 }
             }
             
-            // Footnote Definition [^label]: text
+            // Footnote Definition [^label]: text (supports multi-line indented continuation)
             let footnoteDefPattern = "^\\[\\^([^\\]]+)\\]:\\s*(.*)$"
             if let regex = try? NSRegularExpression(pattern: footnoteDefPattern),
                let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: (trimmed as NSString).length)) {
                 flushParagraph()
                 let nsTrimmed = trimmed as NSString
                 let label = nsTrimmed.substring(with: match.range(at: 1))
-                let content = nsTrimmed.substring(with: match.range(at: 2))
-                blocks.append(MarkdownBlock(type: .footnoteDefinition(label: label, text: content), text: ""))
+                let firstLineContent = nsTrimmed.substring(with: match.range(at: 2))
+                var fnLines: [String] = []
+                if !firstLineContent.isEmpty {
+                    fnLines.append(firstLineContent)
+                }
                 lineIndex += 1
+                while lineIndex < lines.count {
+                    let nextLine = lines[lineIndex]
+                    let nextTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
+                    if nextTrimmed.isEmpty {
+                        // Check if followed by an indented continuation line
+                        if lineIndex + 1 < lines.count && (lines[lineIndex + 1].hasPrefix("    ") || lines[lineIndex + 1].hasPrefix("\t") || lines[lineIndex + 1].hasPrefix("  ")) {
+                            fnLines.append("")
+                            lineIndex += 1
+                            continue
+                        } else {
+                            break
+                        }
+                    }
+                    if nextLine.hasPrefix("    ") || nextLine.hasPrefix("\t") || nextLine.hasPrefix("  ") {
+                        fnLines.append(nextTrimmed)
+                        lineIndex += 1
+                    } else {
+                        break
+                    }
+                }
+                let combinedText = fnLines.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+                let resolved = resolveReferenceLinks(combinedText, references: linkReferences)
+                blocks.append(MarkdownBlock(type: .footnoteDefinition(label: label, text: resolved), text: ""))
                 continue
             }
             
@@ -463,7 +636,9 @@ struct MarkdownParser {
                             }
                         }
                         
-                        blocks.append(MarkdownBlock(type: .table(headers: headers, alignments: alignments, rows: rows), text: ""))
+                        let resolvedHeaders = headers.map { resolveReferenceLinks($0, references: linkReferences) }
+                        let resolvedRows = rows.map { $0.map { resolveReferenceLinks($0, references: linkReferences) } }
+                        blocks.append(MarkdownBlock(type: .table(headers: resolvedHeaders, alignments: alignments, rows: resolvedRows), text: ""))
                         continue
                     }
                 }
@@ -480,7 +655,8 @@ struct MarkdownParser {
             // ATX Headings
             if let heading = parseATXHeading(line) {
                 flushParagraph()
-                blocks.append(MarkdownBlock(type: .heading(level: heading.level), text: heading.text))
+                let resolved = resolveReferenceLinks(heading.text, references: linkReferences)
+                blocks.append(MarkdownBlock(type: .heading(level: heading.level), text: resolved))
                 lineIndex += 1
                 continue
             }
@@ -521,7 +697,8 @@ struct MarkdownParser {
                         }
                         
                         let combinedText = alertLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                        blocks.append(MarkdownBlock(type: .alertCallout(type: alertType, text: combinedText), text: ""))
+                        let resolved = resolveReferenceLinks(combinedText, references: linkReferences)
+                        blocks.append(MarkdownBlock(type: .alertCallout(type: alertType, text: resolved), text: ""))
                         continue
                     }
                 }
@@ -544,7 +721,8 @@ struct MarkdownParser {
                     }
                 }
                 
-                blocks.append(MarkdownBlock(type: .blockquote, text: quoteLines.joined(separator: "\n")))
+                let resolvedQuote = resolveReferenceLinks(quoteLines.joined(separator: "\n"), references: linkReferences)
+                blocks.append(MarkdownBlock(type: .blockquote, text: resolvedQuote))
                 continue
             }
             

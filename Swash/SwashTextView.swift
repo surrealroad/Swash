@@ -140,6 +140,8 @@ class SwashNSTextView: NSTextView {
                     rows: tableAttachment.tableData.rows
                 )
                 result.replaceCharacters(in: attRange, with: markdown)
+            } else if let imageAttachment = value as? ImageTextAttachment {
+                result.replaceCharacters(in: attRange, with: imageAttachment.rawMarkdown)
             }
         }
         return result as String
@@ -179,6 +181,9 @@ class SwashNSTextView: NSTextView {
                         .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
                     ])
                     result.append(tableAttr)
+                } else if let attachment = attrs[.attachment] as? ImageTextAttachment {
+                    let imageAttr = NSAttributedString(attachment: attachment)
+                    result.append(imageAttr)
                 } else {
                     let chunk = subAttrString.attributedSubstring(from: runRange)
                     let mutableChunk = NSMutableAttributedString(attributedString: chunk)
@@ -247,6 +252,27 @@ class SwashNSTextView: NSTextView {
     }
 }
 
+final class ImageTextAttachment: NSTextAttachment {
+    static let fileTypeIdentifier = "com.surrealroad.swash.image"
+    let alt: String
+    let urlString: String
+    let rawMarkdown: String
+    
+    init(image: NSImage, alt: String, urlString: String, rawMarkdown: String) {
+        self.alt = alt
+        self.urlString = urlString
+        self.rawMarkdown = rawMarkdown
+        super.init(data: nil, ofType: Self.fileTypeIdentifier)
+        self.image = image
+        self.attachmentCell = NSTextAttachmentCell(imageCell: image)
+        self.bounds = NSRect(origin: .zero, size: image.size)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
 struct SwashTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var selectedRange: NSRange?
@@ -254,6 +280,7 @@ struct SwashTextView: NSViewRepresentable {
     @Binding var scrollOriginY: CGFloat
     var isStyled: Bool
     var flavor: MarkdownFlavor
+    var baseURL: URL? = nil
     var onCommit: (() -> Void)? = nil
     var onNextCell: (() -> Void)? = nil
     var onPrevCell: (() -> Void)? = nil
@@ -265,6 +292,7 @@ struct SwashTextView: NSViewRepresentable {
         scrollOriginY: Binding<CGFloat> = .constant(0),
         isStyled: Bool,
         flavor: MarkdownFlavor,
+        baseURL: URL? = nil,
         onCommit: (() -> Void)? = nil,
         onNextCell: (() -> Void)? = nil,
         onPrevCell: (() -> Void)? = nil
@@ -275,6 +303,7 @@ struct SwashTextView: NSViewRepresentable {
         self._scrollOriginY = scrollOriginY
         self.isStyled = isStyled
         self.flavor = flavor
+        self.baseURL = baseURL
         self.onCommit = onCommit
         self.onNextCell = onNextCell
         self.onPrevCell = onPrevCell
@@ -520,6 +549,8 @@ struct SwashTextView: NSViewRepresentable {
                         rows: tableAttachment.tableData.rows
                     )
                     result.replaceCharacters(in: range, with: markdown)
+                } else if let imageAttachment = value as? ImageTextAttachment {
+                    result.replaceCharacters(in: range, with: imageAttachment.rawMarkdown)
                 }
             }
             return result as String
@@ -857,13 +888,18 @@ struct SwashTextView: NSViewRepresentable {
                 }
             }
             
-            struct PendingTable {
-                let range: NSRange
-                let headers: [String]
-                let alignments: [TableAlignment]
-                let rows: [[String]]
+            enum PendingAttachment {
+                case table(range: NSRange, headers: [String], alignments: [TableAlignment], rows: [[String]])
+                case image(range: NSRange, alt: String, urlString: String, rawMarkdown: String)
+                
+                var location: Int {
+                    switch self {
+                    case .table(let range, _, _, _): return range.location
+                    case .image(let range, _, _, _): return range.location
+                    }
+                }
             }
-            var tablesToReplace: [PendingTable] = []
+            var pendingAttachments: [PendingAttachment] = []
             
             // 2. Block-level parsing
             let lines = text.components(separatedBy: .newlines)
@@ -978,7 +1014,7 @@ struct SwashTextView: NSViewRepresentable {
                             let tableTotalLen = min(textStorage.length - tableStartOffset, max(1, tableEndOffset - tableStartOffset - 1))
                             let tableFullRange = NSRange(location: tableStartOffset, length: tableTotalLen)
                             
-                            tablesToReplace.append(PendingTable(range: tableFullRange, headers: headers, alignments: alignments, rows: tableRows))
+                            pendingAttachments.append(.table(range: tableFullRange, headers: headers, alignments: alignments, rows: tableRows))
                             
                             currentOffset = tableEndOffset
                             lineIndex = tableLineIdx
@@ -1143,6 +1179,31 @@ struct SwashTextView: NSViewRepresentable {
                             textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             
                             textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: "•", indent: indent), range: rawMarkerRange)
+                        } else if let fnDefMatch = try? NSRegularExpression(pattern: "^ {0,3}\\[\\^([^\\]]+)\\]:\\s*(.*)$").firstMatch(in: trimmedLine, options: [], range: NSRange(location: 0, length: (trimmedLine as NSString).length)) {
+                            let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
+                            let fullPrefixLen = fnDefMatch.range(at: 0).length - fnDefMatch.range(at: 2).length
+                            
+                            // Style footnote definition line in formatted mode: 12pt secondary color, hanging indent
+                            let fnFont = NSFont.systemFont(ofSize: 12, weight: .regular)
+                            textStorage.addAttribute(.font, value: fnFont, range: validLineRange)
+                            textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: validLineRange)
+                            
+                            let para = NSMutableParagraphStyle()
+                            para.headIndent = 24
+                            para.firstLineHeadIndent = 0
+                            textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
+                            
+                            // Style the marker: [label]:
+                            let markerRangeInLine = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, fullPrefixLen))
+                            let validMarker = NSIntersectionRange(markerRangeInLine, NSRange(location: 0, length: textStorage.length))
+                            if validMarker.length > 0 {
+                                textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 11, weight: .bold), range: validMarker)
+                                textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: validMarker)
+                            }
+                            
+                            // Hide the '^'
+                            let caretRangeInLine = NSRange(location: currentOffset + leadingSpacesCount + 1, length: 1)
+                            hideRange(caretRangeInLine)
                         }
                     }
                 }
@@ -1305,8 +1366,8 @@ struct SwashTextView: NSViewRepresentable {
                     hideRange(NSRange(location: matchRange.location + matchRange.length - fenceLen, length: fenceLen))
                 }
                 
-                // Links: [text](url)
-                if let markdownLinkRegex = try? NSRegularExpression(pattern: "\\[(.*?)\\]\\((.*?)\\)", options: []) {
+                // Links: [text](url) - ignore images ![alt](url)
+                if let markdownLinkRegex = try? NSRegularExpression(pattern: "(?<!\\])(?<!!)\\[(.*?)\\]\\((.*?)\\)", options: []) {
                     let nsString = text as NSString
                     let matches = markdownLinkRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
                     for match in matches {
@@ -1347,6 +1408,9 @@ struct SwashTextView: NSViewRepresentable {
                             textStorage.addAttribute(.baselineOffset, value: 4, range: valid)
                             textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 10, weight: .semibold), range: valid)
                             textStorage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: valid)
+                            // Hide the '^'
+                            let caretRange = NSRange(location: matchRange.location + 1, length: 1)
+                            hideRange(caretRange)
                         }
                     }
                 }
@@ -1397,19 +1461,99 @@ struct SwashTextView: NSViewRepresentable {
                 }
             }
             
-            // 4. Replace Table Blocks with InteractiveTableView attachments (in reverse order)
-            for table in tablesToReplace.reversed() {
-                let validRange = NSIntersectionRange(table.range, NSRange(location: 0, length: textStorage.length))
-                if validRange.length > 0 {
-                    let tableData = MarkdownTableData(headers: table.headers, alignments: table.alignments, rows: table.rows)
-                    var attachment: TableTextAttachment? = nil
-                    attachment = TableTextAttachment(tableData: tableData, flavor: parent.flavor) { [weak self, weak textView] updatedData in
-                        guard let self = self, let textView = textView, let textStorage = textView.textStorage, let attachment = attachment else { return }
-                        attachment.tableData = updatedData
-                        self.parent.text = self.buildRawMarkdown(from: textStorage)
+            // Extract link references for reference-style images
+            var linkReferences: [String: String] = [:]
+            for line in lines {
+                if let (label, url) = MarkdownParser.extractLinkReferenceDefinition(line) {
+                    linkReferences[label] = url
+                }
+            }
+            
+            // Scan for Inline Images: ![alt](url)
+            let inlineImgPattern = "!\\[(.*?)\\]\\((.*?)\\)"
+            if let regex = try? NSRegularExpression(pattern: inlineImgPattern) {
+                let nsText = text as NSString
+                let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+                for match in matches {
+                    let matchRange = match.range(at: 0)
+                    if isRangeInCodeBlock(matchRange, in: text) { continue }
+                    let alt = nsText.substring(with: match.range(at: 1))
+                    let urlStr = nsText.substring(with: match.range(at: 2))
+                    let raw = nsText.substring(with: matchRange)
+                    pendingAttachments.append(.image(range: matchRange, alt: alt, urlString: urlStr, rawMarkdown: raw))
+                }
+            }
+            
+            // Scan for Reference-Style Images: ![alt][ref]
+            let refImgPattern = "!\\[(.*?)\\]\\[(.*?)\\]"
+            if let regex = try? NSRegularExpression(pattern: refImgPattern) {
+                let nsText = text as NSString
+                let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+                for match in matches {
+                    let matchRange = match.range(at: 0)
+                    if isRangeInCodeBlock(matchRange, in: text) { continue }
+                    let alt = nsText.substring(with: match.range(at: 1))
+                    let refKey = nsText.substring(with: match.range(at: 2)).lowercased()
+                    let targetKey = refKey.isEmpty ? alt.lowercased() : refKey
+                    if let urlStr = linkReferences[targetKey] {
+                        let raw = nsText.substring(with: matchRange)
+                        pendingAttachments.append(.image(range: matchRange, alt: alt, urlString: urlStr, rawMarkdown: raw))
                     }
-                    if let validAttachment = attachment {
-                        let attrAttachment = NSMutableAttributedString(attachment: validAttachment)
+                }
+            }
+            
+            // Scan for Shortcut Reference-Style Images: ![alt]
+            let shortcutImgPattern = "!\\[([^\\]\\^]+)\\](?![\\(\\[:])"
+            if let regex = try? NSRegularExpression(pattern: shortcutImgPattern) {
+                let nsText = text as NSString
+                let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+                for match in matches {
+                    let matchRange = match.range(at: 0)
+                    if isRangeInCodeBlock(matchRange, in: text) { continue }
+                    let alt = nsText.substring(with: match.range(at: 1))
+                    if let urlStr = linkReferences[alt.lowercased()] {
+                        let raw = nsText.substring(with: matchRange)
+                        pendingAttachments.append(.image(range: matchRange, alt: alt, urlString: urlStr, rawMarkdown: raw))
+                    }
+                }
+            }
+            
+            // 4. Sort all pending attachments descending by location and replace in reverse order
+            pendingAttachments.sort { $0.location > $1.location }
+            for item in pendingAttachments {
+                switch item {
+                case .table(let range, let headers, let alignments, let rows):
+                    let validRange = NSIntersectionRange(range, NSRange(location: 0, length: textStorage.length))
+                    if validRange.length > 0 {
+                        let tableData = MarkdownTableData(headers: headers, alignments: alignments, rows: rows)
+                        var attachment: TableTextAttachment? = nil
+                        attachment = TableTextAttachment(tableData: tableData, flavor: parent.flavor) { [weak self, weak textView] updatedData in
+                            guard let self = self, let textView = textView, let textStorage = textView.textStorage, let attachment = attachment else { return }
+                            attachment.tableData = updatedData
+                            self.parent.text = self.buildRawMarkdown(from: textStorage)
+                        }
+                        if let validAttachment = attachment {
+                            let attrAttachment = NSMutableAttributedString(attachment: validAttachment)
+                            attrAttachment.addAttributes([
+                                .font: NSFont.systemFont(ofSize: 14),
+                                .foregroundColor: NSColor.textColor
+                            ], range: NSRange(location: 0, length: attrAttachment.length))
+                            textStorage.replaceCharacters(in: validRange, with: attrAttachment)
+                        }
+                    }
+                case .image(let range, let alt, let urlString, let rawMarkdown):
+                    let validRange = NSIntersectionRange(range, NSRange(location: 0, length: textStorage.length))
+                    if validRange.length > 0 {
+                        let cleaned = MarkdownParser.cleanImageURLAndTitle(urlString)
+                        let resolved = MarkdownParser.resolveImage(urlString: cleaned.url, baseURL: parent.baseURL, windowURL: textView.window?.representedURL)
+                        let displayImage: NSImage
+                        if let realImage = resolved {
+                            displayImage = MarkdownParser.scaleImageForEditor(realImage, maxWidth: 550)
+                        } else {
+                            displayImage = MarkdownParser.placeholderImage(alt: alt)
+                        }
+                        let attachment = ImageTextAttachment(image: displayImage, alt: alt, urlString: urlString, rawMarkdown: rawMarkdown)
+                        let attrAttachment = NSMutableAttributedString(attachment: attachment)
                         attrAttachment.addAttributes([
                             .font: NSFont.systemFont(ofSize: 14),
                             .foregroundColor: NSColor.textColor
