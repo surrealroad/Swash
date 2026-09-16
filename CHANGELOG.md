@@ -1,5 +1,11 @@
 # swash
 
+## 1.3.3
+
+### Patch Changes
+
+- 67e1f8b: Fix relative inline image preview in formatted editor by disabling App Sandbox on the main Swash target to permit reading sibling directory assets
+
 ## 1.3.2
 
 ### Patch Changes
