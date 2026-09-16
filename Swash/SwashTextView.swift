@@ -24,6 +24,7 @@ extension Notification.Name {
 struct ListMarkerInfo {
     let text: String
     let indent: CGFloat
+    var color: NSColor? = nil
 }
 
 final class SwashLayoutManager: NSLayoutManager {
@@ -41,7 +42,7 @@ final class SwashLayoutManager: NSLayoutManager {
                 let font = NSFont.systemFont(ofSize: 13, weight: .regular)
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: font,
-                    .foregroundColor: NSColor.secondaryLabelColor
+                    .foregroundColor: markerInfo.color ?? NSColor.secondaryLabelColor
                 ]
                 
                 let markerSize = (markerInfo.text as NSString).size(withAttributes: attrs)
@@ -869,41 +870,52 @@ struct SwashTextView: NSViewRepresentable {
             var currentOffset = 0
             
             var inCodeBlock = false
+            var currentOpenFence: MarkdownParser.CodeFenceInfo? = nil
             var currentLanguage: String? = nil
             var currentBlockStyle: NSTextBlock? = nil
             
+            var hideNextLineAsSetextDelimiter = false
+            var activeAlertColor: NSColor? = nil
             var lineIndex = 0
             while lineIndex < lines.count {
                 let line = lines[lineIndex]
                 let lineLength = line.utf16.count
                 let lineRange = NSRange(location: currentOffset, length: lineLength)
                 
-                if line.hasPrefix("```") || line.hasPrefix("~~~") {
-                    inCodeBlock = !inCodeBlock
-                    if inCodeBlock {
-                        let lang = line.dropFirst(3).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                        currentLanguage = lang.isEmpty ? nil : lang
-                        
-                        let block = NSTextBlock()
-                        block.backgroundColor = NSColor.textColor.withAlphaComponent(0.04)
-                        
-                        // Force block to span 100% width of the text container
-                        block.setValue(100, type: .percentageValueType, for: .width)
-                        
-                        let edges: [NSRectEdge] = [.minX, .maxX, .minY, .maxY]
-                        for edge in edges {
-                            block.setBorderColor(NSColor.textColor.withAlphaComponent(0.12), for: edge)
-                        }
-                        
-                        block.setWidth(0.5, type: .absoluteValueType, for: .border)
-                        block.setWidth(3.0, type: .absoluteValueType, for: .border, edge: .minX)
-                        block.setWidth(8, type: .absoluteValueType, for: .padding)
-                        block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
-                        currentBlockStyle = block
-                    } else {
+                if inCodeBlock {
+                    if let fence = currentOpenFence, MarkdownParser.isClosingCodeFence(line, matching: fence) {
+                        inCodeBlock = false
+                        currentOpenFence = nil
                         currentLanguage = nil
                         currentBlockStyle = nil
+                        hideRange(lineRange)
+                        currentOffset += lineLength + 1
+                        lineIndex += 1
+                        continue
                     }
+                } else if let openFence = MarkdownParser.parseOpeningCodeFence(line) {
+                    activeAlertColor = nil
+                    inCodeBlock = true
+                    currentOpenFence = openFence
+                    currentLanguage = openFence.language?.lowercased()
+                    
+                    let block = NSTextBlock()
+                    block.backgroundColor = NSColor.textColor.withAlphaComponent(0.04)
+                    
+                    // Force block to span 100% width of the text container
+                    block.setValue(100, type: .percentageValueType, for: .width)
+                    
+                    let edges: [NSRectEdge] = [.minX, .maxX, .minY, .maxY]
+                    for edge in edges {
+                        block.setBorderColor(NSColor.textColor.withAlphaComponent(0.12), for: edge)
+                    }
+                    
+                    block.setWidth(0.5, type: .absoluteValueType, for: .border)
+                    block.setWidth(3.0, type: .absoluteValueType, for: .border, edge: .minX)
+                    block.setWidth(8, type: .absoluteValueType, for: .padding)
+                    block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
+                    currentBlockStyle = block
+                    
                     hideRange(lineRange)
                     currentOffset += lineLength + 1
                     lineIndex += 1
@@ -943,6 +955,7 @@ struct SwashTextView: NSViewRepresentable {
                         let alignments = MarkdownParser.parseAlignments(nextTrimmed)
                         
                         if !headers.isEmpty {
+                            activeAlertColor = nil
                             let tableStartOffset = currentOffset
                             var tableLineIdx = lineIndex + 2
                             var tableRows: [[String]] = []
@@ -974,32 +987,56 @@ struct SwashTextView: NSViewRepresentable {
                     }
                 }
                 
+                if hideNextLineAsSetextDelimiter {
+                    hideRange(lineRange)
+                    hideNextLineAsSetextDelimiter = false
+                    currentOffset += lineLength + 1
+                    lineIndex += 1
+                    continue
+                }
+                
                 let validLineRange = NSIntersectionRange(lineRange, NSRange(location: 0, length: textStorage.length))
                 if validLineRange.length > 0 {
-                    if line.hasPrefix("# ") {
+                    if MarkdownParser.isThematicBreak(line) {
+                        let block = NSTextBlock()
+                        block.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.4)
+                        block.setValue(100, type: .percentageValueType, for: .width)
+                        block.setValue(1, type: .absoluteValueType, for: .height)
+                        let para = NSMutableParagraphStyle()
+                        para.textBlocks = [block]
+                        textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.clear, range: validLineRange)
+                        textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 2), range: validLineRange)
+                    } else if let heading = MarkdownParser.parseATXHeading(line) {
+                        let headingFontSize: CGFloat
+                        switch heading.level {
+                        case 1: headingFontSize = 24
+                        case 2: headingFontSize = 20
+                        case 3: headingFontSize = 17
+                        case 4: headingFontSize = 15
+                        case 5: headingFontSize = 14
+                        default: headingFontSize = 13
+                        }
+                        textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: headingFontSize, weight: .bold), range: validLineRange)
+                        
+                        let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
+                        let hashPrefixCount = line.dropFirst(leadingSpacesCount).prefix(while: { $0 == "#" }).count
+                        let spaceAfterHash = line.dropFirst(leadingSpacesCount + hashPrefixCount).hasPrefix(" ") ? 1 : 0
+                        let hideLen = leadingSpacesCount + hashPrefixCount + spaceAfterHash
+                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, hideLen))
+                        hideRange(hashRange)
+                        
+                        if let closingMatch = line.range(of: "(?:[ \\t]+#+[ \\t]*)$", options: .regularExpression) {
+                            let closingNSRange = NSRange(closingMatch, in: line)
+                            let absClosingRange = NSRange(location: currentOffset + closingNSRange.location, length: closingNSRange.length)
+                            hideRange(absClosingRange)
+                        }
+                    } else if lineIndex + 1 < lines.count && !trimmedLine.isEmpty && lines[lineIndex + 1].trimmingCharacters(in: .whitespaces).range(of: "^ {0,3}=+[ \\t]*$", options: .regularExpression) != nil {
                         textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 24, weight: .bold), range: validLineRange)
-                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, 2))
-                        hideRange(hashRange)
-                    } else if line.hasPrefix("## ") {
+                        hideNextLineAsSetextDelimiter = true
+                    } else if lineIndex + 1 < lines.count && !trimmedLine.isEmpty && lines[lineIndex + 1].trimmingCharacters(in: .whitespaces).range(of: "^ {0,3}-+[ \\t]*$", options: .regularExpression) != nil {
                         textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 20, weight: .bold), range: validLineRange)
-                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, 3))
-                        hideRange(hashRange)
-                    } else if line.hasPrefix("### ") {
-                        textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 17, weight: .bold), range: validLineRange)
-                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, 4))
-                        hideRange(hashRange)
-                    } else if line.hasPrefix("#### ") {
-                        textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 15, weight: .bold), range: validLineRange)
-                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, 5))
-                        hideRange(hashRange)
-                    } else if line.hasPrefix("##### ") {
-                        textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 14, weight: .bold), range: validLineRange)
-                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, 6))
-                        hideRange(hashRange)
-                    } else if line.hasPrefix("###### ") {
-                        textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 13, weight: .bold), range: validLineRange)
-                        let hashRange = NSRange(location: currentOffset, length: min(lineLength, 7))
-                        hideRange(hashRange)
+                        hideNextLineAsSetextDelimiter = true
                     } else if line.hasPrefix("> ") || line == ">" {
                         let quoteContent = line.hasPrefix("> ") ? String(line.dropFirst(2)) : ""
                         let alertPattern = "^\\[\\!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\\]"
@@ -1014,6 +1051,7 @@ struct SwashTextView: NSViewRepresentable {
                             case "caution": calloutColor = NSColor.systemRed
                             default: calloutColor = NSColor.systemBlue
                             }
+                            activeAlertColor = calloutColor
                             
                             textStorage.addAttribute(.foregroundColor, value: calloutColor, range: validLineRange)
                             textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 13, weight: .bold), range: validLineRange)
@@ -1029,6 +1067,20 @@ struct SwashTextView: NSViewRepresentable {
                             textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             let quoteRange = NSRange(location: currentOffset, length: min(lineLength, 2))
                             hideRange(quoteRange)
+                        } else if let alertColor = activeAlertColor {
+                            let block = NSTextBlock()
+                            block.backgroundColor = alertColor.withAlphaComponent(0.08)
+                            block.setValue(100, type: .percentageValueType, for: .width)
+                            block.setBorderColor(alertColor, for: .minX)
+                            block.setWidth(4.0, type: .absoluteValueType, for: .border, edge: .minX)
+                            block.setWidth(6, type: .absoluteValueType, for: .padding)
+                            block.setWidth(10, type: .absoluteValueType, for: .padding, edge: .minX)
+                            let para = NSMutableParagraphStyle()
+                            para.textBlocks = [block]
+                            textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
+                            textStorage.addAttribute(.font, value: defaultFont, range: validLineRange)
+                            let quoteRange = NSRange(location: currentOffset, length: min(lineLength, line.hasPrefix("> ") ? 2 : 1))
+                            hideRange(quoteRange)
                         } else {
                             textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: validLineRange)
                             let italicFont = NSFontManager.shared.convert(defaultFont, toHaveTrait: .italicFontMask)
@@ -1037,13 +1089,16 @@ struct SwashTextView: NSViewRepresentable {
                             hideRange(quoteRange)
                         }
                     } else {
-                        if let listMarkerRange = trimmedLine.range(of: "^[-*+]\\s+", options: .regularExpression) {
+                        activeAlertColor = nil
+                        let taskPattern = "^[-*+]\\s+\\[([ xX])\\]\\s*"
+                        if let taskRegex = try? NSRegularExpression(pattern: taskPattern),
+                           let taskMatch = taskRegex.firstMatch(in: trimmedLine, options: [], range: NSRange(location: 0, length: (trimmedLine as NSString).length)) {
                             let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
-                            let fullMarkerStr = String(trimmedLine[listMarkerRange])
-                            let totalMarkerLen = fullMarkerStr.utf16.count
+                            let fullMarkerLen = taskMatch.range(at: 0).length
+                            let checkChar = (trimmedLine as NSString).substring(with: taskMatch.range(at: 1))
+                            let isChecked = checkChar.lowercased() == "x"
                             
-                            // Hide raw list prefix text completely (making it 0 width and non-selectable)
-                            let rawMarkerRange = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, totalMarkerLen))
+                            let rawMarkerRange = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, fullMarkerLen))
                             hideRange(rawMarkerRange)
                             
                             let indent = CGFloat((leadingSpacesCount / 2 + 1) * 20)
@@ -1052,17 +1107,17 @@ struct SwashTextView: NSViewRepresentable {
                             para.firstLineHeadIndent = indent
                             textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             
-                            // SwashLayoutManager draws a non-selectable "•" in the gutter margin
-                            textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: "•", indent: indent), range: rawMarkerRange)
-                        } else if let numMarkerRange = trimmedLine.range(of: "^[0-9]+\\.\\s+", options: .regularExpression) {
+                            let markerGlyph = isChecked ? "☑" : "☐"
+                            let markerColor = isChecked ? NSColor.controlAccentColor : NSColor.secondaryLabelColor
+                            textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: markerGlyph, indent: indent, color: markerColor), range: rawMarkerRange)
+                        } else if let numMarkerRange = trimmedLine.range(of: "^[0-9]+[.)]\\s+", options: .regularExpression) {
                             let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
                             let fullMarkerStr = String(trimmedLine[numMarkerRange])
                             let totalMarkerLen = fullMarkerStr.utf16.count
                             
-                            let dotIdx = fullMarkerStr.firstIndex(of: ".") ?? fullMarkerStr.endIndex
-                            let numberDotStr = String(fullMarkerStr[...dotIdx])
+                            let delimiterIdx = fullMarkerStr.firstIndex(where: { $0 == "." || $0 == ")" }) ?? fullMarkerStr.endIndex
+                            let numberDotStr = String(fullMarkerStr[...delimiterIdx])
                             
-                            // Hide raw list prefix text completely (making it 0 width and non-selectable)
                             let rawMarkerRange = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, totalMarkerLen))
                             hideRange(rawMarkerRange)
                             
@@ -1072,8 +1127,22 @@ struct SwashTextView: NSViewRepresentable {
                             para.firstLineHeadIndent = indent
                             textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             
-                            // SwashLayoutManager draws a non-selectable "1." in the gutter margin using standard text color
                             textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: numberDotStr, indent: indent), range: rawMarkerRange)
+                        } else if let listMarkerRange = trimmedLine.range(of: "^[-*+]\\s+", options: .regularExpression) {
+                            let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
+                            let fullMarkerStr = String(trimmedLine[listMarkerRange])
+                            let totalMarkerLen = fullMarkerStr.utf16.count
+                            
+                            let rawMarkerRange = NSRange(location: currentOffset + leadingSpacesCount, length: min(lineLength - leadingSpacesCount, totalMarkerLen))
+                            hideRange(rawMarkerRange)
+                            
+                            let indent = CGFloat((leadingSpacesCount / 2 + 1) * 20)
+                            let para = NSMutableParagraphStyle()
+                            para.headIndent = indent
+                            para.firstLineHeadIndent = indent
+                            textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
+                            
+                            textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: "•", indent: indent), range: rawMarkerRange)
                         }
                     }
                 }
@@ -1179,8 +1248,24 @@ struct SwashTextView: NSViewRepresentable {
                     hideRange(NSRange(location: matchRange.location + matchRange.length - 3, length: 3))
                 }
                 
+                // Combined Bold + Italic: ___text___
+                applyRegex(pattern: "(?<!_)(?<!\\w)___([^_\\n]+?)___(?!\\w)(?!_)", in: text) { matchRange, contentRange in
+                    let boldItalicFont = NSFontManager.shared.convert(NSFont.systemFont(ofSize: 14, weight: .bold), toHaveTrait: .italicFontMask)
+                    textStorage.addAttribute(.font, value: boldItalicFont, range: contentRange)
+                    hideRange(NSRange(location: matchRange.location, length: 3))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - 3, length: 3))
+                }
+                
                 // Bold: **text**
                 applyRegex(pattern: "(?<!\\*)\\*\\*([^*\\n]+?)\\*\\*(?!\\*)", in: text) { matchRange, contentRange in
+                    let boldFont = NSFont.systemFont(ofSize: 14, weight: .bold)
+                    textStorage.addAttribute(.font, value: boldFont, range: contentRange)
+                    hideRange(NSRange(location: matchRange.location, length: 2))
+                    hideRange(NSRange(location: matchRange.location + matchRange.length - 2, length: 2))
+                }
+                
+                // Bold: __text__
+                applyRegex(pattern: "(?<!_)(?<!\\w)__([^_\\n]+?)__(?!\\w)(?!_)", in: text) { matchRange, contentRange in
                     let boldFont = NSFont.systemFont(ofSize: 14, weight: .bold)
                     textStorage.addAttribute(.font, value: boldFont, range: contentRange)
                     hideRange(NSRange(location: matchRange.location, length: 2))
@@ -1230,7 +1315,8 @@ struct SwashTextView: NSViewRepresentable {
                             if isRangeInCodeBlock(matchRange, in: text) { continue }
                             let contentRange = match.range(at: 1)
                             let urlRange = match.range(at: 2)
-                            let urlString = nsString.substring(with: urlRange)
+                            let rawUrl = nsString.substring(with: urlRange).trimmingCharacters(in: .whitespaces)
+                            let urlString = rawUrl.components(separatedBy: .whitespaces).first ?? rawUrl
                             
                             textStorage.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: contentRange)
                             textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)

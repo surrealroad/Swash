@@ -1,0 +1,47 @@
+{
+  "section": "4.1 Thematic breaks",
+  "cases": [
+    {
+      "id": "break-basic-asterisk",
+      "example": 16,
+      "description": "Three asterisks",
+      "markdown": "***",
+      "expectedCount": 1
+    },
+    {
+      "id": "break-basic-hyphen",
+      "example": 17,
+      "description": "Three hyphens",
+      "markdown": "---",
+      "expectedCount": 1
+    },
+    {
+      "id": "break-basic-underscore",
+      "example": 18,
+      "description": "Three underscores",
+      "markdown": "___",
+      "expectedCount": 1
+    },
+    {
+      "id": "break-spaced",
+      "example": 22,
+      "description": "Asterisks with spaces",
+      "markdown": " *  *  * ",
+      "expectedCount": 1
+    },
+    {
+      "id": "break-indented-hyphens",
+      "example": 25,
+      "description": "Three spaces indentation with hyphens and spaces",
+      "markdown": "   - - -",
+      "expectedCount": 1
+    },
+    {
+      "id": "break-multiple-underscores",
+      "example": 21,
+      "description": "More than three underscores",
+      "markdown": "_____________________________________",
+      "expectedCount": 1
+    }
+  ]
+}

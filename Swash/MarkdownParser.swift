@@ -48,6 +48,7 @@ enum BlockType: Equatable {
     case table(headers: [String], alignments: [TableAlignment], rows: [[String]])
     case horizontalRule
     case footnoteDefinition(label: String, text: String)
+    case linkReference(label: String, url: String)
     case paragraph
 }
 
@@ -74,6 +75,7 @@ struct MarkdownParser {
         var cells: [String] = []
         var currentCell = ""
         var isEscaped = false
+        var inBacktickSpan = false
         
         for char in trimmed {
             if isEscaped {
@@ -81,7 +83,10 @@ struct MarkdownParser {
                 isEscaped = false
             } else if char == "\\" {
                 isEscaped = true
-            } else if char == "|" {
+            } else if char == "`" {
+                currentCell.append(char)
+                inBacktickSpan = !inBacktickSpan
+            } else if char == "|" && !inBacktickSpan {
                 cells.append(currentCell.trimmingCharacters(in: .whitespaces))
                 currentCell = ""
             } else {
@@ -90,6 +95,139 @@ struct MarkdownParser {
         }
         cells.append(currentCell.trimmingCharacters(in: .whitespaces))
         return cells
+    }
+    
+    // MARK: - GFM Block Parsing Helpers
+    
+    struct CodeFenceInfo {
+        let char: Character
+        let count: Int
+        let language: String?
+    }
+    
+    static func parseOpeningCodeFence(_ line: String) -> CodeFenceInfo? {
+        let trimmedLeading = line.drop(while: { $0 == " " })
+        let leadingSpaces = line.count - trimmedLeading.count
+        guard leadingSpaces <= 3 else { return nil }
+        
+        guard let firstChar = trimmedLeading.first, firstChar == "`" || firstChar == "~" else { return nil }
+        let fenceCount = trimmedLeading.prefix(while: { $0 == firstChar }).count
+        guard fenceCount >= 3 else { return nil }
+        
+        let remaining = trimmedLeading.dropFirst(fenceCount).trimmingCharacters(in: .whitespaces)
+        if firstChar == "`" && remaining.contains("`") {
+            return nil
+        }
+        let language = remaining.components(separatedBy: .whitespaces).first?.trimmingCharacters(in: .whitespaces)
+        let cleanLang = (language?.isEmpty ?? true) ? nil : language
+        return CodeFenceInfo(char: firstChar, count: fenceCount, language: cleanLang)
+    }
+    
+    static func isClosingCodeFence(_ line: String, matching openFence: CodeFenceInfo) -> Bool {
+        let trimmedLeading = line.drop(while: { $0 == " " })
+        let leadingSpaces = line.count - trimmedLeading.count
+        guard leadingSpaces <= 3 else { return false }
+        
+        guard let firstChar = trimmedLeading.first, firstChar == openFence.char else { return false }
+        let fenceCount = trimmedLeading.prefix(while: { $0 == firstChar }).count
+        guard fenceCount >= openFence.count else { return false }
+        
+        let remaining = trimmedLeading.dropFirst(fenceCount).trimmingCharacters(in: .whitespaces)
+        return remaining.isEmpty
+    }
+    
+    private static let thematicBreakRegex = try? NSRegularExpression(
+        pattern: "^(?: {0,3})(?:(?:\\*[ \\t]*){3,}|(?:-[ \\t]*){3,}|(?:_[ \\t]*){3,})$"
+    )
+    
+    static func isThematicBreak(_ line: String) -> Bool {
+        guard let regex = thematicBreakRegex else { return false }
+        let nsLine = line as NSString
+        return regex.firstMatch(in: line, options: [], range: NSRange(location: 0, length: nsLine.length)) != nil
+    }
+    
+    static func parseATXHeading(_ line: String) -> (level: Int, text: String)? {
+        let trimmedLeading = line.drop(while: { $0 == " " })
+        let leadingSpaces = line.count - trimmedLeading.count
+        guard leadingSpaces <= 3 else { return nil }
+        
+        var level = 0
+        var remaining = trimmedLeading
+        while remaining.first == "#" && level < 6 {
+            level += 1
+            remaining.removeFirst()
+        }
+        guard level >= 1 && level <= 6 else { return nil }
+        
+        if !remaining.isEmpty && remaining.first != " " && remaining.first != "\t" {
+            return nil
+        }
+        
+        var headingText = remaining.trimmingCharacters(in: .whitespaces)
+        if let closingMatch = headingText.range(of: "(?:[ \\t]+#+[ \\t]*)$", options: .regularExpression) {
+            headingText = String(headingText[..<closingMatch.lowerBound]).trimmingCharacters(in: .whitespaces)
+        }
+        return (level, headingText)
+    }
+    
+    static func extractLinkReferenceDefinition(_ line: String) -> (label: String, url: String)? {
+        let pattern = "^ {0,3}\\[([^^][^\\]]*)\\]:\\s*<?([^>\\s]+)>?(?:\\s+[\"'(](.*?)[\"')])?\\s*$"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let nsLine = line as NSString
+        guard let match = regex.firstMatch(in: line, options: [], range: NSRange(location: 0, length: nsLine.length)) else { return nil }
+        let label = nsLine.substring(with: match.range(at: 1)).lowercased()
+        let url = nsLine.substring(with: match.range(at: 2))
+        return (label, url)
+    }
+    
+    static func resolveReferenceLinks(_ text: String, references: [String: String]) -> String {
+        guard !references.isEmpty else { return text }
+        var result = text
+        
+        // 1. Full reference links: [text][label]
+        let fullRefPattern = "\\[([^\\]]+)\\]\\[([^\\]]+)\\]"
+        if let regex = try? NSRegularExpression(pattern: fullRefPattern) {
+            let nsText = result as NSString
+            let matches = regex.matches(in: result, options: [], range: NSRange(location: 0, length: nsText.length))
+            for match in matches.reversed() {
+                let textStr = nsText.substring(with: match.range(at: 1))
+                let labelStr = nsText.substring(with: match.range(at: 2)).lowercased()
+                if let url = references[labelStr] {
+                    let replacement = "[\(textStr)](\(url))"
+                    result = (result as NSString).replacingCharacters(in: match.range(at: 0), with: replacement)
+                }
+            }
+        }
+        
+        // 2. Collapsed reference links: [label][]
+        let collapsedPattern = "\\[([^\\]]+)\\]\\[\\]"
+        if let regex = try? NSRegularExpression(pattern: collapsedPattern) {
+            let nsText = result as NSString
+            let matches = regex.matches(in: result, options: [], range: NSRange(location: 0, length: nsText.length))
+            for match in matches.reversed() {
+                let labelStr = nsText.substring(with: match.range(at: 1))
+                if let url = references[labelStr.lowercased()] {
+                    let replacement = "[\(labelStr)](\(url))"
+                    result = (result as NSString).replacingCharacters(in: match.range(at: 0), with: replacement)
+                }
+            }
+        }
+        
+        // 3. Shortcut reference links: [label]
+        let shortcutPattern = "\\[([^\\]\\^]+)\\](?![\\(\\[:])"
+        if let regex = try? NSRegularExpression(pattern: shortcutPattern) {
+            let nsText = result as NSString
+            let matches = regex.matches(in: result, options: [], range: NSRange(location: 0, length: nsText.length))
+            for match in matches.reversed() {
+                let labelStr = nsText.substring(with: match.range(at: 1))
+                if let url = references[labelStr.lowercased()] {
+                    let replacement = "[\(labelStr)](\(url))"
+                    result = (result as NSString).replacingCharacters(in: match.range(at: 0), with: replacement)
+                }
+            }
+        }
+        
+        return result
     }
     
     static func parseAlignments(_ line: String) -> [TableAlignment] {
@@ -178,8 +316,17 @@ struct MarkdownParser {
         let lines = text.components(separatedBy: .newlines)
         var blocks: [MarkdownBlock] = []
         
+        // Pre-scan link reference definitions: [label]: url "optional title"
+        var linkReferences: [String: String] = [:]
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let (label, url) = extractLinkReferenceDefinition(trimmed) {
+                linkReferences[label] = url
+            }
+        }
+        
         var inCodeBlock = false
-        var currentCodeFence = "```"
+        var currentOpenCodeFence: CodeFenceInfo? = nil
         var currentCodeLines: [String] = []
         var currentCodeLanguage: String? = nil
         
@@ -188,7 +335,8 @@ struct MarkdownParser {
         func flushParagraph() {
             if !currentParagraphLines.isEmpty {
                 let paragraphText = currentParagraphLines.joined(separator: "\n")
-                blocks.append(MarkdownBlock(type: .paragraph, text: paragraphText))
+                let resolved = resolveReferenceLinks(paragraphText, references: linkReferences)
+                blocks.append(MarkdownBlock(type: .paragraph, text: resolved))
                 currentParagraphLines.removeAll()
             }
         }
@@ -199,12 +347,13 @@ struct MarkdownParser {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             
             if inCodeBlock {
-                if trimmed.hasPrefix(currentCodeFence) {
+                if let fence = currentOpenCodeFence, isClosingCodeFence(line, matching: fence) {
                     inCodeBlock = false
                     let code = currentCodeLines.joined(separator: "\n")
                     blocks.append(MarkdownBlock(type: .codeBlock(code: code, language: currentCodeLanguage), text: ""))
                     currentCodeLines.removeAll()
                     currentCodeLanguage = nil
+                    currentOpenCodeFence = nil
                 } else {
                     currentCodeLines.append(line)
                 }
@@ -212,12 +361,11 @@ struct MarkdownParser {
                 continue
             }
             
-            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+            if let openFence = parseOpeningCodeFence(line) {
                 flushParagraph()
                 inCodeBlock = true
-                currentCodeFence = trimmed.hasPrefix("~~~") ? "~~~" : "```"
-                let lang = trimmed.dropFirst(3).trimmingCharacters(in: .whitespacesAndNewlines)
-                currentCodeLanguage = lang.isEmpty ? nil : lang
+                currentOpenCodeFence = openFence
+                currentCodeLanguage = openFence.language
                 lineIndex += 1
                 continue
             }
@@ -252,13 +400,13 @@ struct MarkdownParser {
             
             // Setext Headings (=== for H1, --- for H2)
             if !currentParagraphLines.isEmpty {
-                if trimmed.range(of: "^=+$", options: .regularExpression) != nil {
+                if trimmed.range(of: "^ {0,3}=+[ \\t]*$", options: .regularExpression) != nil {
                     let headingText = currentParagraphLines.joined(separator: " ").trimmingCharacters(in: .whitespaces)
                     currentParagraphLines.removeAll()
                     blocks.append(MarkdownBlock(type: .heading(level: 1), text: headingText))
                     lineIndex += 1
                     continue
-                } else if trimmed.range(of: "^-+$", options: .regularExpression) != nil {
+                } else if trimmed.range(of: "^ {0,3}-+[ \\t]*$", options: .regularExpression) != nil {
                     let headingText = currentParagraphLines.joined(separator: " ").trimmingCharacters(in: .whitespaces)
                     currentParagraphLines.removeAll()
                     blocks.append(MarkdownBlock(type: .heading(level: 2), text: headingText))
@@ -276,6 +424,14 @@ struct MarkdownParser {
                 let label = nsTrimmed.substring(with: match.range(at: 1))
                 let content = nsTrimmed.substring(with: match.range(at: 2))
                 blocks.append(MarkdownBlock(type: .footnoteDefinition(label: label, text: content), text: ""))
+                lineIndex += 1
+                continue
+            }
+            
+            // Link Reference Definition [label]: url
+            if let (label, url) = extractLinkReferenceDefinition(trimmed) {
+                flushParagraph()
+                blocks.append(MarkdownBlock(type: .linkReference(label: label, url: url), text: ""))
                 lineIndex += 1
                 continue
             }
@@ -313,43 +469,18 @@ struct MarkdownParser {
                 }
             }
             
-            // Horizontal Rule
-            if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+            // Thematic Break (Horizontal Rule)
+            if isThematicBreak(line) {
                 flushParagraph()
                 blocks.append(MarkdownBlock(type: .horizontalRule, text: ""))
                 lineIndex += 1
                 continue
             }
             
-            // Headings
-            if trimmed.hasPrefix("# ") {
+            // ATX Headings
+            if let heading = parseATXHeading(line) {
                 flushParagraph()
-                blocks.append(MarkdownBlock(type: .heading(level: 1), text: String(trimmed.dropFirst(2))))
-                lineIndex += 1
-                continue
-            } else if trimmed.hasPrefix("## ") {
-                flushParagraph()
-                blocks.append(MarkdownBlock(type: .heading(level: 2), text: String(trimmed.dropFirst(3))))
-                lineIndex += 1
-                continue
-            } else if trimmed.hasPrefix("### ") {
-                flushParagraph()
-                blocks.append(MarkdownBlock(type: .heading(level: 3), text: String(trimmed.dropFirst(4))))
-                lineIndex += 1
-                continue
-            } else if trimmed.hasPrefix("#### ") {
-                flushParagraph()
-                blocks.append(MarkdownBlock(type: .heading(level: 4), text: String(trimmed.dropFirst(5))))
-                lineIndex += 1
-                continue
-            } else if trimmed.hasPrefix("##### ") {
-                flushParagraph()
-                blocks.append(MarkdownBlock(type: .heading(level: 5), text: String(trimmed.dropFirst(6))))
-                lineIndex += 1
-                continue
-            } else if trimmed.hasPrefix("###### ") {
-                flushParagraph()
-                blocks.append(MarkdownBlock(type: .heading(level: 6), text: String(trimmed.dropFirst(7))))
+                blocks.append(MarkdownBlock(type: .heading(level: heading.level), text: heading.text))
                 lineIndex += 1
                 continue
             }
@@ -417,17 +548,20 @@ struct MarkdownParser {
                 continue
             }
             
-            // Task List Items (- [ ] or - [x])
-            if trimmed.hasPrefix("- [ ] ") || trimmed.hasPrefix("* [ ] ") {
+            // Task List Items ([-*+] [ ] or [-*+] [xX])
+            let taskPattern = "^[-*+]\\s+\\[([ xX])\\](?:\\s+(.*)|$)"
+            if let regex = try? NSRegularExpression(pattern: taskPattern),
+               let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: (trimmed as NSString).length)) {
                 flushParagraph()
                 let indent = line.prefix(while: { $0 == " " || $0 == "\t" }).count / 2
-                blocks.append(MarkdownBlock(type: .taskList(isChecked: false, indentLevel: indent), text: String(trimmed.dropFirst(6))))
-                lineIndex += 1
-                continue
-            } else if trimmed.hasPrefix("- [x] ") || trimmed.hasPrefix("- [X] ") || trimmed.hasPrefix("* [x] ") || trimmed.hasPrefix("* [X] ") {
-                flushParagraph()
-                let indent = line.prefix(while: { $0 == " " || $0 == "\t" }).count / 2
-                blocks.append(MarkdownBlock(type: .taskList(isChecked: true, indentLevel: indent), text: String(trimmed.dropFirst(6))))
+                let checkChar = (trimmed as NSString).substring(with: match.range(at: 1))
+                let isChecked = checkChar.lowercased() == "x"
+                var content = ""
+                if match.numberOfRanges > 2 && match.range(at: 2).location != NSNotFound {
+                    content = (trimmed as NSString).substring(with: match.range(at: 2))
+                }
+                let resolved = resolveReferenceLinks(content, references: linkReferences)
+                blocks.append(MarkdownBlock(type: .taskList(isChecked: isChecked, indentLevel: indent), text: resolved))
                 lineIndex += 1
                 continue
             }
@@ -436,21 +570,24 @@ struct MarkdownParser {
             if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ") {
                 flushParagraph()
                 let indent = line.prefix(while: { $0 == " " || $0 == "\t" }).count / 2
-                blocks.append(MarkdownBlock(type: .list(isOrdered: false, indentLevel: indent, itemNumber: 1), text: String(trimmed.dropFirst(2))))
+                let content = String(trimmed.dropFirst(2))
+                let resolved = resolveReferenceLinks(content, references: linkReferences)
+                blocks.append(MarkdownBlock(type: .list(isOrdered: false, indentLevel: indent, itemNumber: 1), text: resolved))
                 lineIndex += 1
                 continue
             }
             
-            // Numbered list items (e.g. 1. )
-            let pattern = "^[0-9]+\\.\\s+"
+            // Numbered list items (e.g. 1. or 1) )
+            let pattern = "^[0-9]+[.)]\\s+"
             if let range = trimmed.range(of: pattern, options: .regularExpression) {
                 flushParagraph()
                 let indent = line.prefix(while: { $0 == " " || $0 == "\t" }).count / 2
                 let prefixString = String(trimmed[range])
                 let numberString = prefixString.prefix(while: { $0.isNumber })
                 let itemNumber = Int(numberString) ?? 1
-                let content = trimmed.replacingCharacters(in: range, with: "")
-                blocks.append(MarkdownBlock(type: .list(isOrdered: true, indentLevel: indent, itemNumber: itemNumber), text: content))
+                let rawContent = trimmed.replacingCharacters(in: range, with: "")
+                let resolved = resolveReferenceLinks(rawContent, references: linkReferences)
+                blocks.append(MarkdownBlock(type: .list(isOrdered: true, indentLevel: indent, itemNumber: itemNumber), text: resolved))
                 lineIndex += 1
                 continue
             }

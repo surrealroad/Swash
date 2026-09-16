@@ -41,6 +41,16 @@
         { "isChecked": false, "indentLevel": 0, "text": "Item A" },
         { "isChecked": true, "indentLevel": 0, "text": "Item B" }
       ]
+    },
+    {
+      "id": "tasklist-plus-bullet",
+      "example": 283,
+      "description": "Task list using plus bullets",
+      "markdown": "+ [ ] Plus task unchecked\n+ [x] Plus task checked",
+      "expectedItems": [
+        { "isChecked": false, "indentLevel": 0, "text": "Plus task unchecked" },
+        { "isChecked": true, "indentLevel": 0, "text": "Plus task checked" }
+      ]
     }
   ]
 }

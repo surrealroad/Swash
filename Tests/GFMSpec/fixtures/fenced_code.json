@@ -1,0 +1,45 @@
+{
+  "section": "4.4 Indented code & 4.5 Fenced code blocks",
+  "cases": [
+    {
+      "id": "code-backticks-basic",
+      "example": 89,
+      "description": "Fenced code block with backticks and language",
+      "markdown": "```swift\nlet message = \"Hello, Swash!\"\nprint(message)\n```",
+      "expectedCode": "let message = \"Hello, Swash!\"\nprint(message)",
+      "expectedLanguage": "swift"
+    },
+    {
+      "id": "code-tildes-basic",
+      "example": 90,
+      "description": "Fenced code block with tildes",
+      "markdown": "~~~python\ndef hello():\n    return 'world'\n~~~",
+      "expectedCode": "def hello():\n    return 'world'",
+      "expectedLanguage": "python"
+    },
+    {
+      "id": "code-longer-fence-nested",
+      "example": 94,
+      "description": "Four backtick fence enclosing triple backticks without closing early",
+      "markdown": "````markdown\n```swift\nlet x = 42\n```\n````",
+      "expectedCode": "```swift\nlet x = 42\n```",
+      "expectedLanguage": "markdown"
+    },
+    {
+      "id": "code-info-string-first-word",
+      "example": 112,
+      "description": "Info string with additional arguments uses first word as language",
+      "markdown": "```ruby title=\"hello.rb\" line_numbers=true\nputs 'hello'\n```",
+      "expectedCode": "puts 'hello'",
+      "expectedLanguage": "ruby"
+    },
+    {
+      "id": "code-indented-blocks",
+      "example": 77,
+      "description": "Indented code block with 4 spaces",
+      "markdown": "    a simple\n      indented code block",
+      "expectedCode": "a simple\n  indented code block",
+      "expectedLanguage": null
+    }
+  ]
+}

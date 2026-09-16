@@ -292,6 +292,9 @@ struct MarkdownPreviewView: View {
             }
             .padding(.vertical, 2)
             
+        case .linkReference:
+            EmptyView()
+            
         case .paragraph:
             InlineMarkdownText(text: block.text, flavor: flavor, baseURL: baseURL)
                 .font(.body)

@@ -1,0 +1,41 @@
+{
+  "section": "6 Inlines: Code Spans, Emphasis, Strikethrough, Links, Autolinks & Footnotes",
+  "cases": [
+    {
+      "id": "inline-emphasis-all-delimiters",
+      "example": 350,
+      "description": "Bold, italic, and bold-italic with asterisks and underscores",
+      "markdown": "Here is *italic*, _also italic_, **bold**, __also bold__, ***bold italic***, and ___also bold italic___."
+    },
+    {
+      "id": "inline-strikethrough-gfm",
+      "example": 491,
+      "description": "GFM strikethrough with double tildes",
+      "markdown": "This is ~~deleted text~~ and this is intact."
+    },
+    {
+      "id": "inline-code-spans-multi-backticks",
+      "example": 328,
+      "description": "Code spans with single and double backticks enclosing literal backticks",
+      "markdown": "Use `code` or ``inline `backtick` inside`` code span."
+    },
+    {
+      "id": "inline-links-with-titles",
+      "example": 493,
+      "description": "Links with optional titles and image syntax",
+      "markdown": "Check [Swash](https://github.com/surrealroad/Swash \"The Markdown Editor\") and ![Icon](icon.png \"App Icon\")."
+    },
+    {
+      "id": "inline-gfm-autolinks-extended",
+      "example": 602,
+      "description": "GFM extended autolinks for bare URLs, www domains, and email addresses",
+      "markdown": "Visit https://github.com or www.github.com or write to test@example.com for info."
+    },
+    {
+      "id": "inline-footnotes-and-definitions",
+      "example": 1001,
+      "description": "Inline footnote reference and footnote definition",
+      "markdown": "Here is a statement with a footnote.[^1]\n\n[^1]: This is the footnote definition."
+    }
+  ]
+}

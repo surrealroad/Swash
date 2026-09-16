@@ -29,7 +29,7 @@ class PreviewViewController: NSViewController, QLPreviewingController {
             }
             
             DispatchQueue.main.async {
-                let previewView = MarkdownPreviewView(text: content, flavor: .github)
+                let previewView = MarkdownPreviewView(text: content, flavor: .github, baseURL: url.deletingLastPathComponent())
                 let hostingController = NSHostingController(rootView: previewView)
                 
                 self.addChild(hostingController)

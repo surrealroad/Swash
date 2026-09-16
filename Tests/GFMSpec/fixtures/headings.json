@@ -1,0 +1,66 @@
+{
+  "section": "4.2 ATX headings & 4.3 Setext headings",
+  "cases": [
+    {
+      "id": "heading-atx-levels",
+      "example": 32,
+      "description": "ATX headings levels 1 through 6",
+      "markdown": "# Heading 1\n\n## Heading 2\n\n### Heading 3\n\n#### Heading 4\n\n##### Heading 5\n\n###### Heading 6",
+      "expectedHeadings": [
+        {"level": 1, "text": "Heading 1"},
+        {"level": 2, "text": "Heading 2"},
+        {"level": 3, "text": "Heading 3"},
+        {"level": 4, "text": "Heading 4"},
+        {"level": 5, "text": "Heading 5"},
+        {"level": 6, "text": "Heading 6"}
+      ]
+    },
+    {
+      "id": "heading-atx-closing-hashes",
+      "example": 36,
+      "description": "ATX heading with closing hash sequence",
+      "markdown": "## Closing Hashes ##\n\n### Trailing Hashes and Whitespace ###   ",
+      "expectedHeadings": [
+        {"level": 2, "text": "Closing Hashes"},
+        {"level": 3, "text": "Trailing Hashes and Whitespace"}
+      ]
+    },
+    {
+      "id": "heading-atx-indented",
+      "example": 34,
+      "description": "ATX heading indented up to 3 spaces",
+      "markdown": "   ### Indented Heading",
+      "expectedHeadings": [
+        {"level": 3, "text": "Indented Heading"}
+      ]
+    },
+    {
+      "id": "heading-atx-no-space-closing",
+      "example": 40,
+      "description": "Closing hash sequence not preceded by space is kept",
+      "markdown": "# Heading#",
+      "expectedHeadings": [
+        {"level": 1, "text": "Heading#"}
+      ]
+    },
+    {
+      "id": "heading-setext-h1-h2",
+      "example": 50,
+      "description": "Setext heading H1 with === and H2 with ---",
+      "markdown": "Setext Title\n===\n\nSetext Subtitle\n---",
+      "expectedHeadings": [
+        {"level": 1, "text": "Setext Title"},
+        {"level": 2, "text": "Setext Subtitle"}
+      ]
+    },
+    {
+      "id": "heading-setext-multiline",
+      "example": 51,
+      "description": "Setext heading spanning multiple paragraph lines",
+      "markdown": "First Paragraph Line\nSecond Paragraph Line\n=====================",
+      "expectedHeadings": [
+        {"level": 1, "text": "First Paragraph Line Second Paragraph Line"}
+      ]
+    }
+  ]
+}
