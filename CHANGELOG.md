@@ -1,5 +1,11 @@
 # swash
 
+## 1.2.1
+
+### Patch Changes
+
+- cfdbf0a: docs: update sample preview to showcase task lists and thematic breaks
+
 ## 1.2.0
 
 ### Minor Changes
