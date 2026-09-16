@@ -1,0 +1,68 @@
+{
+  "section": "4.12 Tables (extension)",
+  "cases": [
+    {
+      "id": "table-basic",
+      "example": 198,
+      "description": "Basic 2x2 table with outer pipes",
+      "markdown": "| foo | bar |\n| --- | --- |\n| baz | bim |",
+      "expectedHeaders": ["foo", "bar"],
+      "expectedAlignments": ["defaultAlignment", "defaultAlignment"],
+      "expectedRowCount": 1,
+      "expectedRows": [["baz", "bim"]]
+    },
+    {
+      "id": "table-alignments",
+      "example": 199,
+      "description": "Table with center and right column alignments and variable whitespace",
+      "markdown": "| abc | defghi |\n:-: | -----------:\nbar | baz",
+      "expectedHeaders": ["abc", "defghi"],
+      "expectedAlignments": ["center", "right"],
+      "expectedRowCount": 1,
+      "expectedRows": [["bar", "baz"]]
+    },
+    {
+      "id": "table-escaped-pipes",
+      "example": 200,
+      "description": "Table cells containing escaped pipes and formatting",
+      "markdown": "| f\\|oo | b*ar | c |\n| --- | --- | --- |\n| d | e | f |",
+      "expectedHeaders": ["f|oo", "b*ar", "c"],
+      "expectedAlignments": ["defaultAlignment", "defaultAlignment", "defaultAlignment"],
+      "expectedRowCount": 1,
+      "expectedRows": [["d", "e", "f"]]
+    },
+    {
+      "id": "table-all-alignments",
+      "example": 202,
+      "description": "Table demonstrating left, center, right, and default alignments",
+      "markdown": "| Left | Center | Right | Default |\n| :--- | :---: | ---: | --- |\n| 1 | 2 | 3 | 4 |",
+      "expectedHeaders": ["Left", "Center", "Right", "Default"],
+      "expectedAlignments": ["left", "center", "right", "defaultAlignment"],
+      "expectedRowCount": 1,
+      "expectedRows": [["1", "2", "3", "4"]]
+    },
+    {
+      "id": "table-ragged-rows",
+      "example": 201,
+      "description": "Table with row containing fewer cells than header",
+      "markdown": "| a | b |\n| --- | --- |\n| c |",
+      "expectedHeaders": ["a", "b"],
+      "expectedAlignments": ["defaultAlignment", "defaultAlignment"],
+      "expectedRowCount": 1,
+      "expectedRows": [["c"]]
+    },
+    {
+      "id": "table-inline-formatting",
+      "example": 203,
+      "description": "Table with rich inline Markdown (code spans, bold, italic)",
+      "markdown": "| Name | Type | Description |\n| --- | --- | --- |\n| `id` | **Int** | The unique *identifier* |\n| `name` | **String** | The user's name |",
+      "expectedHeaders": ["Name", "Type", "Description"],
+      "expectedAlignments": ["defaultAlignment", "defaultAlignment", "defaultAlignment"],
+      "expectedRowCount": 2,
+      "expectedRows": [
+        ["`id`", "**Int**", "The unique *identifier*"],
+        ["`name`", "**String**", "The user's name"]
+      ]
+    }
+  ]
+}
