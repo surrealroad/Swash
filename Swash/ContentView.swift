@@ -82,12 +82,29 @@ struct ContentView: View {
     @State private var previousViewMode: ViewMode = .preview
     @State private var scrollOriginY: CGFloat = 0
 
+    @ObservedObject private var folderAccessManager = FolderAccessManager.shared
+    @State private var dismissedFolderBanner: URL? = nil
+
     private var effectiveBaseURL: URL? {
         fileURL ?? window?.representedURL ?? (window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
     }
 
+    private var unreadableFolderURL: URL? {
+        guard let unreadable = MarkdownParser.unreadableRelativeFolder(in: document.text, baseURL: effectiveBaseURL) else {
+            return nil
+        }
+        if dismissedFolderBanner == unreadable {
+            return nil
+        }
+        return unreadable
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            if let folderURL = unreadableFolderURL {
+                folderAccessBanner(for: folderURL)
+            }
+            
             ZStack(alignment: .topLeading) {
                 if viewMode == .preview {
                     SwashTextView(
@@ -401,6 +418,53 @@ struct ContentView: View {
         .background(Color(NSColor.windowBackgroundColor).opacity(0.8))
         .overlay(
             Divider(), alignment: .top
+        )
+    }
+    
+    private func folderAccessBanner(for folderURL: URL) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "folder.badge.questionmark")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(.accentColor)
+            
+            Text("Swash needs permission to access files in **\(folderURL.lastPathComponent)** to display linked images.")
+                .font(.system(size: 12))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+            
+            Spacer()
+            
+            Button("Grant Access…") {
+                FolderAccessManager.shared.promptForAccess(to: folderURL, window: window) { success in
+                    if success {
+                        dismissedFolderBanner = nil
+                    }
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .accessibilityIdentifier("GrantFolderAccessButton")
+            
+            Button(action: {
+                dismissedFolderBanner = folderURL
+            }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss")
+            .accessibilityIdentifier("DismissFolderAccessButton")
+            .padding(.leading, 4)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color(NSColor.controlBackgroundColor))
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(Color(NSColor.separatorColor)),
+            alignment: .bottom
         )
     }
     

@@ -89,6 +89,17 @@ struct SwashApp: App {
                 }
                 .disabled(!sparkleUpdater.canCheckForUpdates)
             }
+            CommandGroup(after: .saveItem) {
+                Button("Grant Folder Access…") {
+                    if let keyWindow = NSApp.keyWindow {
+                        let docURL = keyWindow.representedURL ?? NSDocumentController.shared.document(for: keyWindow)?.fileURL
+                        if let docURL = docURL {
+                            let folderURL = docURL.hasDirectoryPath ? docURL : docURL.deletingLastPathComponent()
+                            FolderAccessManager.shared.promptForAccess(to: folderURL, window: keyWindow) { _ in }
+                        }
+                    }
+                }
+            }
         }
         
         Settings {

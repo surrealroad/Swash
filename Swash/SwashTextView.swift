@@ -63,8 +63,10 @@ class SwashNSTextView: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("SwashFolderAccessGranted"), object: nil)
         guard let window = self.window else { return }
         NotificationCenter.default.addObserver(self, selector: #selector(handleWindowUpdated), name: NSWindow.didBecomeKeyNotification, object: window)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleFolderAccessGranted), name: NSNotification.Name("SwashFolderAccessGranted"), object: nil)
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.handleWindowUpdated()
@@ -73,6 +75,13 @@ class SwashNSTextView: NSTextView {
     
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+    
+    @objc private func handleFolderAccessGranted() {
+        guard let coordinator = self.delegate as? SwashTextView.Coordinator else { return }
+        if coordinator.parent.isStyled {
+            coordinator.highlightMarkdown(in: self)
+        }
     }
     
     @objc private func handleWindowUpdated() {

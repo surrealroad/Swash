@@ -302,6 +302,7 @@ struct MarkdownParser {
         // 3. Resolve strictly relative to document folder
         if let docURL = documentURL {
             let folderURL = docURL.hasDirectoryPath ? docURL : docURL.deletingLastPathComponent()
+            _ = FolderAccessManager.shared.ensureAccess(for: folderURL)
             let targetURL = folderURL.appendingPathComponent(cleanedURL)
             if let img = NSImage(contentsOfFile: targetURL.path) ?? NSImage(contentsOf: targetURL) {
                 return img
@@ -327,6 +328,32 @@ struct MarkdownParser {
             }
         }
         
+        return nil
+    }
+    
+    static func unreadableRelativeFolder(in markdown: String, baseURL: URL?) -> URL? {
+        guard let baseURL = baseURL else { return nil }
+        let folderURL = baseURL.hasDirectoryPath ? baseURL : baseURL.deletingLastPathComponent()
+        if FolderAccessManager.shared.hasAccess(to: folderURL) {
+            return nil
+        }
+        
+        let pattern = #"!\[([^\]]*)\]\(([^)]+)\)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let nsString = markdown as NSString
+        let matches = regex.matches(in: markdown, range: NSRange(location: 0, length: nsString.length))
+        for match in matches {
+            if match.numberOfRanges >= 3 {
+                let destWithTitle = nsString.substring(with: match.range(at: 2))
+                let (cleanedURL, _) = cleanImageURLAndTitle(destWithTitle)
+                if !cleanedURL.isEmpty && !cleanedURL.contains("://") && !cleanedURL.hasPrefix("/") {
+                    let target = folderURL.appendingPathComponent(cleanedURL)
+                    if !FileManager.default.isReadableFile(atPath: target.path) {
+                        return folderURL
+                    }
+                }
+            }
+        }
         return nil
     }
     

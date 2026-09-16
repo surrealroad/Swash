@@ -14,6 +14,7 @@ swiftc \
   -target arm64-apple-macos14.0 \
   -sdk "$(xcrun --show-sdk-path --sdk macosx)" \
   Swash/MarkdownFlavor.swift \
+  Swash/FolderAccessManager.swift \
   Swash/MarkdownParser.swift \
   Swash/MarkdownPreviewView.swift \
   Swash/DetectedLink.swift \

@@ -356,6 +356,7 @@ struct MarkdownImageView: View {
     let alt: String
     let urlString: String
     var baseURL: URL? = nil
+    @ObservedObject private var folderAccessManager = FolderAccessManager.shared
     
     private var cleanedData: (url: String, title: String?) {
         MarkdownParser.cleanImageURLAndTitle(urlString)
@@ -413,16 +414,33 @@ struct MarkdownImageView: View {
                 .help(tooltip)
                 .padding(.vertical, 6)
         } else {
-            HStack(spacing: 6) {
-                Image(systemName: "photo")
-                    .foregroundColor(.secondary)
-                Text(alt.isEmpty ? cleanURL : alt)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            let isRelativeLocal = !cleanURL.isEmpty && !cleanURL.contains("://") && !cleanURL.hasPrefix("/")
+            let folderURL = baseURL.map { $0.hasDirectoryPath ? $0 : $0.deletingLastPathComponent() }
+            let needsPermission = isRelativeLocal && (folderURL != nil && !FolderAccessManager.shared.hasAccess(to: folderURL!))
+            
+            Button(action: {
+                if let folder = folderURL {
+                    FolderAccessManager.shared.promptForAccess(to: folder, window: nil) { _ in }
+                }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: needsPermission ? "folder.badge.questionmark" : "photo")
+                        .foregroundColor(needsPermission ? .accentColor : .secondary)
+                    Text(alt.isEmpty ? cleanURL : alt)
+                        .font(.caption)
+                        .foregroundColor(needsPermission ? .accentColor : .secondary)
+                    if needsPermission {
+                        Text("(Click to grant access)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(8)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(6)
             }
-            .padding(8)
-            .background(Color.secondary.opacity(0.1))
-            .cornerRadius(6)
+            .buttonStyle(.plain)
+            .help(needsPermission ? "Click to grant Swash permission to access this folder" : tooltip)
             .padding(.vertical, 6)
         }
     }
