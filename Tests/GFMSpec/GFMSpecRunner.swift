@@ -169,7 +169,11 @@ final class HeadlessSnapshotRenderer {
             return nil
         }
         if let sv = findScrollView(in: hostingView), let doc = sv.documentView {
-            let docH = doc.fittingSize.height
+            var docH = doc.fittingSize.height
+            if let tv = doc as? NSTextView, let lm = tv.layoutManager, let tc = tv.textContainer {
+                lm.ensureLayout(for: tc)
+                docH = max(docH, lm.usedRect(for: tc).height + tv.textContainerInset.height * 2 + 10)
+            }
             if docH > finalHeight {
                 finalHeight = max(finalHeight, ceil(docH))
             }
