@@ -1,5 +1,11 @@
 # swash
 
+## 1.3.1
+
+### Patch Changes
+
+- d2a5ccd: Improve headless test snapshot renderer to capture full height of AppKit NSTextView attachments and content
+
 ## 1.3.0
 
 ### Minor Changes
