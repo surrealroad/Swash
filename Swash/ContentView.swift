@@ -82,6 +82,10 @@ struct ContentView: View {
     @State private var previousViewMode: ViewMode = .preview
     @State private var scrollOriginY: CGFloat = 0
 
+    private var effectiveBaseURL: URL? {
+        fileURL ?? window?.representedURL ?? (window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .topLeading) {
@@ -93,7 +97,7 @@ struct ContentView: View {
                         scrollOriginY: $scrollOriginY,
                         isStyled: true,
                         flavor: document.flavor,
-                        baseURL: fileURL
+                        baseURL: effectiveBaseURL
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -105,7 +109,7 @@ struct ContentView: View {
                         scrollOriginY: $scrollOriginY,
                         isStyled: false,
                         flavor: document.flavor,
-                        baseURL: fileURL
+                        baseURL: effectiveBaseURL
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -118,12 +122,12 @@ struct ContentView: View {
                             scrollOriginY: $scrollOriginY,
                             isStyled: false,
                             flavor: document.flavor,
-                            baseURL: fileURL
+                            baseURL: effectiveBaseURL
                         )
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)
                         
-                        MarkdownPreviewView(text: document.text, flavor: document.flavor, baseURL: fileURL, scrollOriginY: $scrollOriginY)
+                        MarkdownPreviewView(text: document.text, flavor: document.flavor, baseURL: effectiveBaseURL, scrollOriginY: $scrollOriginY)
                             .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

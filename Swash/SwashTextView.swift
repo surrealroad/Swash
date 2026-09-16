@@ -60,6 +60,32 @@ class SwashNSTextView: NSTextView {
     var isStyled: Bool = true
     var flavor: MarkdownFlavor = .github
     
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        guard let window = self.window else { return }
+        NotificationCenter.default.addObserver(self, selector: #selector(handleWindowUpdated), name: NSWindow.didBecomeKeyNotification, object: window)
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.handleWindowUpdated()
+        }
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+    
+    @objc private func handleWindowUpdated() {
+        guard let coordinator = self.delegate as? SwashTextView.Coordinator else { return }
+        let winURL = self.window?.representedURL ?? (self.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
+        if let docURL = winURL, coordinator.lastBaseURL != docURL {
+            coordinator.lastBaseURL = docURL
+            if coordinator.parent.isStyled {
+                coordinator.highlightMarkdown(in: self)
+            }
+        }
+    }
+    
     override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
         if isStyled {
             return [.rtfd, .rtf, .html, .string]
@@ -408,11 +434,15 @@ struct SwashTextView: NSViewRepresentable {
             textWasUpdated = true
         }
         
-        // Highlight if the text was updated, if style parameters changed, or on first run.
+        let currentBaseURL = baseURL ?? textView.window?.representedURL ?? (textView.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
+        let baseChanged = (context.coordinator.lastBaseURL != currentBaseURL)
+        
+        // Highlight if the text was updated, if style parameters changed, if baseURL updated, or on first run.
         let needsHighlight = textWasUpdated ||
                              context.coordinator.lastStyledText == nil ||
                              context.coordinator.lastIsStyled != isStyled ||
-                             context.coordinator.lastFlavor != flavor
+                             context.coordinator.lastFlavor != flavor ||
+                             (baseChanged && currentBaseURL != nil)
         
         logDebug("[SwashTextView] updateNSView - needsHighlight: \(needsHighlight), lastStyledText is Nil: \(context.coordinator.lastStyledText == nil)")
         
@@ -469,6 +499,7 @@ struct SwashTextView: NSViewRepresentable {
         var lastStyledText: String? = nil
         var lastIsStyled: Bool? = nil
         var lastFlavor: MarkdownFlavor? = nil
+        var lastBaseURL: URL? = nil
         
         var lastKnownScrollOrigin: NSPoint? = nil
         weak var currentTextView: NSTextView? = nil
@@ -1545,7 +1576,8 @@ struct SwashTextView: NSViewRepresentable {
                     let validRange = NSIntersectionRange(range, NSRange(location: 0, length: textStorage.length))
                     if validRange.length > 0 {
                         let cleaned = MarkdownParser.cleanImageURLAndTitle(urlString)
-                        let resolved = MarkdownParser.resolveImage(urlString: cleaned.url, baseURL: parent.baseURL, windowURL: textView.window?.representedURL)
+                        let winURL = textView.window?.representedURL ?? (textView.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
+                        let resolved = MarkdownParser.resolveImage(urlString: cleaned.url, baseURL: parent.baseURL, windowURL: winURL)
                         let displayImage: NSImage
                         if let realImage = resolved {
                             displayImage = MarkdownParser.scaleImageForEditor(realImage, maxWidth: 550)
@@ -1580,6 +1612,7 @@ struct SwashTextView: NSViewRepresentable {
             lastStyledText = text
             lastIsStyled = true
             lastFlavor = parent.flavor
+            lastBaseURL = parent.baseURL ?? textView.window?.representedURL ?? (textView.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
             
             let autoSelectRequested = ProcessInfo.processInfo.arguments.contains("--select-sample") || ProcessInfo.processInfo.environment["SWASH_AUTO_SELECT"] == "1"
             if autoSelectRequested && !didAutoSelect {
@@ -1617,6 +1650,7 @@ struct SwashTextView: NSViewRepresentable {
             lastStyledText = textView.string
             lastIsStyled = false
             lastFlavor = parent.flavor
+            lastBaseURL = parent.baseURL ?? textView.window?.representedURL ?? (textView.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
         }
         
         private func applyRegex(pattern: String, in text: String, action: (NSRange, NSRange) -> Void) {

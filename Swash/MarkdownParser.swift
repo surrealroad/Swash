@@ -284,13 +284,11 @@ struct MarkdownParser {
         if documentURL == nil {
             documentURL = windowURL
         }
-        if documentURL == nil {
-            for window in NSApp.windows {
-                if let url = window.representedURL {
-                    documentURL = url
-                    break
-                }
-            }
+        if documentURL == nil, let keyWin = NSApp.keyWindow {
+            documentURL = keyWin.representedURL ?? NSDocumentController.shared.document(for: keyWin)?.fileURL
+        }
+        if documentURL == nil, let mainWin = NSApp.mainWindow {
+            documentURL = mainWin.representedURL ?? NSDocumentController.shared.document(for: mainWin)?.fileURL
         }
         if documentURL == nil {
             for doc in NSDocumentController.shared.documents {
