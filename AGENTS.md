@@ -4,6 +4,9 @@
 - **Check GOTCHAS.md**: Check `GOTCHAS.md` before starting work and when encountering issues for known pitfalls, issues, and their solutions and workarounds.
 - **Maintain GOTCHAS.md**: Maintain and populate `GOTCHAS.md` with any issues and pitfalls encountered, along with their solutions and workarounds.
 
+## Workspace Skills
+- **Use Workspace Skills**: Specialized workflows and procedural runbooks are located in `.agents/skills/` (`swash-build-test`, `changeset-management`, `macos-headless-snapshot`, `macos-sandbox-bookmarks`). Follow their procedures for building, changesets, snapshots, and sandbox handling.
+
 On completion of any work, agents must execute the following workflow:
 
 ## 1. Validation & Testing
