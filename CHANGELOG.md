@@ -1,5 +1,11 @@
 # swash
 
+## 1.4.1
+
+### Patch Changes
+
+- fd4b48d: Add specialized Antigravity workspace skills for build/test workflows, changeset management, headless snapshots, and App Sandbox handling. Deduplicate repository agent guidelines.
+
 ## 1.4.0
 
 ### Minor Changes
