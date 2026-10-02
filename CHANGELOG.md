@@ -1,5 +1,11 @@
 # swash
 
+## 1.8.1
+
+### Patch Changes
+
+- d2421b9: Inline math in Preview headings now renders at the heading's size instead of body size.
+
 ## 1.8.0
 
 ### Minor Changes
