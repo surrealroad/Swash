@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Offscreen page used by RichContentRenderer: typesets TeX with KaTeX and draws Mermaid
+     diagrams, then reports the size of #stage so the app can snapshot it. Fully offline. -->
+<link rel="stylesheet" href="katex.min.css">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { font-family: -apple-system, "Helvetica Neue", sans-serif; }
+  #stage { position: absolute; left: 0; top: 0; display: inline-block; width: max-content; padding: 2px; }
+  #stage .katex { font-size: 1.1em; }
+  #stage .katex-display { margin: 0; }
+  #stage svg { display: block; max-width: none !important; }
+  #baseline { display: inline-block; width: 0; height: 0; }
+</style>
+<script src="katex.min.js"></script>
+<script src="katex-mhchem.min.js"></script>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+  // KaTeX fonts load lazily on first use, after fonts.ready may already have resolved:
+  // load every face up front so the first snapshot has all its glyphs (∫, big delimiters…)
+  const fontsLoaded = Promise.all(Array.from(document.fonts).map(face => face.load().catch(() => null)));
+  let mermaidLoaded = null;
+  let diagramCount = 0;
+
+  function loadMermaid() {
+    if (!mermaidLoaded) {
+      mermaidLoaded = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "mermaid.min.js";
+        script.onload = () => resolve(window.mermaid);
+        script.onerror = () => reject(new Error("mermaid.min.js failed to load"));
+        document.head.appendChild(script);
+      });
+    }
+    return mermaidLoaded;
+  }
+
+  function measure(stage) {
+    const rect = stage.getBoundingClientRect();
+    const marker = document.getElementById("baseline");
+    const baseline = marker ? marker.getBoundingClientRect().top - rect.top : rect.height;
+    return { ok: true, width: Math.ceil(rect.width), height: Math.ceil(rect.height), baseline: baseline };
+  }
+
+  // kind: "inline" | "display" | "mermaid"
+  async function swashRender(kind, source, dark, fontSize) {
+    const stage = document.getElementById("stage");
+    stage.innerHTML = "";
+    stage.style.fontSize = fontSize + "px";
+    stage.style.color = dark ? "rgba(255,255,255,0.88)" : "rgba(0,0,0,0.85)";
+    try {
+      if (kind === "mermaid") {
+        const mermaid = await loadMermaid();
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: dark ? "dark" : "default",
+          fontFamily: "-apple-system, Helvetica Neue, sans-serif",
+          flowchart: { useMaxWidth: false },
+          sequence: { useMaxWidth: false },
+          gantt: { useMaxWidth: false },
+          class: { useMaxWidth: false },
+          state: { useMaxWidth: false },
+          er: { useMaxWidth: false },
+          pie: { useMaxWidth: false },
+          journey: { useMaxWidth: false },
+          mindmap: { useMaxWidth: false },
+          gitGraph: { useMaxWidth: false },
+        });
+        diagramCount += 1;
+        const { svg } = await mermaid.render("swash-diagram-" + diagramCount, source);
+        stage.innerHTML = svg;
+        // Mermaid leaves its measuring element behind when rendering fails part-way
+        document.querySelectorAll("body > [id^='dswash-diagram']").forEach(e => e.remove());
+      } else {
+        katex.render(source, stage, {
+          displayMode: kind === "display",
+          throwOnError: true,
+          output: "html",
+          trust: false,
+          strict: "ignore",
+        });
+        const marker = document.createElement("span");
+        marker.id = "baseline";
+        (stage.querySelector(".katex-html") || stage).appendChild(marker);
+      }
+      await fontsLoaded;
+      stage.getBoundingClientRect();   // lay out, so any font still needed starts loading
+      await document.fonts.ready;
+      return measure(stage);
+    } catch (error) {
+      document.querySelectorAll("body > [id^='dswash-diagram']").forEach(e => e.remove());
+      stage.innerHTML = "";
+      return { ok: false, error: String(error && error.message ? error.message : error) };
+    }
+  }
+</script>
+</body>
+</html>
