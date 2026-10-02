@@ -5,7 +5,7 @@ set -eo pipefail
 cd "$(dirname "$0")/../.."
 OUT="build/editor-audit"; mkdir -p "$OUT"
 SDK="$(xcrun --show-sdk-path --sdk macosx)"
-CORE="Swash/Markdown/*.swift Swash/MarkdownFlavor.swift Swash/FolderAccessManager.swift Swash/MarkdownParser.swift Swash/MarkdownPreviewView.swift Swash/DetectedLink.swift Swash/InteractiveTableView.swift Swash/SwashTextView.swift"
+CORE="Swash/Markdown/*.swift Swash/MarkdownEditorStyler.swift Swash/MarkdownFlavor.swift Swash/FolderAccessManager.swift Swash/MarkdownParser.swift Swash/MarkdownPreviewView.swift Swash/DetectedLink.swift Swash/InteractiveTableView.swift Swash/SwashTextView.swift"
 what="${1:-all}"
 
 if [[ $what == render || $what == all ]]; then
