@@ -135,7 +135,32 @@ struct ListMarkerInfo {
 }
 
 final class SwashLayoutManager: NSLayoutManager {
+    /// Paints IndentedTextBlock fills from each block's left margin edge, once per block.
+    private func fillIndentedTextBlocks(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let textStorage = textStorage else { return }
+        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        var painted = Set<ObjectIdentifier>()
+        textStorage.enumerateAttribute(.paragraphStyle, in: charRange, options: []) { value, range, _ in
+            guard let style = value as? NSParagraphStyle else { return }
+            for case let block as IndentedTextBlock in style.textBlocks {
+                guard let color = block.fillColor, !painted.contains(ObjectIdentifier(block)) else { continue }
+                painted.insert(ObjectIdentifier(block))
+                let blockCharacters = textStorage.range(of: block, at: range.location)
+                guard blockCharacters.length > 0 else { continue }
+                let blockGlyphs = glyphRange(forCharacterRange: blockCharacters, actualCharacterRange: nil)
+                var rect = boundsRect(for: block, glyphRange: blockGlyphs)
+                let margin = block.width(for: .margin, edge: .minX)
+                rect.origin.x += margin + origin.x
+                rect.origin.y += origin.y
+                rect.size.width = max(0, rect.size.width - margin)
+                color.setFill()
+                rect.fill(using: .sourceOver)
+            }
+        }
+    }
+    
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        fillIndentedTextBlocks(forGlyphRange: glyphsToShow, at: origin)
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
         
         guard let textStorage = textStorage else { return }

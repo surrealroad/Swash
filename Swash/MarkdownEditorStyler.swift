@@ -10,25 +10,24 @@
 
 import AppKit
 
-/// An NSTextBlock whose background and borders start at its left margin, so blocks nested in
-/// list items are indented instead of painting their background under the list indentation.
+/// An NSTextBlock whose background starts at its left margin, so blocks nested in list items are
+/// indented instead of painting their background under the list indentation. NSTextBlock fills its
+/// margin with `backgroundColor`, so indented blocks leave that nil and set `fillColor`, which
+/// SwashLayoutManager paints from the margin edge. (Overriding drawBackground is avoided: its
+/// `controlView` parameter changed optionality between SDKs.)
 final class IndentedTextBlock: NSTextBlock {
-    override func drawBackground(withFrame frameRect: NSRect, in controlView: NSView?, characterRange charRange: NSRange, layoutManager: NSLayoutManager) {
-        // NSTextBlock fills its margin with the background colour but offsets borders by it;
-        // paint the background from the margin edge ourselves and let super draw the borders.
-        guard let background = backgroundColor else {
-            super.drawBackground(withFrame: frameRect, in: controlView, characterRange: charRange, layoutManager: layoutManager)
-            return
+    var fillColor: NSColor?
+    
+    /// Uses the standard background when there is no margin, the margin-aware fill otherwise.
+    func setFill(_ color: NSColor, leftMargin: CGFloat) {
+        if leftMargin > 0 {
+            setWidth(leftMargin, type: .absoluteValueType, for: .margin, edge: .minX)
+            backgroundColor = nil
+            fillColor = color
+        } else {
+            backgroundColor = color
+            fillColor = nil
         }
-        let margin = width(for: .margin, edge: .minX)
-        var fill = frameRect
-        fill.origin.x += margin
-        fill.size.width = max(0, fill.size.width - margin)
-        background.setFill()
-        fill.fill(using: .sourceOver)
-        backgroundColor = nil
-        super.drawBackground(withFrame: frameRect, in: controlView, characterRange: charRange, layoutManager: layoutManager)
-        backgroundColor = background
     }
 }
 
@@ -271,15 +270,12 @@ final class MarkdownEditorStyler {
                 inner.inline.italic = true
             }
             let block = IndentedTextBlock()
-            block.backgroundColor = color.withAlphaComponent(0.07)
+            block.setFill(color.withAlphaComponent(0.07), leftMargin: context.indent)
             block.setValue(100, type: .percentageValueType, for: .width)
             block.setBorderColor(color, for: .minX)
             block.setWidth(3.0, type: .absoluteValueType, for: .border, edge: .minX)
             block.setWidth(6, type: .absoluteValueType, for: .padding)
             block.setWidth(10, type: .absoluteValueType, for: .padding, edge: .minX)
-            if context.indent > 0 {
-                block.setWidth(context.indent, type: .absoluteValueType, for: .margin, edge: .minX)
-            }
             inner.textBlocks.append(block)
             inner.indent = 0
             setParagraphStyle(paragraphStyle(inner), over: node.range)
@@ -344,7 +340,7 @@ final class MarkdownEditorStyler {
 
         case .codeBlock(let fenced, let info):
             let block = IndentedTextBlock()
-            block.backgroundColor = NSColor.textColor.withAlphaComponent(0.04)
+            block.setFill(NSColor.textColor.withAlphaComponent(0.04), leftMargin: context.indent)
             block.setValue(100, type: .percentageValueType, for: .width)
             for edge: NSRectEdge in [.minX, .maxX, .minY, .maxY] {
                 block.setBorderColor(NSColor.textColor.withAlphaComponent(0.12), for: edge)
@@ -353,9 +349,6 @@ final class MarkdownEditorStyler {
             block.setWidth(3.0, type: .absoluteValueType, for: .border, edge: .minX)
             block.setWidth(8, type: .absoluteValueType, for: .padding)
             block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
-            if context.indent > 0 {
-                block.setWidth(context.indent, type: .absoluteValueType, for: .margin, edge: .minX)
-            }
             var inner = context
             inner.textBlocks.append(block)
             inner.indent = 0

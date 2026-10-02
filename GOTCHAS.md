@@ -73,3 +73,7 @@
 ## 18. Backticks in Shell-Quoted Commit Messages
 - **Issue**: A commit message passed with `git commit -m "…"` that contains triple backticks is treated by zsh as command substitution, and the whole command line fails to parse ("unmatched").
 - **Solution**: Write the message to a file and use `git commit -F <file>`, or avoid backticks in `-m` messages.
+
+## 19. CI Builds With an Older SDK Than Local Xcode
+- **Issue**: The release workflow builds on `macos-14` with `latest-stable` Xcode (macOS 15.2 SDK, Swift 6.0), while local builds use a much newer Xcode and SDK. AppKit signatures can differ: `NSTextBlock.drawBackground(withFrame:in:characterRange:layoutManager:)` takes `NSView` on the CI SDK but `NSView?` locally, so an override that compiles locally broke the v1.5.0 release on `main`.
+- **Solution**: Avoid overriding AppKit methods whose signatures have changed between SDKs, and prefer composition (here, `SwashLayoutManager` paints `IndentedTextBlock.fillColor`). The `PR Build` workflow builds every pull request on the release toolchain, so these failures show up before merging.
