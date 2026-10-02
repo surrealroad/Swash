@@ -108,6 +108,8 @@ Swash features a modern, automated release pipeline powered by GitHub Actions. E
 
 Distributed under the **MIT License**. See [`LICENSE`](./LICENSE) for more information.
 
+Swash bundles [KaTeX](https://katex.org) (MIT, © Khan Academy and contributors) for math typesetting and [Mermaid](https://mermaid.js.org) (MIT, © Knut Sveidqvist) for diagrams. Both run offline from the app bundle; their licenses are in [`Swash/Rendering/`](./Swash/Rendering/).
+
 <div align="center">
   <sub>Crafted with ❤️ by Jack James & Contributors</sub>
 </div>
