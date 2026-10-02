@@ -1173,6 +1173,255 @@ struct MarkdownParser {
         return result
     }
     
+    // MARK: - Code Range Detection
+
+    /// A fenced code block located in raw markdown (UTF-16 offsets).
+    struct FencedCodeBlock {
+        let fullRange: NSRange      // Opening fence line through closing fence line (no trailing newline)
+        let contentRange: NSRange   // Lines between the fences (no trailing newline)
+        let language: String?
+        let isClosed: Bool
+    }
+
+    /// Code regions of a document, computed in a single O(n) pass.
+    struct CodeRanges {
+        var fencedBlocks: [FencedCodeBlock] = []
+        var indentedBlocks: [NSRange] = []
+        /// Code spans including their backtick delimiters, with the inner content range.
+        var spans: [(full: NSRange, content: NSRange, fenceLength: Int)] = []
+
+        /// Sorted block-level code ranges (fenced + indented) and span ranges, finalised once per scan.
+        private(set) var blockRanges: [NSRange] = []
+        private(set) var spanRanges: [NSRange] = []
+
+        mutating func finalize() {
+            blockRanges = (fencedBlocks.map { $0.fullRange } + indentedBlocks).sorted { $0.location < $1.location }
+            spanRanges = spans.map { $0.full }
+        }
+
+        func blockIntersects(_ range: NSRange) -> Bool {
+            CodeRanges.anyIntersects(blockRanges, range)
+        }
+
+        func spanContains(_ location: Int) -> Bool {
+            CodeRanges.anyContains(spanRanges, location)
+        }
+
+        /// True when a match should be excluded from markdown interpretation: it overlaps a code block,
+        /// or one of its delimiters (first/last character) sits inside a code span.
+        func excludes(_ range: NSRange) -> Bool {
+            if blockIntersects(range) { return true }
+            guard range.length > 0 else { return spanContains(range.location) }
+            return spanContains(range.location) || spanContains(range.location + range.length - 1)
+        }
+
+        /// Binary search over sorted, non-overlapping ranges.
+        static func anyContains(_ sorted: [NSRange], _ location: Int) -> Bool {
+            var lo = 0, hi = sorted.count - 1
+            while lo <= hi {
+                let mid = (lo + hi) / 2
+                let r = sorted[mid]
+                if location < r.location { hi = mid - 1 }
+                else if location >= r.location + r.length { lo = mid + 1 }
+                else { return true }
+            }
+            return false
+        }
+
+        static func anyIntersects(_ sorted: [NSRange], _ range: NSRange) -> Bool {
+            // First range whose end is after range.location
+            var lo = 0, hi = sorted.count
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if sorted[mid].location + sorted[mid].length <= range.location { lo = mid + 1 } else { hi = mid }
+            }
+            guard lo < sorted.count else { return false }
+            let candidate = sorted[lo]
+            if range.length == 0 {
+                return range.location >= candidate.location && range.location < candidate.location + candidate.length
+            }
+            return candidate.location < range.location + range.length
+        }
+    }
+
+    private static let listMarkerRegex = try? NSRegularExpression(pattern: "^\\s*(?:[-*+]|[0-9]+[.)])\\s+")
+
+    static func isListItemLine(_ line: String) -> Bool {
+        guard let regex = listMarkerRegex else { return false }
+        return regex.firstMatch(in: line, options: [], range: NSRange(location: 0, length: (line as NSString).length)) != nil
+    }
+
+    /// Locates fenced code blocks, indented code blocks and code spans in a single pass.
+    static func codeRanges(in text: String) -> CodeRanges {
+        var result = CodeRanges()
+        let nsText = text as NSString
+        let lines = text.components(separatedBy: "\n")
+
+        var offset = 0
+        var openFence: CodeFenceInfo? = nil
+        var openStart = 0
+        var openContentStart = 0
+        var previousLineBlank = true
+        var inListContext = false
+        var indentedStart: Int? = nil
+        var indentedEnd = 0
+        var proseRanges: [NSRange] = []   // Regions where code spans may occur
+        var proseStart: Int? = nil
+
+        func closeIndented() {
+            if let start = indentedStart {
+                result.indentedBlocks.append(NSRange(location: start, length: indentedEnd - start))
+                indentedStart = nil
+            }
+        }
+        func closeProse(at end: Int) {
+            if let start = proseStart, end > start {
+                proseRanges.append(NSRange(location: start, length: end - start))
+            }
+            proseStart = nil
+        }
+
+        for line in lines {
+            let length = (line as NSString).length
+            let lineEnd = offset + length
+
+            if let fence = openFence {
+                if isClosingCodeFence(line, matching: fence) {
+                    let contentLength = max(0, offset - 1 - openContentStart)
+                    result.fencedBlocks.append(FencedCodeBlock(
+                        fullRange: NSRange(location: openStart, length: lineEnd - openStart),
+                        contentRange: NSRange(location: openContentStart, length: offset > openContentStart ? contentLength : 0),
+                        language: fence.language,
+                        isClosed: true))
+                    openFence = nil
+                    previousLineBlank = false
+                }
+                offset = lineEnd + 1
+                continue
+            }
+
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let isBlank = trimmed.isEmpty
+            let isIndented = line.hasPrefix("    ") || line.hasPrefix("\t")
+
+            if indentedStart != nil {
+                if isIndented || isBlank {
+                    if !isBlank { indentedEnd = lineEnd }
+                    offset = lineEnd + 1
+                    previousLineBlank = isBlank
+                    continue
+                }
+                closeIndented()
+            }
+
+            if let fence = parseOpeningCodeFence(line) {
+                closeProse(at: offset)
+                openFence = fence
+                openStart = offset
+                openContentStart = lineEnd + 1
+                inListContext = false
+            } else if isIndented && !isBlank && previousLineBlank && !inListContext && !isListItemLine(line) {
+                closeProse(at: offset)
+                indentedStart = offset
+                indentedEnd = lineEnd
+            } else {
+                if isBlank {
+                    // Code spans cannot cross a blank line
+                    closeProse(at: offset)
+                } else {
+                    if proseStart == nil { proseStart = offset }
+                    if isListItemLine(line) {
+                        inListContext = true
+                    } else if !line.hasPrefix(" ") && !line.hasPrefix("\t") && previousLineBlank {
+                        inListContext = false
+                    }
+                }
+            }
+
+            previousLineBlank = isBlank
+            offset = lineEnd + 1
+        }
+
+        if let fence = openFence {
+            let end = nsText.length
+            result.fencedBlocks.append(FencedCodeBlock(
+                fullRange: NSRange(location: openStart, length: end - openStart),
+                contentRange: NSRange(location: min(openContentStart, end), length: max(0, end - openContentStart)),
+                language: fence.language,
+                isClosed: false))
+        }
+        closeIndented()
+        closeProse(at: nsText.length)
+
+        for prose in proseRanges {
+            result.spans.append(contentsOf: codeSpans(in: nsText, range: prose))
+        }
+        result.finalize()
+        return result
+    }
+
+    /// CommonMark code spans: a backtick run closed by the next run of exactly the same length.
+    private static func codeSpans(in text: NSString, range: NSRange) -> [(full: NSRange, content: NSRange, fenceLength: Int)] {
+        let backtick: unichar = 0x60
+        let backslash: unichar = 0x5C
+        let end = range.location + range.length
+        var spans: [(full: NSRange, content: NSRange, fenceLength: Int)] = []
+        var i = range.location
+
+        func runLength(at index: Int) -> Int {
+            var j = index
+            while j < end && text.character(at: j) == backtick { j += 1 }
+            return j - index
+        }
+
+        while i < end {
+            let c = text.character(at: i)
+            if c == backslash && i + 1 < end && text.character(at: i + 1) == backtick {
+                i += 2
+                continue
+            }
+            guard c == backtick else { i += 1; continue }
+            let openLength = runLength(at: i)
+            var j = i + openLength
+            var closeStart: Int? = nil
+            while j < end {
+                if text.character(at: j) == backtick {
+                    let closeLength = runLength(at: j)
+                    if closeLength == openLength { closeStart = j; break }
+                    j += closeLength
+                } else {
+                    j += 1
+                }
+            }
+            guard let close = closeStart else {
+                i += openLength
+                continue
+            }
+            var contentStart = i + openLength
+            var contentEnd = close
+            // Strip one leading and trailing space when both are present and content is not all spaces
+            if contentEnd - contentStart >= 2,
+               text.character(at: contentStart) == 0x20, text.character(at: contentEnd - 1) == 0x20,
+               text.substring(with: NSRange(location: contentStart, length: contentEnd - contentStart)).contains(where: { $0 != " " }) {
+                contentStart += 1
+                contentEnd -= 1
+            }
+            spans.append((full: NSRange(location: i, length: close + openLength - i),
+                          content: NSRange(location: contentStart, length: contentEnd - contentStart),
+                          fenceLength: openLength))
+            i = close + openLength
+        }
+        return spans
+    }
+
+    /// Returns the fenced code block (``` or ~~~) containing the given raw-markdown range, if any.
+    static func fencedCodeBlock(containing range: NSRange, in text: String) -> FencedCodeBlock? {
+        codeRanges(in: text).fencedBlocks.first { block in
+            range.location >= block.fullRange.location &&
+            range.location + range.length <= block.fullRange.location + block.fullRange.length
+        }
+    }
+
     /// Pre-processes inline footnote references [^label] into markdown links [[label]](#fn-label)
     static func formatFootnoteReferences(_ text: String) -> String {
         let pattern = "\\[\\^([^\\]]+)\\](?!:)"
