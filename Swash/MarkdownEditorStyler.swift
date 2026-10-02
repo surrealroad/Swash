@@ -36,6 +36,29 @@ extension NSAttributedString.Key {
     static let codeBadge = NSAttributedString.Key("SwashCodeBadgeKey")
     /// Marks the first character of an alert title; the layout manager draws the alert's icon before it.
     static let alertIcon = NSAttributedString.Key("SwashAlertIconKey")
+    /// Marks the last character of a display-math or Mermaid block; the layout manager draws the
+    /// rendered formula or diagram in the paragraph spacing reserved below that line.
+    static let richPreview = NSAttributedString.Key("SwashRichPreviewKey")
+}
+
+/// A rendered formula or diagram shown under its source in Edit Text.
+struct RichPreviewInfo {
+    let image: NSImage
+    /// Display size (the image scaled down to fit the editor width).
+    let size: NSSize
+    /// Below 1 while a newer render is pending or when the current source fails to render.
+    let alpha: CGFloat
+    let error: String?
+    
+    static let spacing: CGFloat = 10
+    static let errorHeight: CGFloat = 16
+    static let errorAttributes: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: 11),
+        .foregroundColor: NSColor.systemOrange,
+    ]
+    
+    /// Paragraph spacing reserved below the block's last line.
+    var reservedHeight: CGFloat { size.height + Self.spacing * 2 + (error == nil ? 0 : Self.errorHeight) }
 }
 
 struct AlertIconInfo {
@@ -141,6 +164,17 @@ final class MarkdownEditorStyler {
     private(set) var attachments: [EditorAttachmentRequest] = []
     /// Code blocks, code spans, HTML and front matter (raw offsets), excluded from spellchecking.
     private(set) var codeRanges: [NSRange] = []
+    
+    // Rendered math and Mermaid (KaTeX / mermaid.js via RichContentRenderer)
+    /// Whether rendered previews use the dark appearance.
+    var richPreviewDark = false
+    /// Widest a rendered preview is drawn; wider ones are scaled down.
+    var richPreviewMaxWidth: CGFloat = 640
+    /// Last good render per block (raw location of the block): shown dimmed while the edited source
+    /// re-renders or fails, so the layout does not jump on every keystroke. Read and updated by the pass.
+    var richPreviewMemory: [Int: RichContentRenderer.Rendered] = [:]
+    /// Renders requested by this pass that were not ready: (raw block location, request).
+    private(set) var pendingRichPreviews: [(location: Int, request: RichContentRenderer.Request)] = []
 
     /// `storageShift`: raw offset minus storage offset for the region being styled (0 when the storage
     /// holds the raw text throughout).
@@ -183,6 +217,54 @@ final class MarkdownEditorStyler {
     // MARK: - Attribute helpers
 
     private var fullRange: NSRange { NSRange(location: 0, length: storage.length) }
+    
+    /// Reserves space below a display-math or Mermaid block's last line for its rendering, which the
+    /// layout manager draws there; requests the render when it is not cached yet.
+    private func addRichPreview(_ node: MarkdownNode, kind: RichContentRenderer.Kind) {
+        guard RichContentRenderer.isAvailable, !node.literal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // The block's content: between the opening and closing fences
+        guard let opening = node.markers.first else { return }
+        let contentStart = min(NSMaxRange(opening) + 1, NSMaxRange(node.range))
+        let contentEnd = node.markers.count > 1 ? node.markers[node.markers.count - 1].location : NSMaxRange(node.range)
+        var last = contentEnd - 1
+        while last >= contentStart, last < text.length, text.character(at: last) == 0x0A || text.character(at: last) == 0x0D { last -= 1 }
+        guard last >= contentStart, last < text.length else { return }
+        
+        let fontSize: CGFloat = kind == .mermaid ? 13 : 16
+        let request = RichContentRenderer.Request(kind: kind, source: node.literal, dark: richPreviewDark, fontSize: fontSize)
+        let location = node.range.location
+        var image: RichContentRenderer.Rendered? = nil
+        var alpha: CGFloat = 1
+        var error: String? = nil
+        switch RichContentRenderer.cachedOrRequest(request) {
+        case .rendered(let rendered)?:
+            image = rendered
+            richPreviewMemory[location] = rendered
+        case .failed(let message)?:
+            image = richPreviewMemory[location]
+            alpha = 0.35
+            error = message.components(separatedBy: .newlines).first ?? message
+        case nil:
+            image = richPreviewMemory[location]
+            alpha = 0.6
+            pendingRichPreviews.append((location, request))
+        }
+        guard image != nil || error != nil else { return }
+        
+        var size = image?.image.size ?? .zero
+        if size.width > richPreviewMaxWidth, size.width > 0 {
+            size = NSSize(width: richPreviewMaxWidth, height: (size.height * richPreviewMaxWidth / size.width).rounded())
+        }
+        let info = RichPreviewInfo(image: image?.image ?? NSImage(size: .zero), size: image == nil ? .zero : size, alpha: alpha, error: error)
+        let anchor = valid(NSRange(location: last, length: 1))
+        guard anchor.length > 0 else { return }
+        storage.addAttribute(.richPreview, value: info, range: anchor)
+        let line = valid(text.paragraphRange(for: NSRange(location: last, length: 0)))
+        if let style = (storage.attribute(.paragraphStyle, at: anchor.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            style.paragraphSpacing += info.reservedHeight
+            storage.addAttribute(.paragraphStyle, value: style, range: line)
+        }
+    }
     
     /// Maps a raw range to the storage, clipped to the storage bounds.
     private func valid(_ range: NSRange) -> NSRange {
@@ -476,6 +558,8 @@ final class MarkdownEditorStyler {
             }
             let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map { String($0).lowercased() }
             if language != "math" { highlightCode(in: node, language: language) }
+            if language == "math" { addRichPreview(node, kind: .displayMath) }
+            if language == "mermaid" { addRichPreview(node, kind: .mermaid) }
             codeRanges.append(node.range)
 
         case .htmlBlock:
