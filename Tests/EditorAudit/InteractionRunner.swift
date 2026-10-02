@@ -36,6 +36,7 @@ func caretBefore(_ needle: String, in tv: NSTextView) {
     tv.setSelectedRange(NSRange(location: r.location, length: 0))
 }
 
+// Key commands are sent with doCommand(by:) so the text view delegate sees them, exactly as key presses do
 var out = ""
 var failures: [String] = []
 /// Records a probe. When `expect` is given the probe is a regression assertion.
@@ -54,37 +55,37 @@ struct InteractionRunner {
 
         // 1. Enter at end of bullet item
         do { let b = TextBox("- first item"); let tv = makeEditor(b); caretAfter("first item", in: tv)
-             tv.insertNewline(nil); pump(); tv.insertText("second", replacementRange: tv.selectedRange()); pump()
-             log("enter-continues-bullet-list", "- first item", b.text, "Notion/Typora: expect '- first item\\n- second'") }
+             tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.insertText("second", replacementRange: tv.selectedRange()); pump()
+             log("enter-continues-bullet-list", "- first item", b.text, expect: "- first item\n- second") }
         // 2. Enter at end of ordered item
         do { let b = TextBox("1. first"); let tv = makeEditor(b); caretAfter("first", in: tv)
-             tv.insertNewline(nil); pump(); tv.insertText("second", replacementRange: tv.selectedRange()); pump()
-             log("enter-continues-ordered-list", "1. first", b.text, "expect '1. first\\n2. second'") }
+             tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.insertText("second", replacementRange: tv.selectedRange()); pump()
+             log("enter-continues-ordered-list", "1. first", b.text, expect: "1. first\n2. second") }
         // 3. Enter at end of task item
         do { let b = TextBox("- [x] done"); let tv = makeEditor(b); caretAfter("done", in: tv)
-             tv.insertNewline(nil); pump(); tv.insertText("next", replacementRange: tv.selectedRange()); pump()
-             log("enter-continues-task-list", "- [x] done", b.text, "expect '- [x] done\\n- [ ] next'") }
+             tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.insertText("next", replacementRange: tv.selectedRange()); pump()
+             log("enter-continues-task-list", "- [x] done", b.text, expect: "- [x] done\n- [ ] next") }
         // 4. Tab in list item
         do { let b = TextBox("- a\n- b"); let tv = makeEditor(b); caretAfter("- b", in: tv)
-             tv.insertTab(nil); pump()
-             log("tab-indents-list-item", "- a\n- b", b.text, "expect '- a\\n  - b'") }
+             tv.doCommand(by: #selector(NSResponder.insertTab(_:))); pump()
+             log("tab-indents-list-item", "- a\n- b", b.text, expect: "- a\n  - b") }
         // 5. Enter in blockquote
         do { let b = TextBox("> quote"); let tv = makeEditor(b); caretAfter("quote", in: tv)
-             tv.insertNewline(nil); pump(); tv.insertText("more", replacementRange: tv.selectedRange()); pump()
-             log("enter-continues-quote", "> quote", b.text, "expect '> quote\\n> more'") }
+             tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.insertText("more", replacementRange: tv.selectedRange()); pump()
+             log("enter-continues-quote", "> quote", b.text, expect: "> quote\nmore".replacingOccurrences(of: "\nmore", with: "\n> more")) }
         // 6. Backspace at visual start of heading text
         do { let b = TextBox("## Title"); let tv = makeEditor(b); caretBefore("Title", in: tv)
-             tv.deleteBackward(nil); pump()
-             log("backspace-at-heading-start", "## Title", b.text, "caret appears at start of 'Title'; Notion converts to paragraph; here a hidden char is deleted") }
+             tv.doCommand(by: #selector(NSResponder.deleteBackward(_:))); pump()
+             log("backspace-at-heading-start", "## Title", b.text, expect: "Title") }
         // 7. Backspace at visual start of bullet text
         do { let b = TextBox("- item"); let tv = makeEditor(b); caretBefore("item", in: tv)
-             tv.deleteBackward(nil); pump()
-             log("backspace-at-list-start", "- item", b.text, "expect list marker removed (paragraph 'item')") }
+             tv.doCommand(by: #selector(NSResponder.deleteBackward(_:))); pump()
+             log("backspace-at-list-start", "- item", b.text, expect: "item") }
         // 8. Arrow keys across hidden markers: count presses to move from before 'x' to after 'y' in 'x **b** y'
         do { let b = TextBox("x **b** y"); let tv = makeEditor(b); caretAfter("x", in: tv)
              var presses = 0; let target = (tv.string as NSString).range(of: " y").location
              while tv.selectedRange().location < target && presses < 20 { tv.moveRight(nil); presses += 1 }
-             log("arrow-keys-hidden-markers", "x **b** y", b.text, "visible chars between 'x' and ' y' = 3 (' b ' minus) ; moveRight presses needed = \(presses) (each hidden '*' costs an invisible keypress)") }
+             log("arrow-keys-hidden-markers", "x **b** y", "presses=\(presses)", "one press per visible character", expect: "presses=3") }
         // 9. Typing right after a bold run: does new text inherit bold / land inside markers?
         do { let b = TextBox("**bold** tail"); let tv = makeEditor(b); caretAfter("bold", in: tv)
              tv.insertText("X", replacementRange: tv.selectedRange()); pump()
@@ -127,7 +128,34 @@ struct InteractionRunner {
              pb.setString("<b>Bold</b> and <a href=\"https://x.com\">link</a>", forType: .html)
              pb.setString("Bold and link", forType: .string)
              tv.paste(nil); pump()
-             log("paste-html", "(empty) + clipboard HTML '<b>Bold</b> and <a>link</a>'", b.text, "Notion converts to '**Bold** and [link](https://x.com)'") }
+             log("paste-html", "(empty) + clipboard HTML '<b>Bold</b> and <a>link</a>'", b.text, expect: "**Bold** and [link](https://x.com)") }
+        // 15b. Plain-equivalent HTML pastes as plain text; code-editor HTML keeps its indentation
+        do { let b = TextBox(""); let tv = makeEditor(b)
+             let pb = NSPasteboard.general; pb.clearContents()
+             pb.setString("<p>5 * 3 = 15</p>", forType: .html); pb.setString("5 * 3 = 15", forType: .string)
+             tv.paste(nil); pump()
+             log("paste-plain-equivalent-html", "<p>5 * 3 = 15</p>", b.text, expect: "5 * 3 = 15") }
+        do { let b = TextBox(""); let tv = makeEditor(b)
+             let pb = NSPasteboard.general; pb.clearContents()
+             pb.setString("<div style=\"white-space: pre;\"><div><span>func a() {</span></div><div><span>    return 1</span></div></div>", forType: .html)
+             pb.setString("func a() {\n    return 1", forType: .string)
+             tv.paste(nil); pump()
+             log("paste-code-editor-html", "VS Code-style HTML", b.text, expect: "func a() {\n    return 1") }
+        // 15d. RTF (TextEdit, Pages) converts through HTML
+        do { let b = TextBox(""); let tv = makeEditor(b)
+             let rich = NSMutableAttributedString(string: "Bold and italic text")
+             rich.addAttribute(.font, value: NSFont.boldSystemFont(ofSize: 13), range: NSRange(location: 0, length: 4))
+             rich.addAttribute(.font, value: NSFontManager.shared.convert(NSFont.systemFont(ofSize: 13), toHaveTrait: .italicFontMask), range: NSRange(location: 9, length: 6))
+             let rtf = try! rich.data(from: NSRange(location: 0, length: rich.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+             let pb = NSPasteboard.general; pb.clearContents()
+             pb.setData(rtf, forType: .rtf); pb.setString(rich.string, forType: .string)
+             tv.paste(nil); pump()
+             log("paste-rtf", "RTF: **Bold** and *italic* text", b.text, expect: "**Bold** and *italic* text") }
+        // 15c. Copy within Swash pastes the exact Markdown (tables and images included)
+        do { let md = "| A | B |\n|---|---|\n| ![i](x.png) | **b** |\n\nPara *x*"
+             let src = TextBox(md); let tv1 = makeEditor(src); tv1.selectAll(nil); tv1.copy(nil); pump()
+             let dst = TextBox(""); let tv2 = makeEditor(dst); tv2.paste(nil); pump()
+             log("copy-paste-roundtrip", md, dst.text, expect: md) }
         // 16. Copy from WYSIWYG → plain-text clipboard content
         do { let md = "**bold** and [link](https://x.com)"
              let b = TextBox(md); let tv = makeEditor(b); tv.selectAll(nil); tv.copy(nil); pump()
@@ -151,6 +179,99 @@ struct InteractionRunner {
              tv.undoManager?.redo(); pump()
              log("typing-undo-redo-between-images", md, b.text, "after undo: \(afterUndo.debugDescription)", expect: "![a](x.png) mid12 ![b](y.png) end")
              if afterUndo != md { failures.append("typing-undo-redo-between-images: undo expected original, got \(afterUndo.debugDescription)") } }
+
+        // 22. Arrow keys back across hidden markers, and a click at line start lands on the content
+        do { let b = TextBox("x **b** y"); let tv = makeEditor(b); caretAfter("y", in: tv)
+             var presses = 0; let target = (tv.string as NSString).range(of: "x").location + 1
+             while tv.selectedRange().location > target && presses < 20 { tv.doCommand(by: #selector(NSResponder.moveLeft(_:))); presses += 1 }
+             log("arrow-left-hidden-markers", "x **b** y", "presses=\(presses)", expect: "presses=4") }
+        do { let b = TextBox("## Title"); let tv = makeEditor(b); tv.setSelectedRange(NSRange(location: 0, length: 0)); pump()
+             tv.insertText("New ", replacementRange: tv.selectedRange()); pump()
+             log("click-line-start-types-into-heading", "## Title", b.text, expect: "## New Title") }
+        do { let b = TextBox("```\ncode\n```\nafter"); let tv = makeEditor(b); caretAfter("code", in: tv)
+             tv.doCommand(by: #selector(NSResponder.moveRight(_:))); pump()
+             tv.insertText("X", replacementRange: tv.selectedRange()); pump()
+             log("arrow-over-collapsed-fence-line", "```\ncode\n```\nafter", b.text, expect: "```\ncode\n```\nXafter") }
+        
+        // 23. Clicking a task checkbox toggles it (and undo restores it)
+        func clickCheckbox(_ tv: NSTextView, line index: Int) {
+            guard let lm = tv.layoutManager, let storage = tv.textStorage else { return }
+            var markers: [NSRange] = []
+            storage.enumerateAttribute(.listMarker, in: NSRange(location: 0, length: storage.length)) { v, r, _ in if v != nil { markers.append(r) } }
+            guard index < markers.count else { return }
+            let r = markers[index]
+            let glyph = lm.glyphIndexForCharacter(at: NSMaxRange(r))
+            let lineRect = lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let contentX = lineRect.minX + lm.location(forGlyphAt: glyph).x
+            let containerPoint = NSPoint(x: contentX - 14, y: lineRect.midY)
+            let viewPoint = NSPoint(x: containerPoint.x + tv.textContainerOrigin.x, y: containerPoint.y + tv.textContainerOrigin.y)
+            let windowPoint = tv.convert(viewPoint, to: nil)
+            let event = NSEvent.mouseEvent(with: .leftMouseDown, location: windowPoint, modifierFlags: [], timestamp: 0,
+                                           windowNumber: tv.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+            tv.mouseDown(with: event)
+        }
+        do { let md = "- [ ] first\n- [x] second"
+             let b = TextBox(md); let tv = makeEditor(b)
+             clickCheckbox(tv, line: 0); pump()
+             let afterFirst = b.text
+             clickCheckbox(tv, line: 1); pump()
+             let afterSecond = b.text
+             tv.undoManager?.undo(); pump()
+             log("checkbox-click-toggles", md, afterFirst + " | " + afterSecond + " | undo: " + b.text,
+                 expect: "- [x] first\n- [x] second | - [x] first\n- [ ] second | undo: - [x] first\n- [x] second") }
+        
+        // 24. "/" on an empty line opens the block menu; the chosen block replaces the slash
+        SwashTextView.Coordinator.blockMenuPresenter = { _, _, choose in choose(.heading2) }
+        do { let b = TextBox("Intro\n"); let tv = makeEditor(b)
+             tv.setSelectedRange(NSRange(location: (tv.string as NSString).length, length: 0))
+             tv.insertText("/", replacementRange: tv.selectedRange()); pump(0.3)
+             tv.insertText("Title", replacementRange: tv.selectedRange()); pump()
+             log("slash-menu-heading", "Intro\n + '/' → Heading 2", b.text, expect: "Intro\n## Title") }
+        SwashTextView.Coordinator.blockMenuPresenter = { _, _, choose in choose(.todoList) }
+        do { let b = TextBox("- a\n- "); let tv = makeEditor(b)
+             tv.setSelectedRange(NSRange(location: (tv.string as NSString).length, length: 0))
+             tv.insertText("/", replacementRange: tv.selectedRange()); pump(0.3)
+             tv.insertText("task", replacementRange: tv.selectedRange()); pump()
+             log("slash-menu-in-list-item", "- a\n- + '/' → To-do", b.text, expect: "- a\n- [ ] task") }
+        var presented = false
+        SwashTextView.Coordinator.blockMenuPresenter = { _, _, choose in presented = true; choose(nil) }
+        do { let b = TextBox("and/or"); let tv = makeEditor(b); caretAfter("and", in: tv)
+             tv.insertText("/", replacementRange: tv.selectedRange()); pump(0.3)
+             log("slash-mid-sentence-no-menu", "and/or", "\(b.text) presented=\(presented)", expect: "and//or presented=false") }
+        do { let b = TextBox(""); let tv = makeEditor(b)
+             tv.insertText("/", replacementRange: tv.selectedRange()); pump(0.3)
+             log("slash-menu-dismissed-keeps-slash", "'/' then Escape", "\(b.text) presented=\(presented)", expect: "/ presented=true") }
+        
+        // 25. Code block language badge: shown, and clicking it changes the fence's language
+        SwashTextView.Coordinator.languageMenuPresenter = { _, _, _, choose in choose(.some("python")) }
+        do { let md = "Intro\n\n```swift\nlet x = 1\n```"
+             let b = TextBox(md); let tv = makeEditor(b)
+             var badges: [String] = []
+             var badgeRange = NSRange(location: NSNotFound, length: 0)
+             tv.textStorage!.enumerateAttribute(.codeBadge, in: NSRange(location: 0, length: tv.textStorage!.length)) { v, r, _ in
+                 if let info = v as? CodeBadgeInfo { badges.append(info.title); badgeRange = r } }
+             if badgeRange.location != NSNotFound, let lm = tv.layoutManager {
+                 let lineRect = lm.lineFragmentRect(forGlyphAt: lm.glyphIndexForCharacter(at: badgeRange.location), effectiveRange: nil)
+                 let rect = CodeBadgeInfo(language: "swift").rect(in: lineRect)
+                 let viewPoint = NSPoint(x: rect.midX + tv.textContainerOrigin.x, y: rect.midY + tv.textContainerOrigin.y)
+                 let event = NSEvent.mouseEvent(with: .leftMouseDown, location: tv.convert(viewPoint, to: nil), modifierFlags: [], timestamp: 0,
+                                                windowNumber: tv.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+                 tv.mouseDown(with: event); pump()
+             }
+             log("code-language-badge", md, "badges=\(badges) | \(b.text)", expect: "badges=[\"SWIFT\"] | Intro\n\n```python\nlet x = 1\n```") }
+        
+        // 20. Enter on an empty item leaves the list; Backspace with the caret before the hidden marker
+        do { let b = TextBox("- a\n- b"); let tv = makeEditor(b); caretAfter("b", in: tv)
+             tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump()
+             tv.insertText("after", replacementRange: tv.selectedRange()); pump()
+             log("enter-twice-exits-list", "- a\n- b", b.text, expect: "- a\n- b\nafter") }
+        do { let b = TextBox("- item"); let tv = makeEditor(b); tv.setSelectedRange(NSRange(location: 0, length: 0))
+             tv.doCommand(by: #selector(NSResponder.deleteBackward(_:))); pump()
+             log("backspace-at-line-start-before-hidden-marker", "- item", b.text, expect: "item") }
+        // 21. Structural edits are undoable
+        do { let b = TextBox("- a"); let tv = makeEditor(b); caretAfter("a", in: tv)
+             tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.undoManager?.undo(); pump()
+             log("enter-continuation-undo", "- a", b.text, expect: "- a") }
 
         try? out.write(toFile: CommandLine.arguments[1], atomically: true, encoding: .utf8)
         print(out)

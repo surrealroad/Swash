@@ -16,6 +16,11 @@ extension NSAttributedString.Key {
     static let listMarker = NSAttributedString.Key("SwashListMarkerKey")
 }
 
+extension NSPasteboard.PasteboardType {
+    /// Raw Markdown written by Swash's own copy, so copy/paste between Swash documents is lossless.
+    static let swashMarkdown = NSPasteboard.PasteboardType("com.surrealroad.swash.markdown")
+}
+
 extension Notification.Name {
     static let cellSelectionDidChange = Notification.Name("cellSelectionDidChange")
     static let removeCurrentTable = Notification.Name("removeCurrentTable")
@@ -87,6 +92,13 @@ struct AttachmentOffsetMap {
 
 /// Lets SwiftUI views apply document edits through the live text view, so they are undoable and
 /// keep the editor's selection, scroll position and styling intact.
+/// Target for closure-backed menu items.
+final class BlockMenuTarget: NSObject {
+    private let action: () -> Void
+    init(_ action: @escaping () -> Void) { self.action = action }
+    @objc func select() { action() }
+}
+
 final class SwashEditorController {
     weak var textView: NSTextView?
     weak var coordinator: SwashTextView.Coordinator?
@@ -100,6 +112,12 @@ final class SwashEditorController {
         return formatting
     }
 
+    /// The live editor selection in raw-markdown offsets (the published binding omits plain carets).
+    var currentRawSelection: NSRange? {
+        guard let textView = textView, let coordinator = coordinator else { return nil }
+        return coordinator.rawRange(forStorage: textView.selectedRange(), in: textView)
+    }
+    
     /// Applies `newText` as a minimal edit to the live editor. Returns false when no editor is attached,
     /// in which case the caller should assign the document text directly.
     @discardableResult
@@ -148,6 +166,14 @@ final class SwashLayoutManager: NSLayoutManager {
         guard let textStorage = textStorage else { return }
         let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
         
+        textStorage.enumerateAttribute(.codeBadge, in: charRange, options: []) { value, range, _ in
+            guard let badge = value as? CodeBadgeInfo else { return }
+            let glyph = glyphIndexForCharacter(at: range.location)
+            let lineRect = lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let rect = badge.rect(in: lineRect).offsetBy(dx: origin.x, dy: origin.y)
+            (badge.title as NSString).draw(at: NSPoint(x: rect.minX + 2, y: rect.minY + 1), withAttributes: CodeBadgeInfo.attributes)
+        }
+        
         textStorage.enumerateAttribute(.listMarker, in: charRange, options: []) { value, range, _ in
             if let markerInfo = value as? ListMarkerInfo {
                 let glyphRange = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
@@ -177,6 +203,106 @@ final class SwashLayoutManager: NSLayoutManager {
 class SwashNSTextView: NSTextView {
     var isStyled: Bool = true
     var flavor: MarkdownFlavor = .github
+    /// Formatting shortcuts (⌘B, ⌘I, …), handled here so they take precedence over menu key equivalents.
+    var onFormatCommand: ((FormatCommand) -> Void)?
+    
+    /// Storage range of the task checkbox marker under `point` (view coordinates), if any.
+    func taskMarkerRange(at point: NSPoint) -> NSRange? {
+        guard isStyled, let layoutManager = layoutManager, let container = textContainer, let storage = textStorage,
+              layoutManager.numberOfGlyphs > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: container)
+        var lineGlyphs = NSRange()
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineGlyphs)
+        guard containerPoint.y >= lineRect.minY, containerPoint.y <= lineRect.maxY else { return nil }
+        let lineCharacters = layoutManager.characterRange(forGlyphRange: lineGlyphs, actualGlyphRange: nil)
+        var hit: NSRange? = nil
+        storage.enumerateAttribute(.listMarker, in: lineCharacters, options: []) { value, range, stop in
+            guard let info = value as? ListMarkerInfo, info.text == "☐" || info.text == "☑" else { return }
+            let contentGlyph = layoutManager.glyphIndexForCharacter(at: min(NSMaxRange(range), max(0, storage.length - 1)))
+            let contentX = lineRect.minX + layoutManager.location(forGlyphAt: contentGlyph).x
+            // The checkbox is drawn just left of the item's text
+            if containerPoint.x >= contentX - 30 && containerPoint.x <= contentX + 2 {
+                hit = range
+                stop.pointee = true
+            }
+        }
+        return hit
+    }
+    
+    /// Storage location of the code block whose language badge is under `point`, if any.
+    func codeBadgeLocation(at point: NSPoint) -> Int? {
+        guard isStyled, let layoutManager = layoutManager, let container = textContainer, let storage = textStorage,
+              layoutManager.numberOfGlyphs > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: container)
+        var lineGlyphs = NSRange()
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineGlyphs)
+        let lineCharacters = layoutManager.characterRange(forGlyphRange: lineGlyphs, actualGlyphRange: nil)
+        var hit: Int? = nil
+        storage.enumerateAttribute(.codeBadge, in: lineCharacters, options: []) { value, range, stop in
+            guard let badge = value as? CodeBadgeInfo, badge.rect(in: lineRect).insetBy(dx: -4, dy: -3).contains(containerPoint) else { return }
+            hit = range.location
+            stop.pointee = true
+        }
+        return hit
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let badgeLocation = codeBadgeLocation(at: point), let coordinator = delegate as? SwashTextView.Coordinator {
+            coordinator.chooseCodeLanguage(atStorageLocation: badgeLocation, point: point, in: self)
+            return
+        }
+        if let marker = taskMarkerRange(at: point), let coordinator = delegate as? SwashTextView.Coordinator {
+            coordinator.toggleTask(markerRange: marker, in: self)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+    
+    // MARK: Paste
+    
+    /// In Edit Text, pasted rich text (HTML / RTF) is converted to Markdown; Swash's own copies paste
+    /// their raw Markdown. "Paste and Match Style" and the source modes paste plain text.
+    override func paste(_ sender: Any?) {
+        if isStyled, let markdown = Self.markdownForPaste(from: NSPasteboard.general),
+           let coordinator = delegate as? SwashTextView.Coordinator {
+            coordinator.insertMarkdown(markdown, in: self)
+            return
+        }
+        super.paste(sender)
+    }
+    
+    static func markdownForPaste(from pasteboard: NSPasteboard) -> String? {
+        if let own = pasteboard.string(forType: .swashMarkdown) { return own }
+        let plain = pasteboard.string(forType: .string)
+        var html = pasteboard.string(forType: .html) ?? pasteboard.data(forType: .html).flatMap { String(data: $0, encoding: .utf8) }
+        if html == nil, let rtf = pasteboard.data(forType: .rtf) ?? pasteboard.data(forType: .rtfd),
+           let attributed = NSAttributedString(rtf: rtf, documentAttributes: nil) ?? NSAttributedString(rtfd: rtf, documentAttributes: nil),
+           let data = try? attributed.data(from: NSRange(location: 0, length: attributed.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.html]) {
+            html = String(data: data, encoding: .utf8)
+        }
+        guard let source = html else { return nil }
+        // Code editors put pre-formatted HTML on the pasteboard: keep their plain text (indentation intact)
+        if plain != nil, source.range(of: "white-space:\\s*pre", options: [.regularExpression, .caseInsensitive]) != nil { return nil }
+        guard let markdown = HTMLToMarkdown.convert(source) else { return nil }
+        // No formatting gained over the plain text: paste it as-is rather than backslash-escaped
+        if let plain = plain {
+            let unescaped = markdown.replacingOccurrences(of: "\\\\([\\\\*_`\\[\\]])", with: "$1", options: .regularExpression)
+            func normalized(_ s: String) -> String { s.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ") }
+            if normalized(unescaped) == normalized(plain) { return nil }
+        }
+        return markdown
+    }
+    
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, let handler = onFormatCommand, let command = FormatCommand.command(for: event) {
+            handler(command)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
     
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -275,6 +401,7 @@ class SwashNSTextView: NSTextView {
         
         // 2. Raw Markdown string (Fallback for plain-text applications) - Set LAST as fallback
         let rawMarkdown = buildRawMarkdownSubstring(from: textStorage, range: range)
+        item.setString(rawMarkdown, forType: .swashMarkdown)
         item.setString(rawMarkdown, forType: .string)
         
         return pasteboard.writeObjects([item])
@@ -431,6 +558,7 @@ struct SwashTextView: NSViewRepresentable {
     var onNextCell: (() -> Void)? = nil
     var onPrevCell: (() -> Void)? = nil
     var controller: SwashEditorController? = nil
+    var onFormatCommand: ((FormatCommand) -> Void)? = nil
     
     init(
         text: Binding<String>,
@@ -443,7 +571,8 @@ struct SwashTextView: NSViewRepresentable {
         onCommit: (() -> Void)? = nil,
         onNextCell: (() -> Void)? = nil,
         onPrevCell: (() -> Void)? = nil,
-        controller: SwashEditorController? = nil
+        controller: SwashEditorController? = nil,
+        onFormatCommand: ((FormatCommand) -> Void)? = nil
     ) {
         self._text = text
         self._selectedRange = selectedRange
@@ -456,6 +585,7 @@ struct SwashTextView: NSViewRepresentable {
         self.onNextCell = onNextCell
         self.onPrevCell = onPrevCell
         self.controller = controller
+        self.onFormatCommand = onFormatCommand
     }
     
     func makeNSView(context: Context) -> NSScrollView {
@@ -526,6 +656,7 @@ struct SwashTextView: NSViewRepresentable {
         guard let textView = nsView.documentView as? SwashNSTextView else { return }
         textView.isStyled = isStyled
         textView.flavor = flavor
+        textView.onFormatCommand = onFormatCommand
         
         context.coordinator.isUpdatingFromSwiftUI = true
         context.coordinator.parent = self
@@ -731,6 +862,33 @@ struct SwashTextView: NSViewRepresentable {
             return formatting
         }
         
+        /// Replaces the selection with `markdown` (an undoable edit) and places the caret after it.
+        func insertMarkdown(_ markdown: String, in textView: NSTextView) {
+            guard let storage = textView.textStorage else { return }
+            let raw = (parent.isStyled ? buildRawMarkdown(from: storage) : textView.string) as NSString
+            let selection = rawRange(forStorage: textView.selectedRange(), in: textView)
+            guard NSMaxRange(selection) <= raw.length else { return }
+            let updated = raw.replacingCharacters(in: selection, with: markdown)
+            let caret = NSRange(location: selection.location + (markdown as NSString).length, length: 0)
+            applyEdit(in: textView, newRawText: updated, rawSelection: caret, actionName: "Paste")
+        }
+        
+        /// Toggles `[ ]` ↔ `[x]` for the task marker at `markerRange` (storage offsets), keeping the selection.
+        func toggleTask(markerRange: NSRange, in textView: NSTextView) {
+            guard let storage = textView.textStorage else { return }
+            let raw = buildRawMarkdown(from: storage) as NSString
+            let rawMarker = rawRange(forStorage: markerRange, in: textView)
+            guard NSMaxRange(rawMarker) <= raw.length else { return }
+            let markerText = raw.substring(with: rawMarker) as NSString
+            let box = markerText.range(of: "\\[[ xX]\\]", options: .regularExpression)
+            guard box.location != NSNotFound else { return }
+            let checked = markerText.substring(with: NSRange(location: box.location + 1, length: 1)) != " "
+            let absolute = NSRange(location: rawMarker.location + box.location + 1, length: 1)
+            let updated = raw.replacingCharacters(in: absolute, with: checked ? " " : "x")
+            let selection = rawRange(forStorage: textView.selectedRange(), in: textView)
+            applyEdit(in: textView, newRawText: updated, rawSelection: selection, actionName: checked ? "Uncheck To-do" : "Check To-do")
+        }
+        
         func invalidateOffsetMap() {
             cachedOffsetMap = nil
         }
@@ -925,6 +1083,155 @@ struct SwashTextView: NSViewRepresentable {
             }
         }
         
+        // MARK: "/" block menu
+        
+        /// Presents the block menu at a point in the text view and reports the choice (nil when dismissed).
+        /// Replaceable so tests can choose an item without a real menu.
+        static var blockMenuPresenter: (NSTextView, NSPoint, @escaping (MarkdownEditingCommands.BlockInsert?) -> Void) -> Void = { textView, point, choose in
+            let menu = NSMenu(title: "Insert Block")
+            menu.autoenablesItems = false
+            var chosen: MarkdownEditingCommands.BlockInsert? = nil
+            let targets = MarkdownEditingCommands.BlockInsert.allCases.map { kind in BlockMenuTarget { chosen = kind } }
+            for (kind, target) in zip(MarkdownEditingCommands.BlockInsert.allCases, targets) {
+                if kind == .bulletList || kind == .quote || kind == .divider { menu.addItem(.separator()) }
+                let item = NSMenuItem(title: kind.title, action: #selector(BlockMenuTarget.select), keyEquivalent: "")
+                item.target = target
+                item.image = NSImage(systemSymbolName: kind.symbolName, accessibilityDescription: nil)
+                menu.addItem(item)
+            }
+            menu.popUp(positioning: menu.items.first, at: point, in: textView)
+            _ = targets
+            choose(chosen)
+        }
+        
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            guard parent.isStyled, replacementString == "/", affectedCharRange.length == 0, !isHighlighting,
+                  let storage = textView.textStorage else { return true }
+            let raw = buildRawMarkdown(from: storage)
+            let rawLocation = rawRange(forStorage: affectedCharRange, in: textView).location
+            if MarkdownEditingCommands.isBlockMenuTrigger(text: raw, location: rawLocation) {
+                DispatchQueue.main.async { [weak self, weak textView] in
+                    guard let self = self, let textView = textView else { return }
+                    self.presentBlockMenu(in: textView, slashLocation: rawLocation)
+                }
+            }
+            return true
+        }
+        
+        private func presentBlockMenu(in textView: NSTextView, slashLocation: Int) {
+            let caret = textView.selectedRange()
+            var point = NSPoint(x: textView.textContainerOrigin.x, y: textView.textContainerOrigin.y)
+            if let window = textView.window {
+                let screenRect = textView.firstRect(forCharacterRange: NSRange(location: caret.location, length: 0), actualRange: nil)
+                let windowRect = window.convertFromScreen(screenRect)
+                let local = textView.convert(windowRect, from: nil)
+                point = NSPoint(x: local.minX, y: textView.isFlipped ? local.maxY + 4 : local.minY - 4)
+            }
+            Coordinator.blockMenuPresenter(textView, point) { [weak self, weak textView] kind in
+                guard let self = self, let textView = textView, let kind = kind, let storage = textView.textStorage else { return }
+                let raw = self.buildRawMarkdown(from: storage)
+                guard let edit = MarkdownEditingCommands.insertBlock(kind, text: raw, slashLocation: slashLocation) else { return }
+                self.applyEdit(in: textView, newRawText: edit.text, rawSelection: edit.selection, actionName: kind.title)
+            }
+        }
+        
+        // MARK: Code block language
+        
+        /// Presents the language menu and reports the choice (`.some(nil)` for plain, nil when dismissed).
+        static var languageMenuPresenter: (NSTextView, NSPoint, String?, @escaping (String??) -> Void) -> Void = { textView, point, current, choose in
+            let menu = NSMenu(title: "Language")
+            var chosen: String?? = nil
+            var targets: [BlockMenuTarget] = []
+            func add(_ title: String, _ value: String?) {
+                let target = BlockMenuTarget { chosen = .some(value) }
+                targets.append(target)
+                let item = NSMenuItem(title: title, action: #selector(BlockMenuTarget.select), keyEquivalent: "")
+                item.target = target
+                item.state = (value ?? "") == (current ?? "") ? .on : .off
+                menu.addItem(item)
+            }
+            add("Plain Text", nil)
+            menu.addItem(.separator())
+            for language in MarkdownEditingCommands.commonLanguages { add(language.capitalized, language) }
+            if let current = current, !current.isEmpty, !MarkdownEditingCommands.commonLanguages.contains(current.lowercased()) {
+                menu.addItem(.separator())
+                add(current, current)
+            }
+            menu.popUp(positioning: nil, at: point, in: textView)
+            _ = targets
+            choose(chosen)
+        }
+        
+        func chooseCodeLanguage(atStorageLocation location: Int, point: NSPoint, in textView: NSTextView) {
+            guard let storage = textView.textStorage else { return }
+            let current = (storage.attribute(.codeBadge, at: location, effectiveRange: nil) as? CodeBadgeInfo)?.language
+            let rawLocation = rawRange(forStorage: NSRange(location: location, length: 0), in: textView).location
+            Coordinator.languageMenuPresenter(textView, point, current) { [weak self, weak textView] choice in
+                guard let self = self, let textView = textView, let choice = choice, let storage = textView.textStorage else { return }
+                let raw = self.buildRawMarkdown(from: storage)
+                guard let edit = MarkdownEditingCommands.setCodeLanguage(choice, text: raw, location: rawLocation) else { return }
+                let selection = self.rawRange(forStorage: textView.selectedRange(), in: textView)
+                let delta = (edit.text as NSString).length - (raw as NSString).length
+                let kept = selection.location > rawLocation ? NSRange(location: selection.location + delta, length: selection.length) : selection
+                self.applyEdit(in: textView, newRawText: edit.text, rawSelection: kept, actionName: "Code Language")
+            }
+        }
+        
+        // MARK: Caret atomicity
+        
+        /// True when the character at `index` is a hidden syntax marker (collapsed font or clear colour).
+        private func isHiddenCharacter(_ index: Int, in storage: NSTextStorage) -> Bool {
+            guard index >= 0, index < storage.length else { return false }
+            if storage.attribute(.attachment, at: index, effectiveRange: nil) != nil { return false }
+            if let font = storage.attribute(.font, at: index, effectiveRange: nil) as? NSFont, font.pointSize < 1 { return true }
+            if let color = storage.attribute(.foregroundColor, at: index, effectiveRange: nil) as? NSColor, color == .clear { return true }
+            return false
+        }
+        
+        /// Keeps the caret from stopping on hidden markers: arrow steps skip a hidden run plus one visible
+        /// character, and a caret placed inside (or at the start of a line's) hidden prefix moves to the content.
+        func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRange oldRange: NSRange, toCharacterRange newRange: NSRange) -> NSRange {
+            guard parent.isStyled, !isHighlighting, !isUpdatingFromSwiftUI, newRange.length == 0, oldRange.length == 0,
+                  let storage = textView.textStorage else { return newRange }
+            let length = storage.length
+            let ns = storage.string as NSString
+            let old = oldRange.location
+            let proposed = newRange.location
+            
+            /// Moves past hidden characters that start a line or follow other hidden characters
+            /// (collapsed fence lines, block prefixes), so the caret rests on visible content.
+            func snapForward(_ position: Int) -> Int {
+                var i = position
+                while i < length && isHiddenCharacter(i, in: storage) &&
+                      (i == 0 || ns.character(at: i - 1) == 0x0A || isHiddenCharacter(i - 1, in: storage)) {
+                    i += 1
+                }
+                return i
+            }
+            
+            if proposed == old + 1 {
+                var i = old
+                if isHiddenCharacter(old, in: storage) {
+                    // Step over the hidden run and then one visible character
+                    while i < length && isHiddenCharacter(i, in: storage) { i += 1 }
+                    if i < length { i += 1 }
+                } else {
+                    i = proposed
+                }
+                return NSRange(location: snapForward(min(i, length)), length: 0)
+            }
+            if proposed == old - 1, old > 0, isHiddenCharacter(old - 1, in: storage) {
+                var i = old
+                while i > 0 && isHiddenCharacter(i - 1, in: storage) { i -= 1 }
+                if i > 0 { i -= 1 }
+                return NSRange(location: max(0, i), length: 0)
+            }
+            if proposed != old - 1 {
+                return NSRange(location: snapForward(proposed), length: 0)
+            }
+            return newRange
+        }
+        
         // Intercept typing attributes inheritance so typing next to or inside hidden tags resets to normal size/color
         func textView(_ textView: NSTextView, shouldChangeTypingAttributes oldTypingAttributes: [String : Any] = [:], toAttributes newTypingAttributes: [NSAttributedString.Key : Any] = [:]) -> [NSAttributedString.Key : Any] {
             var attrs = newTypingAttributes
@@ -937,25 +1244,41 @@ struct SwashTextView: NSViewRepresentable {
             return attrs
         }
         
-        // Intercept key commands for cell editing navigation
+        // Key commands: table-cell navigation, then Notion-style structural editing
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 if let onCommit = parent.onCommit {
                     onCommit()
                     return true
                 }
+                return applyStructuralEdit(in: textView, actionName: "New Line") { MarkdownEditingCommands.newline(text: $0, selection: $1) }
             } else if commandSelector == #selector(NSResponder.insertTab(_:)) {
                 if let onNextCell = parent.onNextCell {
                     onNextCell()
                     return true
                 }
+                return applyStructuralEdit(in: textView, actionName: "Indent") { MarkdownEditingCommands.indent(text: $0, selection: $1) }
             } else if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
                 if let onPrevCell = parent.onPrevCell {
                     onPrevCell()
                     return true
                 }
+                return applyStructuralEdit(in: textView, actionName: "Outdent") { MarkdownEditingCommands.outdent(text: $0, selection: $1) }
+            } else if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
+                let hidden = parent.isStyled
+                return applyStructuralEdit(in: textView, actionName: "Delete") { MarkdownEditingCommands.backspace(text: $0, selection: $1, markersHidden: hidden) }
             }
             return false
+        }
+        
+        /// Runs a structural editing command on the raw Markdown; returns false to fall back to the default key behaviour.
+        private func applyStructuralEdit(in textView: NSTextView, actionName: String, _ command: (String, NSRange) -> MarkdownEdit?) -> Bool {
+            guard parent.onCommit == nil, let storage = textView.textStorage else { return false }
+            let raw = parent.isStyled ? buildRawMarkdown(from: storage) : textView.string
+            let rawSelection = rawRange(forStorage: textView.selectedRange(), in: textView)
+            guard let edit = command(raw, rawSelection) else { return false }
+            applyEdit(in: textView, newRawText: edit.text, rawSelection: edit.selection, actionName: actionName)
+            return true
         }
         
         // Disable spellcheck inside code blocks

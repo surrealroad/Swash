@@ -85,6 +85,143 @@ enum ParserChecks {
         ("text\n```\ncode\n```", "text\n```\ncode", "bullet", "- text\n```\ncode\n```"),
     ]
     
+    /// (markdown with | caret, key, expected markdown with | caret, or "default" for no edit)
+    private static let editingCases: [(String, String, String)] = [
+        ("- first|", "enter", "- first\n- |"),
+        ("* star|", "enter", "* star\n* |"),
+        ("1. first|", "enter", "1. first\n2. |"),
+        ("1. a|\n2. b\n3. c", "enter", "1. a\n2. |\n3. b\n4. c"),
+        ("3) three|", "enter", "3) three\n4) |"),
+        ("- [x] done|", "enter", "- [x] done\n- [ ] |"),
+        ("- spl|it", "enter", "- spl\n- |it"),
+        ("> quote|", "enter", "> quote\n> |"),
+        ("> - in quote|", "enter", "> - in quote\n> - |"),
+        ("- a\n- |", "enter", "- a\n|"),
+        ("- a\n  - |", "enter", "- a\n- |"),
+        ("> a\n> |", "enter", "> a\n|"),
+        ("plain|", "enter", "default"),
+        ("## Heading|", "enter", "default"),
+        ("```\n- not a list|\n```", "enter", "default"),
+        ("- a\n- b|", "tab", "- a\n  - b|"),
+        ("1. a\n2. b|", "tab", "1. a\n   2. b|"),
+        ("- a\n  - b\n- c|", "tab", "- a\n  - b\n  - c|"),
+        ("- only|", "tab", "default"),
+        ("- a\n  - b|", "shift-tab", "- a\n- b|"),
+        ("- a\n  - b\n    - c|", "shift-tab", "- a\n  - b\n  - c|"),
+        ("- |item", "backspace", "|item"),
+        ("## |Title", "backspace", "|Title"),
+        ("- [ ] |todo", "backspace", "|todo"),
+        ("  - |nested", "backspace", "  |nested"),
+        ("> |quoted", "backspace", "|quoted"),
+        ("> > |deep", "backspace", "> |deep"),
+        ("- it|em", "backspace", "default"),
+        ("plain |text", "backspace", "default"),
+    ]
+    
+    private static let blockMenuCases: [(String, MarkdownEditingCommands.BlockInsert, String)] = [
+        ("Intro\n/", .heading2, "Intro\n## |"),
+        ("/", .bulletList, "- |"),
+        ("/", .todoList, "- [ ] |"),
+        ("/", .numberedList, "1. |"),
+        ("/", .text, "|"),
+        ("/", .codeBlock, "```\n|\n```"),
+        ("/", .divider, "---\n|"),
+        ("/", .callout, "> [!NOTE]\n> |"),
+        ("/", .table, "| Column 1 | Column 2 |\n| --- | --- |\n|  |  |\n\n|"),
+        ("- /", .todoList, "- [ ] |"),
+        ("> /", .bulletList, "> - |"),
+        ("> /", .codeBlock, "> ```\n> |\n> ```"),
+    ]
+    
+    private static func runEditing() -> Int {
+        var failures = 0
+        // "/" trigger detection
+        let triggers: [(String, Int, Bool)] = [("", 0, true), ("- ", 2, true), ("> ", 2, true), ("text", 4, false), ("a\n", 2, true),
+                                               ("## ", 3, false), ("```\n", 4, false)]
+        for (text, location, expected) in triggers where MarkdownEditingCommands.isBlockMenuTrigger(text: text, location: location) != expected {
+            failures += 1
+            print("❌ block menu trigger \(text.debugDescription)@\(location): expected \(expected)")
+        }
+        let languageCases: [(String, String?, String)] = [
+            ("```swift\nlet x = 1\n```", "python", "```python\nlet x = 1\n```"),
+            ("```\ncode\n```", "bash", "```bash\ncode\n```"),
+            ("~~~ruby title=x\nputs 1\n~~~", nil, "~~~\nputs 1\n~~~"),
+            ("> ```js\n> a()\n> ```", "ts", "> ```ts\n> a()\n> ```"),
+        ]
+        for (text, language, expected) in languageCases {
+            let location = (text as NSString).range(of: "\n").location + 2
+            let actual = MarkdownEditingCommands.setCodeLanguage(language, text: text, location: location)?.text ?? "nil"
+            if actual != expected {
+                failures += 1
+                print("❌ code language \(language ?? "nil") on \(text.debugDescription): expected \(expected.debugDescription), got \(actual.debugDescription)")
+            }
+        }
+        for (text, kind, expected) in blockMenuCases {
+            let slash = (text as NSString).range(of: "/").location
+            let edit = MarkdownEditingCommands.insertBlock(kind, text: text, slashLocation: slash)
+            let actual = edit.map { ($0.text as NSString).replacingCharacters(in: NSRange(location: $0.selection.location, length: 0), with: "|") } ?? "nil"
+            if actual != expected {
+                failures += 1
+                print("❌ block menu \(kind) on \(text.debugDescription): expected \(expected.debugDescription), got \(actual.debugDescription)")
+            }
+        }
+        for (input, key, expected) in editingCases {
+            let caret = (input as NSString).range(of: "|")
+            let text = (input as NSString).replacingCharacters(in: caret, with: "")
+            let selection = NSRange(location: caret.location, length: 0)
+            let edit: MarkdownEdit?
+            switch key {
+            case "enter": edit = MarkdownEditingCommands.newline(text: text, selection: selection)
+            case "tab": edit = MarkdownEditingCommands.indent(text: text, selection: selection)
+            case "shift-tab": edit = MarkdownEditingCommands.outdent(text: text, selection: selection)
+            default: edit = MarkdownEditingCommands.backspace(text: text, selection: selection)
+            }
+            let actual = edit.map { ($0.text as NSString).replacingCharacters(in: NSRange(location: $0.selection.location, length: 0), with: "|") } ?? "default"
+            if actual != expected {
+                failures += 1
+                print("❌ editing \(key) on \(input.debugDescription): expected \(expected.debugDescription), got \(actual.debugDescription)")
+            }
+        }
+        print("Editing command checks: \(failures == 0 ? "all passed" : "\(failures) failed") (\(editingCases.count) cases)")
+        return failures
+    }
+    
+    private static let htmlCases: [(String, String)] = [
+        ("<b>Bold</b> and <a href=\"https://x.com\">link</a>", "**Bold** and [link](https://x.com)"),
+        ("<h2>Title</h2><p>Para <em>it</em></p>", "## Title\n\nPara *it*"),
+        ("<ul><li>a</li><li>b<ul><li>c</li></ul></li></ul>", "- a\n- b\n  - c"),
+        ("<ol><li>one</li><li>two</li></ol>", "1. one\n2. two"),
+        ("<ol start=\"3\"><li>three</li></ol>", "3. three"),
+        ("<blockquote><p>q</p></blockquote>", "> q"),
+        ("<pre><code class=\"language-swift\">let x = 1\n</code></pre>", "```swift\nlet x = 1\n```"),
+        ("<p>a<br>b</p>", "a\\\nb"),
+        ("<b style=\"font-weight:normal;\" id=\"docs-internal-guid-1\"><span style=\"font-weight:700\">Bold</span><span style=\"font-style:italic\"> it</span></b>", "**Bold** *it*"),
+        ("<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>", "| A | B |\n| --- | --- |\n| 1 | 2 |"),
+        ("<p>5 * 3 = 15_x</p>", "5 \\* 3 = 15\\_x"),
+        ("<img src=\"a.png\" alt=\"pic\">", "![pic](a.png)"),
+        ("<p>use <code>a*b</code> here</p>", "use `a*b` here"),
+        ("<del>x</del>", "~~x~~"),
+        ("<p><b>bold </b>next</p>", "**bold** next"),
+        ("<em>a <strong>b</strong> c</em>", "*a **b** c*"),
+        ("<ul><li><input type=\"checkbox\" checked> done</li><li><input type=\"checkbox\"> todo</li></ul>", "- [x] done\n- [ ] todo"),
+        ("<p>one</p><hr><p>two</p>", "one\n\n---\n\ntwo"),
+        ("<meta charset=\"utf-8\"><span>just text</span>", "just text"),
+        ("<p>   spaced    out   </p>", "spaced out"),
+    ]
+    
+    private static func runHTML() -> Int {
+        var failures = 0
+        for (html, expected) in htmlCases {
+            let actual = HTMLToMarkdown.convert(html) ?? "nil"
+            if actual != expected {
+                failures += 1
+                print("❌ html \(html.debugDescription): expected \(expected.debugDescription), got \(actual.debugDescription)")
+            }
+        }
+        print("HTML paste conversion checks: \(failures == 0 ? "all passed" : "\(failures) failed") (\(htmlCases.count) cases)")
+        return failures
+    }
+    
     private static func runFormatting() -> Int {
         var failures = 0
         for (markdown, select, operation, expected) in formattingCases {
@@ -129,7 +266,7 @@ enum ParserChecks {
     }
     
     static func run() -> Int {
-        var failures = runFormatting()
+        var failures = runFormatting() + runEditing() + runHTML()
         // 1. Marker ranges
         for (markdown, nodeName, expected) in markerCases {
             let document = MarkdownDocument.parse(markdown)

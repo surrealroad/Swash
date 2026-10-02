@@ -101,7 +101,11 @@ struct MarkdownFormatting {
     func codeBlock(containing range: NSRange) -> MarkdownNode? {
         var found: MarkdownNode? = nil
         document.root.walk { node in
-            if found == nil, case .codeBlock = node.kind, contains(node.range, range) || (range.length == 0 && range.location == NSMaxRange(node.range)) {
+            guard found == nil, case .codeBlock(let fenced, _) = node.kind else { return }
+            // An unclosed fence (opening marker only) runs to the end of the document
+            let unclosed = fenced && node.markers.count == 1
+            let extent = unclosed ? NSRange(location: node.range.location, length: ns.length - node.range.location) : node.range
+            if contains(extent, range) || (range.length == 0 && range.location == NSMaxRange(extent)) {
                 found = node
             }
         }

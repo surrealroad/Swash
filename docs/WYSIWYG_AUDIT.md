@@ -31,6 +31,17 @@ Reports and side-by-side editor/preview PNGs are written to `build/editor-audit/
 > - **Remaining for Phase 2:** keyboard behaviours (list continuation, Tab/Backspace, ⌘B/⌘I), caret atomicity around hidden markers, clickable checkboxes, HTML paste, and a selection-less block menu.
 > - **Remaining for Phase 3:** HTML rendering, math, Mermaid, a code-block language badge, and incremental (per-block) re-styling.
 >
+> **Phase 2 status (branch `feat/wysiwyg-phase2`):** done.
+> - **Enter, Tab, ⇧Tab, Backspace:** continue, nest and un-format lists, to-dos and quotes.
+> - **Caret:** skips hidden markers.
+> - **Shortcuts and a Format menu:** ⌘B/⌘I/⌘E/⌘K/⌘⇧X, headings, lists, quote, code block.
+> - **Clickable to-do checkboxes.**
+> - **Rich paste:** HTML and RTF paste as Markdown, and Swash-to-Swash copy is lossless.
+> - **"/" block menu** for inserting blocks.
+> - **Code-block language badge** with a language menu.
+> - **Coverage:** unit checks run in `./scripts/run_commonmark_spec.sh`; end-to-end cases run in `./Tests/EditorAudit/run_audit.sh`.
+> - **Remaining (Phase 3):** HTML/math/Mermaid rendering, incremental (per-block) restyling, and keeping the code badge clear of long first lines.
+>
 > The sections below describe the pre-fix state.
 
 ---

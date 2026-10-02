@@ -62,6 +62,18 @@
 - **Issue**: The first `xcodebuild` after adding `Swash/Markdown/` rewrote the synchronised-group membership exceptions (dropping `Swash.entitlements`), an unrelated project-file change.
 - **Solution**: Check `git status` after builds and revert unintended `project.pbxproj` changes (`git checkout -- Swash.xcodeproj/project.pbxproj`). New files in synchronised folders need no project edits.
 
-## 16. CI Builds With an Older SDK Than Local Xcode
+## 16. Test Key Handling Through `doCommand(by:)`, Not the Responder Methods
+- **Issue**: Calling `textView.insertNewline(nil)`, `insertTab(nil)` or `deleteBackward(nil)` directly bypasses the `NSTextViewDelegate.textView(_:doCommandBy:)` hook, so Notion-style key handling (list continuation, indent, Backspace-unformat) appears not to work in tests.
+- **Solution**: Send commands with `textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))`. This is the path real key presses take via `interpretKeyEvents`. For shortcuts, send a synthesised `NSEvent.keyEvent` to `performKeyEquivalent(with:)`.
+
+## 17. Menus That Block Must Be Injectable for Headless Tests
+- **Issue**: `NSMenu.popUp(positioning:at:in:)` runs a modal tracking loop, so the "/" block menu and the code-language menu can't be exercised in the headless harness.
+- **Solution**: Presentation goes through replaceable static closures (`SwashTextView.Coordinator.blockMenuPresenter`, `languageMenuPresenter`). Tests substitute a closure that "chooses" an item. The insertion logic itself lives in `MarkdownEditingCommands` and is unit-tested.
+
+## 18. Backticks in Shell-Quoted Commit Messages
+- **Issue**: A commit message passed with `git commit -m "…"` that contains triple backticks is treated by zsh as command substitution, and the whole command line fails to parse ("unmatched").
+- **Solution**: Write the message to a file and use `git commit -F <file>`, or avoid backticks in `-m` messages.
+
+## 19. CI Builds With an Older SDK Than Local Xcode
 - **Issue**: The release workflow builds on `macos-14` with `latest-stable` Xcode (macOS 15.2 SDK, Swift 6.0), while local builds use a much newer Xcode and SDK. AppKit signatures can differ: `NSTextBlock.drawBackground(withFrame:in:characterRange:layoutManager:)` takes `NSView` on the CI SDK but `NSView?` locally, so an override that compiles locally broke the v1.5.0 release on `main`.
 - **Solution**: Avoid overriding AppKit methods whose signatures have changed between SDKs, and prefer composition (here, `SwashLayoutManager` paints `IndentedTextBlock.fillColor`). The `PR Build` workflow builds every pull request on the release toolchain, so these failures show up before merging.

@@ -116,7 +116,8 @@ struct ContentView: View {
                         isStyled: true,
                         flavor: document.flavor,
                         baseURL: effectiveBaseURL,
-                        controller: editor
+                        controller: editor,
+                        onFormatCommand: { handleFormatCommand($0) }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -129,7 +130,8 @@ struct ContentView: View {
                         isStyled: false,
                         flavor: document.flavor,
                         baseURL: effectiveBaseURL,
-                        controller: editor
+                        controller: editor,
+                        onFormatCommand: { handleFormatCommand($0) }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -143,7 +145,8 @@ struct ContentView: View {
                             isStyled: false,
                             flavor: document.flavor,
                             baseURL: effectiveBaseURL,
-                            controller: editor
+                            controller: editor,
+                            onFormatCommand: { handleFormatCommand($0) }
                         )
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)
@@ -246,6 +249,7 @@ struct ContentView: View {
             }
         }
         .background(WindowAccessor(window: $window))
+        .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
         .onChange(of: viewMode) { newMode in
             let oldMode = previousViewMode
             previousViewMode = newMode
@@ -929,6 +933,67 @@ struct ContentView: View {
         return markdownLines.joined(separator: "\n")
     }
 
+    // MARK: - Keyboard & Format Menu Commands
+    
+    /// Handles shortcuts and Format menu items using the live editor selection (carets included).
+    private func handleFormatCommand(_ command: FormatCommand) {
+        if let live = editor.currentRawSelection {
+            selectedRange = live
+        }
+        guard let range = selectedRange else { return }
+        switch command {
+        case .bold: applyFormatting(.bold)
+        case .italic: applyFormatting(.italic)
+        case .strikethrough: applyFormatting(.strikethrough)
+        case .code: applyFormatting(.code)
+        case .codeBlock: applyCodeFormat(.plainBlock)
+        case .heading(let level): applyHeadingLevel(level)
+        case .quote: applyFormatting(.quote)
+        case .bulletList: applyFormatting(.bulletList)
+        case .numberedList: applyFormatting(.numberedList)
+        case .paragraph, .taskList:
+            guard let formatting = astFormatting else { return }
+            let format: MarkdownBlockFormat = command == .paragraph ? .paragraph : .taskList
+            if let edit = formatting.toggleBlock(format, selection: range) {
+                commitEdit(edit.text, selection: edit.selection, actionName: command == .paragraph ? "Paragraph" : "To-do List")
+            }
+        case .link:
+            promptForLink()
+        }
+    }
+    
+    /// ⌘K: asks for a URL (pre-filled from the current link or a URL on the clipboard) and applies it.
+    private func promptForLink() {
+        let current = determineActiveLink()
+        let alert = NSAlert()
+        alert.messageText = current == nil ? "Add Link" : "Edit Link"
+        alert.addButton(withTitle: current == nil ? "Add" : "Update")
+        alert.addButton(withTitle: "Cancel")
+        if current != nil { alert.addButton(withTitle: "Remove Link") }
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        field.placeholderString = "https://example.com"
+        if let url = current?.url {
+            field.stringValue = url
+        } else if let clip = NSPasteboard.general.string(forType: .string), let url = URL(string: clip), url.scheme != nil {
+            field.stringValue = clip
+        }
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        let respond: (NSApplication.ModalResponse) -> Void = { response in
+            let url = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            switch response {
+            case .alertFirstButtonReturn where !url.isEmpty: applyLink(url: url, activeLink: current)
+            case .alertThirdButtonReturn: removeLink(activeLink: current)
+            default: break
+            }
+        }
+        if let window = window {
+            alert.beginSheetModal(for: window, completionHandler: respond)
+        } else {
+            respond(alert.runModal())
+        }
+    }
+    
     // MARK: - AST Formatting
     
     /// The parsed document for CommonMark/GFM flavors (Slack mrkdwn keeps the legacy string logic).
