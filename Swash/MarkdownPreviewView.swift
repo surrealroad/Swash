@@ -352,7 +352,7 @@ struct MarkdownBlockView: View {
         switch node.kind {
         case .heading(let level, _):
             VStack(alignment: .leading, spacing: 6) {
-                MarkdownInlineView(nodes: node.children, context: context)
+                MarkdownInlineView(nodes: node.children, context: context, mathFontSize: MarkdownBlockView.headingSize(for: level))
                     .font(MarkdownBlockView.headingFont(for: level))
                     .fontWeight(.bold)
                     .foregroundColor(.primary)
@@ -478,14 +478,18 @@ struct MarkdownBlockView: View {
         return MarkdownTableData(headers: cells.headers, alignments: alignments, rows: cells.rows)
     }
     
-    static func headingFont(for level: Int) -> Font {
+    static func headingSize(for level: Int) -> CGFloat {
         switch level {
-        case 1: return .system(size: 26, design: .default)
-        case 2: return .system(size: 20, design: .default)
-        case 3: return .system(size: 17, design: .default)
-        case 4: return .system(size: 15, design: .default)
-        default: return .system(size: 14, design: .default)
+        case 1: return 26
+        case 2: return 20
+        case 3: return 17
+        case 4: return 15
+        default: return 14
         }
+    }
+    
+    static func headingFont(for level: Int) -> Font {
+        .system(size: headingSize(for: level), design: .default)
     }
     
     static func alertColor(_ type: AlertType) -> Color {
@@ -822,6 +826,8 @@ struct MarkdownImageView: View {
 struct MarkdownInlineView: View {
     let nodes: [MarkdownNode]
     let context: MarkdownRenderContext
+    /// Point size of the surrounding text, so rendered inline math matches it (headings are larger).
+    var mathFontSize: CGFloat = MarkdownInlineAttributes.bodyMathFontSize
     
     @Environment(\.colorScheme) private var colorScheme
     /// Bumped when a formula this view is waiting on finishes rendering.
@@ -829,7 +835,7 @@ struct MarkdownInlineView: View {
     
     var body: some View {
         var pendingMath = false
-        let segments = MarkdownInlineAttributes.segments(nodes, context: context, dark: colorScheme == .dark, pendingMath: &pendingMath)
+        let segments = MarkdownInlineAttributes.segments(nodes, context: context, dark: colorScheme == .dark, mathFontSize: mathFontSize, pendingMath: &pendingMath)
         let _ = renderGeneration
         content(segments)
             .onReceive(NotificationCenter.default.publisher(for: RichContentRenderer.didRender)) { _ in
@@ -918,12 +924,15 @@ enum MarkdownInlineAttributes {
     
     /// Inline math uses its KaTeX rendering once cached; until then (or if it fails) the Unicode
     /// approximation, with `pendingMath` set so the caller can refresh when the render lands.
-    static func segments(_ nodes: [MarkdownNode], context: MarkdownRenderContext, dark: Bool = false) -> [MarkdownInlineSegment] {
+    /// The Preview's body text size (`.body`).
+    static let bodyMathFontSize: CGFloat = 13
+    
+    static func segments(_ nodes: [MarkdownNode], context: MarkdownRenderContext, dark: Bool = false, mathFontSize: CGFloat = bodyMathFontSize) -> [MarkdownInlineSegment] {
         var pending = false
-        return segments(nodes, context: context, dark: dark, pendingMath: &pending)
+        return segments(nodes, context: context, dark: dark, mathFontSize: mathFontSize, pendingMath: &pending)
     }
     
-    static func segments(_ nodes: [MarkdownNode], context: MarkdownRenderContext, dark: Bool, pendingMath: inout Bool) -> [MarkdownInlineSegment] {
+    static func segments(_ nodes: [MarkdownNode], context: MarkdownRenderContext, dark: Bool, mathFontSize: CGFloat = bodyMathFontSize, pendingMath: inout Bool) -> [MarkdownInlineSegment] {
         var segments: [MarkdownInlineSegment] = []
         var pending = false
         var current: Text? = nil
@@ -1008,7 +1017,7 @@ enum MarkdownInlineAttributes {
                 default: break
                 }
             case .math:
-                let request = RichContentRenderer.Request(kind: .inlineMath, source: node.literal, dark: dark, fontSize: 13)
+                let request = RichContentRenderer.Request(kind: .inlineMath, source: node.literal, dark: dark, fontSize: mathFontSize)
                 switch RichContentRenderer.cachedOrRequest(request) {
                 case .rendered(let rendered)?:
                     let run = Text(Image(nsImage: rendered.image)).baselineOffset(-rendered.descent)

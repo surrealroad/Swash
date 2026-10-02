@@ -174,15 +174,24 @@ func run() async {
     check("undo returns to the original source", tv.string == source, tv.string.debugDescription)
 
     // MARK: Preview
-    let preview = NSHostingView(rootView: MarkdownPreviewView(text: "Inline $e^{i\\pi} + 1 = 0$ math.\n\n" + source, flavor: .github).frame(width: 600, height: 700))
+    let preview = NSHostingView(rootView: MarkdownPreviewView(text: "Inline $e^{i\\pi} + 1 = 0$ math.\n\n## Heading with $x^2$\n\n" + source, flavor: .github).frame(width: 600, height: 700))
     preview.frame = NSRect(x: 0, y: 0, width: 600, height: 700)
     let previewWindow = NSWindow(contentRect: preview.frame, styleMask: [.titled], backing: .buffered, defer: false)
     previewWindow.contentView = preview
     windows.append(previewWindow)
-    let inline = RichContentRenderer.Request(kind: .inlineMath, source: "e^{i\\pi} + 1 = 0", dark: false, fontSize: 13)
-    let previewReady = await wait { renderer.cached(inline)?.rendered != nil && renderer.cached(.init(kind: .mermaid, source: "graph LR\n  A --> B", dark: false))?.rendered != nil }
+    // The Preview follows the system appearance, so the cache keys do too
+    let dark = preview.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    let inline = RichContentRenderer.Request(kind: .inlineMath, source: "e^{i\\pi} + 1 = 0", dark: dark, fontSize: 13)
+    let previewReady = await wait { renderer.cached(inline)?.rendered != nil && renderer.cached(.init(kind: .mermaid, source: "graph LR\n  A --> B", dark: dark))?.rendered != nil }
     try? await Task.sleep(nanoseconds: 300_000_000)
     check("preview requests inline math and diagrams", previewReady)
+    // Inline math in a heading renders at the heading's size (H2 = 20pt), not the body's
+    let headingMath = RichContentRenderer.Request(kind: .inlineMath, source: "x^2", dark: dark, fontSize: 20)
+    let headingReady = await wait { renderer.cached(headingMath)?.rendered != nil }
+    let bodyMath = await renderer.render(.init(kind: .inlineMath, source: "x^2", dark: dark, fontSize: 13)).rendered
+    let headingHeight = renderer.cached(headingMath)?.rendered?.image.size.height ?? 0
+    check("heading inline math follows the heading size", headingReady && headingHeight > (bodyMath?.image.size.height ?? .infinity) * 1.3,
+          "\(headingHeight)pt vs \(bodyMath?.image.size.height ?? 0)pt")
     snapshot(preview, to: out.appendingPathComponent("preview.png"))
 
     print("RICH RENDER: \(failures == 0 ? "all passed" : "\(failures) failed") (images in \(out.path))")
