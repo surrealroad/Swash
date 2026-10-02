@@ -21,6 +21,16 @@ Reports and side-by-side editor/preview PNGs are written to `build/editor-audit/
 > - The italic-underscore toggle is fixed, selections are whitespace-trimmed, multi-line selections are wrapped per line, and code fences are placed on their own lines.
 > - The duplicate dropdown chevrons are removed.
 >
+> **Phase 1 status (branch `feat/wysiwyg-phase1-ast`):** done. One parser now drives the editor, the Preview, Quick Look, table cells and the bubble menu.
+> - **Parser:** Swash's own CommonMark 0.31.2 + GFM parser (`Swash/Markdown/`), with exact UTF-16 node and marker ranges. It was chosen over swift-markdown, which lacks footnotes, extended autolinks, alerts and front matter.
+>   - Conformance: 652/652 CommonMark examples, 50/50 GFM extension examples, marker-range checks, 3,000 fuzzed inputs and pathological-input timing (`./scripts/run_commonmark_spec.sh`).
+> - **Edit Text:** styled from the tree (`MarkdownEditorStyler`). Slack mrkdwn keeps the legacy path.
+> - **Preview, Quick Look and table cells:** rendered from the tree.
+> - **Bubble menu:** uses `MarkdownFormatting` for context, active states, inline toggles (exact-marker removal, merging overlapping spans), links and quote-preserving block toggles.
+> - **Old parser:** the block parser (`MarkdownParser.parse`) has been removed, and the GFM fixture suite now runs against the new tree.
+> - **Remaining for Phase 2:** keyboard behaviours (list continuation, Tab/Backspace, ⌘B/⌘I), caret atomicity around hidden markers, clickable checkboxes, HTML paste, and a selection-less block menu.
+> - **Remaining for Phase 3:** HTML rendering, math, Mermaid, a code-block language badge, and incremental (per-block) re-styling.
+>
 > The sections below describe the pre-fix state.
 
 ---

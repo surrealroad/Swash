@@ -49,3 +49,15 @@
 ## 12. Code Detection Must Use `MarkdownParser.codeRanges(in:)`
 - **Issue**: Ad-hoc checks (counting ``` lines, regexing backticks) miss `~~~` fences, indented code and multi-backtick spans. Calling them once per regex match made styling quadratic (27 s per keystroke at 2,200 lines).
 - **Solution**: Compute `MarkdownParser.codeRanges(in:)` once per pass (one O(n) scan), then query it with `excludes(_:)`, `blockIntersects(_:)` or `spanContains(_:)` (binary search). `fencedCodeBlock(containing:in:)` locates the block around a selection.
+
+## 13. `ObjectIdentifier` Keys Are Reused After Deallocation
+- **Issue**: The Markdown parser keeps per-node side tables (block state, inline sources, text maps) keyed by `ObjectIdentifier`. When a node is discarded mid-parse (a paragraph absorbed into a setext heading, an emphasis delimiter run that was fully used), it can be deallocated and a new node allocated at the same address, which silently inherits the stale entry. Setext headings duplicated their text into the following paragraph until this was fixed.
+- **Solution**: Side-table values must hold a strong reference to their node (`BlockState.node`, `(cell, source)`, `(node, map)`), so identifiers stay unique for the lifetime of the parse.
+
+## 14. Command-Line Test Scripts Compile Explicit File Lists
+- **Issue**: `scripts/run_spec_tests.sh`, `scripts/run_commonmark_spec.sh` and `Tests/EditorAudit/run_audit.sh` call `swiftc` with hand-picked source files. Moving a type into another file (for example `TableAlignment` and `AlertType` into `Swash/Markdown/MarkdownNode.swift`) breaks them, even though the Xcode build, which uses synchronised folders, still succeeds.
+- **Solution**: After moving or adding source files, update the file lists in all three scripts. `Swash/Markdown/*.swift` is self-contained (Foundation only) and is included as a glob.
+
+## 15. Xcode May Rewrite `project.pbxproj` When a New Source Folder Appears
+- **Issue**: The first `xcodebuild` after adding `Swash/Markdown/` rewrote the synchronised-group membership exceptions (dropping `Swash.entitlements`), an unrelated project-file change.
+- **Solution**: Check `git status` after builds and revert unintended `project.pbxproj` changes (`git checkout -- Swash.xcodeproj/project.pbxproj`). New files in synchronised folders need no project edits.

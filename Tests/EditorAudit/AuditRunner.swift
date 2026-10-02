@@ -69,10 +69,10 @@ func visibleRender(_ storage: NSTextStorage) -> (visible: String, runs: [String]
     return (visible, runs)
 }
 
-func makeEditor(_ box: TextBox, width: CGFloat = 600) -> (NSHostingView<AnyView>, NSTextView?) {
+func makeEditor(_ box: TextBox, width: CGFloat = 600, flavor: MarkdownFlavor = .github) -> (NSHostingView<AnyView>, NSTextView?) {
     let binding = Binding<String>(get: { box.text }, set: { box.text = $0 })
     let editor = SwashTextView(text: binding, selectedRange: .constant(nil), selectionRect: .constant(nil),
-                               scrollOriginY: .constant(0), isStyled: true, flavor: .github)
+                               scrollOriginY: .constant(0), isStyled: true, flavor: flavor)
     let host = NSHostingView(rootView: AnyView(editor.frame(width: width, height: 900)))
     host.frame = NSRect(x: 0, y: 0, width: width, height: 900)
     let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -205,8 +205,28 @@ struct AuditRunner {
         let expectedVisible: [String: String] = [
             "code-inline-with-emphasis-chars": "Call __init__ and a*b*c and [x](y)",
             "code-inline-double-backtick": "Use a `tick` here",
-            "code-indented": "Para\n\n    indented code **x**\n    line2",
+            "code-indented": "Para\n\nindented code **x**\nline2",
             "img-in-table": "[TABLE]\n\nAfter table paragraph",
+            // Phase 1: AST-driven styling
+            "em-nested-italic-in-bold": "bold with italic inside",
+            "em-nested-bold-in-italic": "italic with bold inside",
+            "em-multiline": "bold that\nspans lines",
+            "em-escaped": "*not italic* and # not heading and 2 * 3",
+            "h-setext-false-positive-list": "‹•›item one\n\nafter",
+            "list-nested": "‹•›a\n‹◦›b\n‹▪›c\n‹•›d",
+            "list-4space-nested": "‹1.›a\n‹1.›four-space nested",
+            "list-continuation-paragraph": "‹•›item first line\ncontinued line\n\nsecond paragraph in item\n‹•›next",
+            "task-ordered": "‹☐›ordered task",
+            "quote-nested": "level 1\nlevel 2\nlevel 2 spaced",
+            "quote-no-space": "tight quote",
+            "quote-with-list": "‹•›item in quote\n‹•›another",
+            "alert-note": "NOTE\nUseful info here.",
+            "link-parens-url": "wiki",
+            "link-reference": "full collapsed ref\n\n[ref]: https://ref.com\n[collapsed]: https://c.com",
+            "link-autolink-angle": "https://angle.com and me@mail.com",
+            "link-image-in-link": "[IMAGE]",
+            "hard-break-spaces": "line one\nline two\nline three",
+            "footnote": "Text1 morenote.\n\n[1]: First.\n[note]: Named bold.",
         ]
         for p in probes {
             let box = TextBox(p.md)
@@ -223,11 +243,21 @@ struct AuditRunner {
             if let expected = expectedVisible[p.id], expected != visible {
                 failures.append("\(p.id): expected visible \(expected.debugDescription), got \(visible.debugDescription)")
             }
-            let blocks = MarkdownParser.parse(p.md).map { "\($0.type)".prefix(70) + ($0.text.isEmpty ? "" : " «\($0.text.prefix(40))»") }
+            let blocks = MarkdownDocument.parse(p.md).root.children.map { "\($0.kind)".components(separatedBy: "(").first ?? "" }
             report += "PREVIEW BLOCKS: \(blocks.joined(separator: " | "))\n\n"
             _ = host
             sideBySide(p.md, to: outDir.appendingPathComponent("shots/\(p.id).png"))
         }
+        // Slack mrkdwn keeps its own (legacy) styling path
+        let slack = TextBox("*bold* _italic_ ~strike~ `code` <https://s.com|site>\n> quote\n- item")
+        let (slackHost, slackView) = makeEditor(slack, flavor: .slack)
+        if let tv = slackView, let storage = tv.textStorage {
+            let (visible, runs) = visibleRender(storage)
+            report += "## slack-basic\nVISIBLE: \(visible.debugDescription)\nRUNS:    \(runs.joined(separator: " "))\n\n"
+            let expected = "bold italic strike code site\nquote\n‹•›item"
+            if visible != expected { failures.append("slack-basic: expected visible \(expected.debugDescription), got \(visible.debugDescription)") }
+        }
+        _ = slackHost
         try? report.write(to: outDir.appendingPathComponent("report.md"), atomically: true, encoding: .utf8)
         print(report)
         print(failures.isEmpty ? "RENDER: all expectations passed" : "RENDER FAILURES:\n" + failures.joined(separator: "\n"))

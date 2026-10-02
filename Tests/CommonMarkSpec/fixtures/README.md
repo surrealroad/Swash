@@ -1,0 +1,4 @@
+# Spec fixtures
+
+- `commonmark-0.31.2.json`: the example suite of the [CommonMark Spec 0.31.2](https://spec.commonmark.org/0.31.2/), by John MacFarlane, licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Retrieved from https://spec.commonmark.org/0.31.2/spec.json.
+- `gfm-extensions.json`: the extension examples (tables, strikethrough, autolinks) from the [GitHub Flavored Markdown Spec](https://github.github.com/gfm/), plus `test/extensions.txt` (tables, strikethrough, autolinks, footnotes, task lists) from [github/cmark-gfm](https://github.com/github/cmark-gfm). Both are licensed under CC BY-SA 4.0. Tag-filter examples are excluded because tag filtering is an HTML-output policy, not parsing. Tabs shown as `→` in the source files have been converted back to tab characters.

@@ -16,6 +16,8 @@ swiftc \
   Swash/MarkdownFlavor.swift \
   Swash/FolderAccessManager.swift \
   Swash/MarkdownParser.swift \
+  Swash/Markdown/*.swift \
+  Swash/MarkdownEditorStyler.swift \
   Swash/MarkdownPreviewView.swift \
   Swash/DetectedLink.swift \
   Swash/BubbleMenuView.swift \
