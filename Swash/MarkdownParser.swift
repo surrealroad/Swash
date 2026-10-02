@@ -8,35 +8,10 @@
 import Foundation
 import AppKit
 
-enum TableAlignment: String, Codable, Equatable, CaseIterable {
-    case left
-    case center
-    case right
-    case defaultAlignment
-}
-
 struct MarkdownTableData: Equatable {
     var headers: [String]
     var alignments: [TableAlignment]
     var rows: [[String]]
-}
-
-enum AlertType: String, Codable, Equatable, CaseIterable {
-    case note
-    case tip
-    case important
-    case warning
-    case caution
-    
-    var title: String {
-        switch self {
-        case .note: return "Note"
-        case .tip: return "Tip"
-        case .important: return "Important"
-        case .warning: return "Warning"
-        case .caution: return "Caution"
-        }
-    }
 }
 
 enum BlockType: Equatable {
