@@ -126,9 +126,7 @@ struct MarkdownPreviewView: View {
                         .italic()
                         .padding(.top, 24)
                 } else {
-                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                        MarkdownBlockView(node: block, context: context)
-                    }
+                    MarkdownBlockList(nodes: blocks, context: context)
                     MarkdownFootnotesView(context: context)
                 }
             }
@@ -146,6 +144,183 @@ struct MarkdownPreviewView: View {
     static func parse(_ text: String, flavor: MarkdownFlavor) -> MarkdownDocument {
         let source = flavor == .slack ? MarkdownParser.convertSlackToGithub(text) : text
         return MarkdownDocument.parse(source)
+    }
+}
+
+/// A sequence of sibling blocks. `<details>` … `</details>` HTML blocks and the Markdown between
+/// them are grouped into a disclosure; every other block renders on its own.
+struct MarkdownBlockList: View {
+    let nodes: [MarkdownNode]
+    let context: MarkdownRenderContext
+    var spacing: CGFloat = 14
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            ForEach(Array(MarkdownBlockList.group(nodes).enumerated()), id: \.offset) { _, item in
+                switch item {
+                case .block(let node):
+                    AnyView(MarkdownBlockView(node: node, context: context))
+                case .details(let summary, let open, let content):
+                    AnyView(MarkdownDetailsView(summary: summary, initiallyOpen: open, content: content, context: context))
+                }
+            }
+        }
+    }
+    
+    enum Item {
+        case block(MarkdownNode)
+        case details(summary: String, open: Bool, content: [MarkdownNode])
+    }
+    
+    private static func isDetailsOpen(_ node: MarkdownNode) -> Bool {
+        guard case .htmlBlock = node.kind else { return false }
+        return node.literal.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("<details")
+    }
+    
+    private static func isDetailsClose(_ node: MarkdownNode) -> Bool {
+        guard case .htmlBlock = node.kind else { return false }
+        return node.literal.lowercased().contains("</details>")
+    }
+    
+    static func summary(in html: String) -> String? {
+        guard let start = html.range(of: "<summary[^>]*>", options: [.regularExpression, .caseInsensitive]),
+              let end = html.range(of: "</summary>", options: .caseInsensitive, range: start.upperBound..<html.endIndex) else { return nil }
+        let inner = String(html[start.upperBound..<end.lowerBound])
+        return inner.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    static func group(_ nodes: [MarkdownNode]) -> [Item] {
+        var items: [Item] = []
+        var i = 0
+        while i < nodes.count {
+            let node = nodes[i]
+            if isDetailsOpen(node), !isDetailsClose(node) {
+                // Find the matching </details>, allowing nesting
+                var depth = 1
+                var j = i + 1
+                while j < nodes.count {
+                    if isDetailsOpen(nodes[j]) && !isDetailsClose(nodes[j]) { depth += 1 }
+                    if isDetailsClose(nodes[j]) { depth -= 1; if depth == 0 { break } }
+                    j += 1
+                }
+                if j < nodes.count {
+                    var content = Array(nodes[(i + 1)..<j])
+                    var summary = summary(in: node.literal)
+                    // <summary> may be its own HTML block right after <details>
+                    if summary == nil, let first = content.first, case .htmlBlock = first.kind, let s = MarkdownBlockList.summary(in: first.literal) {
+                        summary = s
+                        content.removeFirst()
+                    }
+                    let open = node.literal.range(of: "<details[^>]*\\bopen\\b", options: [.regularExpression, .caseInsensitive]) != nil
+                    items.append(.details(summary: summary ?? "Details", open: open, content: content))
+                    i = j + 1
+                    continue
+                }
+            }
+            items.append(.block(node))
+            i += 1
+        }
+        return items
+    }
+}
+
+struct MarkdownDetailsView: View {
+    let summary: String
+    let content: [MarkdownNode]
+    let context: MarkdownRenderContext
+    @State private var isExpanded: Bool
+    
+    init(summary: String, initiallyOpen: Bool, content: [MarkdownNode], context: MarkdownRenderContext) {
+        self.summary = summary
+        self.content = content
+        self.context = context
+        _isExpanded = State(initialValue: initiallyOpen)
+    }
+    
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            MarkdownBlockList(nodes: content, context: context, spacing: 10)
+                .padding(.top, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text(summary).fontWeight(.semibold)
+        }
+    }
+}
+
+/// Raw HTML blocks: images (with their width) render directly; other HTML is converted to Markdown
+/// and rendered as blocks. Fragments with no content (an opening <div>, a comment) render nothing.
+struct MarkdownHTMLBlockView: View {
+    let html: String
+    let context: MarkdownRenderContext
+    
+    private static let imageTagRegex = try! NSRegularExpression(pattern: "<img\\b[^>]*>", options: [.caseInsensitive])
+    
+    var body: some View {
+        let images = MarkdownHTMLBlockView.images(in: html)
+        let markdown = HTMLToMarkdown.convert(html)
+        let document = markdown.map { MarkdownDocument.parse($0) }
+        let textContent = document.map { doc -> String in
+            var text = ""
+            doc.root.walk { if case .text = $0.kind { text += $0.literal } }
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        } ?? ""
+        if !images.isEmpty && textContent.isEmpty {
+            MarkdownFlowLayout(spacing: 6) {
+                ForEach(Array(images.enumerated()), id: \.offset) { _, image in
+                    MarkdownImageView(alt: image.alt, urlString: image.src, baseURL: context.baseURL, maxWidth: image.width)
+                }
+            }
+        } else if let document = document {
+            MarkdownBlockList(nodes: document.root.children, context: MarkdownRenderContext(document: document, baseURL: context.baseURL), spacing: 10)
+        }
+    }
+    
+    static func images(in html: String) -> [(src: String, alt: String, width: CGFloat?)] {
+        let ns = html as NSString
+        return imageTagRegex.matches(in: html, options: [], range: NSRange(location: 0, length: ns.length)).compactMap { match in
+            if case .image(let src, let alt, let width) = InlineHTMLTag(ns.substring(with: match.range)).kind {
+                return (src, alt, width.map { CGFloat($0) })
+            }
+            return nil
+        }
+    }
+}
+
+/// Lays children out left to right, wrapping onto new rows (badge rows, image galleries).
+struct MarkdownFlowLayout: Layout {
+    var spacing: CGFloat = 6
+    
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0 && x + size.width > maxWidth {
+                y += rowHeight + spacing
+                x = 0
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+            widest = max(widest, x - spacing)
+        }
+        return CGSize(width: min(widest, maxWidth), height: y + rowHeight)
+    }
+    
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX && x + size.width > bounds.maxX {
+                y += rowHeight + spacing
+                x = bounds.minX
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 
@@ -169,11 +344,7 @@ struct MarkdownBlockView: View {
     }
     
     private func children(spacing: CGFloat = 10) -> some View {
-        VStack(alignment: .leading, spacing: spacing) {
-            ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in
-                AnyView(MarkdownBlockView(node: child, context: context))
-            }
-        }
+        MarkdownBlockList(nodes: node.children, context: context, spacing: spacing)
     }
     
     @ViewBuilder
@@ -259,10 +430,7 @@ struct MarkdownBlockView: View {
             CodeBlockView(code: node.literal.hasSuffix("\n") ? String(node.literal.dropLast()) : node.literal, language: language)
             
         case .htmlBlock:
-            Text(node.literal)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            MarkdownHTMLBlockView(html: node.literal, context: context)
             
         case .thematicBreak:
             Divider()

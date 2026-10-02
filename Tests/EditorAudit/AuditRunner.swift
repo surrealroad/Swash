@@ -182,6 +182,8 @@ let probes: [Probe] = [
     // HTML & extensions
     Probe(id: "html-inline", md: "Press <kbd>⌘</kbd>+<kbd>B</kbd>, H<sub>2</sub>O, x<sup>2</sup>, line<br>break, <mark>hi</mark>"),
     Probe(id: "html-block-details", md: "<details>\n<summary>More</summary>\n\nHidden **content**\n\n</details>"),
+    Probe(id: "html-block-image", md: "<p align=\"center\">\n  <img src=\"missing.png\" alt=\"Screenshot\" width=\"200\">\n</p>\n\nAfter"),
+    Probe(id: "html-block-converted", md: "<div>\n<b>Bold</b> and <a href=\"https://x.com\">link</a>\n</div>"),
     Probe(id: "html-comment", md: "Visible <!-- hidden comment --> text"),
     Probe(id: "math", md: "Inline $E=mc^2$ and block:\n\n$$\n\\int_0^1 x dx\n$$"),
     Probe(id: "mermaid", md: "```mermaid\ngraph TD; A-->B\n```"),
