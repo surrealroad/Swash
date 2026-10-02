@@ -260,6 +260,58 @@ struct InteractionRunner {
              }
              log("code-language-badge", md, "badges=\(badges) | \(b.text)", expect: "badges=[\"SWIFT\"] | Intro\n\n```python\nlet x = 1\n```") }
         
+        // 26. Incremental restyling must match a full restyle exactly
+        func fingerprint(_ tv: NSTextView) -> String {
+            guard let storage = tv.textStorage else { return "" }
+            var out = ""
+            storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length), options: []) { attrs, range, _ in
+                let text = (storage.string as NSString).substring(with: range)
+                var parts = [text.debugDescription]
+                if let f = attrs[.font] as? NSFont { parts.append("\(f.fontName)@\(f.pointSize)") }
+                if let c = attrs[.foregroundColor] as? NSColor { parts.append(c.description) }
+                if let p = attrs[.paragraphStyle] as? NSParagraphStyle { parts.append("p\(p.headIndent)/\(p.firstLineHeadIndent)/\(p.tailIndent)/\(p.textBlocks.count)") }
+                if let m = attrs[.listMarker] as? ListMarkerInfo { parts.append("m\(m.text)@\(m.indent)") }
+                if attrs[.link] != nil { parts.append("link") }
+                if attrs[.strikethroughStyle] != nil { parts.append("strike") }
+                if let a = attrs[.attachment] { parts.append(a is TableTextAttachment ? "TABLE" : "IMAGE") }
+                if attrs[.codeBadge] != nil { parts.append("badge") }
+                out += parts.joined(separator: " ") + "\n"
+            }
+            return out
+        }
+        let base = "# Title\n\nIntro with **bold** and ![img](x.png) here.\n\n- one\n- two\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n> quote\n\n```swift\nlet x = 1\n```\n\nLast paragraph."
+        let scenarios: [(String, String, String, Bool)] = [
+            ("type in paragraph", "Intro with", " more", true),
+            ("make bold", "Last", "**", true),
+            ("open a fence", "Intro", "\n```\n", true),
+            ("type in list", "- one", " item", true),
+            ("new list item", "- two", "\n- three", true),
+            ("setext underline", "Last paragraph.", "\n---", true),
+            ("type in quote", "> quote", " text", true),
+            ("before table", "- two", "\n\nPara before table", true),
+            ("in code", "let x", "y", true),
+            ("at start", "# Title", "!", true),
+            ("at end", "Last paragraph.", " End", true),
+            ("add reference definition", "Last paragraph.", "\n\n[r]: https://r.com", false),
+        ]
+        for (name, anchor, insertion, expectIncremental) in scenarios {
+            let b = TextBox(base); let tv = makeEditor(b)
+            let coordinator = tv.delegate as! SwashTextView.Coordinator
+            caretAfter(anchor, in: tv)
+            let before = coordinator.incrementalPassCount
+            tv.insertText(insertion, replacementRange: tv.selectedRange()); pump(0.3)
+            let usedIncremental = coordinator.incrementalPassCount > before
+            let incremental = fingerprint(tv)
+            coordinator.forceFullRestyle = true
+            coordinator.highlightMarkdown(in: tv); pump(0.1)
+            let full = fingerprint(tv)
+            let same = incremental == full
+            log("incremental-\(name.replacingOccurrences(of: " ", with: "-"))", "\(anchor) + \(insertion.debugDescription)",
+                "path=\(usedIncremental ? "incremental" : "full") matchesFull=\(same)",
+                same ? "" : "first difference: \(zip(incremental.split(separator: "\n"), full.split(separator: "\n")).first(where: { $0 != $1 }).map { "\($0) vs \($1)" } ?? "length")",
+                expect: "path=\(expectIncremental ? "incremental" : "full") matchesFull=true")
+        }
+        
         // 20. Enter on an empty item leaves the list; Backspace with the caret before the hidden marker
         do { let b = TextBox("- a\n- b"); let tv = makeEditor(b); caretAfter("b", in: tv)
              tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump()

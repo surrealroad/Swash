@@ -132,36 +132,66 @@ final class MarkdownEditorStyler {
     }
 
     private let storage: NSTextStorage
+    /// The raw Markdown (what the AST ranges index). The storage may differ outside the region being
+    /// styled (collapsed attachments), so writes go to `raw location - storageShift`.
     private let text: NSString
+    private let storageShift: Int
     private let document: MarkdownDocument
     private var hidden: [NSRange] = []
     private(set) var attachments: [EditorAttachmentRequest] = []
     /// Code blocks, code spans, HTML and front matter (raw offsets), excluded from spellchecking.
     private(set) var codeRanges: [NSRange] = []
 
-    init(storage: NSTextStorage, document: MarkdownDocument) {
+    /// `storageShift`: raw offset minus storage offset for the region being styled (0 when the storage
+    /// holds the raw text throughout).
+    init(storage: NSTextStorage, document: MarkdownDocument, storageShift: Int = 0) {
         self.storage = storage
-        self.text = storage.string as NSString
+        self.text = document.source as NSString
+        self.storageShift = storageShift
         self.document = document
     }
-
+    
     /// Applies all styling. The caller has already reset attributes and wraps this in begin/endEditing.
     func style() {
+        style(blocks: document.root.children)
+    }
+    
+    /// Styles only the given top-level blocks (incremental restyling).
+    func style(blocks: [MarkdownNode]) {
         let context = BlockContext()
-        for block in document.root.children {
+        for block in blocks {
             styleBlock(block, context)
         }
         for range in hidden {
             hide(range)
         }
     }
+    
+    /// Code-like ranges of the whole document (raw offsets), sorted: code, HTML, math and front matter
+    /// are excluded from spellchecking.
+    static func spellcheckExclusions(in document: MarkdownDocument) -> [NSRange] {
+        var ranges: [NSRange] = []
+        document.root.walk { node in
+            switch node.kind {
+            case .codeBlock, .htmlBlock, .frontMatter, .code, .htmlInline, .math: ranges.append(node.range)
+            default: break
+            }
+        }
+        return ranges.sorted { $0.location < $1.location }
+    }
 
     // MARK: - Attribute helpers
 
     private var fullRange: NSRange { NSRange(location: 0, length: storage.length) }
-
+    
+    /// Maps a raw range to the storage, clipped to the storage bounds.
     private func valid(_ range: NSRange) -> NSRange {
-        NSIntersectionRange(range, fullRange)
+        NSIntersectionRange(NSRange(location: range.location - storageShift, length: range.length), fullRange)
+    }
+    
+    /// Clips a raw range to the raw text.
+    private func rawClamp(_ range: NSRange) -> NSRange {
+        NSIntersectionRange(range, NSRange(location: 0, length: text.length))
     }
 
     private func hide(_ range: NSRange) {
@@ -246,8 +276,7 @@ final class MarkdownEditorStyler {
 
     private func setParagraphStyle(_ style: NSParagraphStyle, over range: NSRange) {
         // Paragraph attributes must cover whole paragraphs, including the trailing newline
-        var r = text.paragraphRange(for: valid(range))
-        r = valid(r)
+        let r = valid(text.paragraphRange(for: rawClamp(range)))
         guard r.length > 0 else { return }
         storage.addAttribute(.paragraphStyle, value: style, range: r)
     }
@@ -284,7 +313,7 @@ final class MarkdownEditorStyler {
     }
 
     private func source(_ range: NSRange) -> String {
-        text.substring(with: valid(range))
+        text.substring(with: rawClamp(range))
     }
 
     // MARK: - Blocks
@@ -348,7 +377,8 @@ final class MarkdownEditorStyler {
                     hideMarker(NSRange(location: marker.location, length: 2))
                     hideMarker(NSRange(location: marker.location + marker.length - 1, length: 1))
                     // Icon before the title, as in the Preview: indent the title line to make room
-                    storage.addAttribute(.alertIcon, value: AlertIconInfo(type: type, color: color), range: NSRange(location: marker.location + 2, length: 1))
+                    let iconRange = valid(NSRange(location: marker.location + 2, length: 1))
+                    if iconRange.length > 0 { storage.addAttribute(.alertIcon, value: AlertIconInfo(type: type, color: color), range: iconRange) }
                     var titleContext = inner
                     titleContext.indent = 20
                     let titleLine = valid(text.paragraphRange(for: NSRange(location: marker.location, length: 0)))
@@ -430,10 +460,12 @@ final class MarkdownEditorStyler {
                     if firstContent < blockEnd, firstContent < text.length {
                         let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init)
                         let badge = CodeBadgeInfo(language: language)
-                        storage.addAttribute(.codeBadge, value: badge, range: NSRange(location: firstContent, length: 1))
+                        let badgeRange = valid(NSRange(location: firstContent, length: 1))
+                        if badgeRange.length > 0 { storage.addAttribute(.codeBadge, value: badge, range: badgeRange) }
                         // Keep the first line's text clear of the badge
                         let firstLine = valid(text.paragraphRange(for: NSRange(location: firstContent, length: 0)))
-                        if let style = (storage.attribute(.paragraphStyle, at: firstContent, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+                        if badgeRange.length > 0,
+                           let style = (storage.attribute(.paragraphStyle, at: badgeRange.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
                             style.tailIndent = -(badge.width + 16)
                             storage.addAttribute(.paragraphStyle, value: style, range: firstLine)
                         }
@@ -600,7 +632,7 @@ final class MarkdownEditorStyler {
 
     private func highlightCode(in node: MarkdownNode, language: String?) {
         guard let language = language else { return }
-        let range = valid(node.range)
+        let range = rawClamp(node.range)
         var line = range.location
         let end = range.location + range.length
         while line < end {
@@ -608,7 +640,7 @@ final class MarkdownEditorStyler {
             var contentLength = lineRange.length
             if contentLength > 0 && text.character(at: lineRange.location + contentLength - 1) == 0x0A { contentLength -= 1 }
             let lineText = text.substring(with: NSRange(location: lineRange.location, length: contentLength))
-            MarkdownCodeHighlighter.highlight(line: lineText, offset: lineRange.location, language: language, in: storage)
+            MarkdownCodeHighlighter.highlight(line: lineText, offset: lineRange.location - storageShift, language: language, in: storage)
             if lineRange.length == 0 { break }
             line = lineRange.location + lineRange.length
         }

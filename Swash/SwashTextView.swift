@@ -333,6 +333,7 @@ class SwashNSTextView: NSTextView {
     
     @objc private func handleFolderAccessGranted() {
         guard let coordinator = self.delegate as? SwashTextView.Coordinator else { return }
+        coordinator.forceFullRestyle = true
         if coordinator.parent.isStyled {
             coordinator.highlightMarkdown(in: self)
         }
@@ -343,6 +344,7 @@ class SwashNSTextView: NSTextView {
         let winURL = self.window?.representedURL ?? (self.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
         if let docURL = winURL, coordinator.lastBaseURL != docURL {
             coordinator.lastBaseURL = docURL
+            coordinator.forceFullRestyle = true
             if coordinator.parent.isStyled {
                 coordinator.highlightMarkdown(in: self)
             }
@@ -714,6 +716,7 @@ struct SwashTextView: NSViewRepresentable {
         logDebug("[SwashTextView] updateNSView - needsHighlight: \(needsHighlight), lastStyledText is Nil: \(context.coordinator.lastStyledText == nil)")
         
         if needsHighlight {
+            context.coordinator.forceFullRestyle = true
             DispatchQueue.main.async { [weak textView] in
                 guard let textView = textView else { return }
                 if context.coordinator.parent.isStyled {
@@ -835,6 +838,7 @@ struct SwashTextView: NSViewRepresentable {
             }
             
             if removed {
+                forceFullRestyle = true
                 let updatedText = buildRawMarkdown(from: textStorage)
                 self.parent.text = updatedText
                 highlightMarkdown(in: textView)
@@ -1311,6 +1315,11 @@ struct SwashTextView: NSViewRepresentable {
         func highlightMarkdown(in textView: NSTextView) {
             logDebug("[SwashTextView] highlightMarkdown called")
             guard let textStorage = textView.textStorage, !isHighlighting else { return }
+            if highlightIncrementally(in: textView, storage: textStorage) {
+                pendingRawSelection = nil
+                return
+            }
+            forceFullRestyle = false
             isHighlighting = true
             
             // Preserve scroll position to prevent jumps on focus loss/revert
@@ -1368,17 +1377,6 @@ struct SwashTextView: NSViewRepresentable {
                 MarkdownCodeHighlighter.highlight(line: line, offset: offset, language: language, in: textStorage)
             }
             
-            enum PendingAttachment {
-                case table(range: NSRange, source: String, headers: [String], alignments: [TableAlignment], rows: [[String]])
-                case image(range: NSRange, alt: String, urlString: String, rawMarkdown: String, width: CGFloat? = nil)
-                
-                var location: Int {
-                    switch self {
-                    case .table(let range, _, _, _, _): return range.location
-                    case .image(let range, _, _, _, _): return range.location
-                    }
-                }
-            }
             var pendingAttachments: [PendingAttachment] = []
             
             var styledCodeRanges: [NSRange]? = nil
@@ -1387,16 +1385,12 @@ struct SwashTextView: NSViewRepresentable {
                 let document = MarkdownDocument.parse(text)
                 let styler = MarkdownEditorStyler(storage: textStorage, document: document)
                 styler.style()
-                for request in styler.attachments {
-                    switch request.kind {
-                    case .table(let source, let headers, let alignments, let rows):
-                        pendingAttachments.append(.table(range: request.range, source: source, headers: headers, alignments: alignments, rows: rows))
-                    case .image(let alt, let urlString, let rawMarkdown, let width):
-                        pendingAttachments.append(.image(range: request.range, alt: alt, urlString: urlString, rawMarkdown: rawMarkdown, width: width))
-                    }
-                }
-                styledCodeRanges = styler.codeRanges.sorted { $0.location < $1.location }
+                pendingAttachments = Coordinator.pending(styler.attachments)
+                styledCodeRanges = MarkdownEditorStyler.spellcheckExclusions(in: document)
+                lastBlocks = Coordinator.blockSummaries(document, raw: text as NSString)
+                lastRawLength = (text as NSString).length
             } else {
+                lastBlocks = nil
                 // Slack mrkdwn is not CommonMark: legacy line- and regex-based styling
                 // 2. Block-level parsing
                 let lines = text.components(separatedBy: .newlines)
@@ -1932,9 +1926,54 @@ struct SwashTextView: NSViewRepresentable {
             
             }
             
-            // 4. Sort all pending attachments descending by location and replace in reverse order
-            pendingAttachments.sort { $0.location > $1.location }
-            for item in pendingAttachments {
+            // 4. Collapse tables and images into attachments (raw == storage offsets on this path)
+            collapseAttachments(pendingAttachments, in: textView)
+            
+            textStorage.endEditing()
+            isHighlighting = false
+            
+            let exclusions = styledCodeRanges ?? codeRanges.blockRanges
+            finishStyling(in: textView, rawText: text, exclusions: exclusions, savedRawSelection: savedRawSelection, savedScrollOrigin: savedScrollOrigin)
+        }
+        
+        // MARK: Shared styling steps
+        
+        enum PendingAttachment {
+            case table(range: NSRange, source: String, headers: [String], alignments: [TableAlignment], rows: [[String]])
+            case image(range: NSRange, alt: String, urlString: String, rawMarkdown: String, width: CGFloat? = nil)
+            
+            var location: Int {
+                switch self {
+                case .table(let range, _, _, _, _): return range.location
+                case .image(let range, _, _, _, _): return range.location
+                }
+            }
+            
+            func shifted(by delta: Int) -> PendingAttachment {
+                switch self {
+                case .table(let range, let source, let headers, let alignments, let rows):
+                    return .table(range: NSRange(location: range.location - delta, length: range.length), source: source, headers: headers, alignments: alignments, rows: rows)
+                case .image(let range, let alt, let urlString, let rawMarkdown, let width):
+                    return .image(range: NSRange(location: range.location - delta, length: range.length), alt: alt, urlString: urlString, rawMarkdown: rawMarkdown, width: width)
+                }
+            }
+        }
+        
+        static func pending(_ requests: [EditorAttachmentRequest]) -> [PendingAttachment] {
+            requests.map { request in
+                switch request.kind {
+                case .table(let source, let headers, let alignments, let rows):
+                    return .table(range: request.range, source: source, headers: headers, alignments: alignments, rows: rows)
+                case .image(let alt, let urlString, let rawMarkdown, let width):
+                    return .image(range: request.range, alt: alt, urlString: urlString, rawMarkdown: rawMarkdown, width: width)
+                }
+            }
+        }
+        
+        /// Replaces table and image source (storage ranges) with attachments, last first.
+        private func collapseAttachments(_ items: [PendingAttachment], in textView: NSTextView) {
+            guard let textStorage = textView.textStorage else { return }
+            for item in items.sorted(by: { $0.location > $1.location }) {
                 switch item {
                 case .table(let range, let source, let headers, let alignments, let rows):
                     let validRange = NSIntersectionRange(range, NSRange(location: 0, length: textStorage.length))
@@ -1946,6 +1985,7 @@ struct SwashTextView: NSViewRepresentable {
                             attachment.tableData = updatedData
                             // The table's raw length may have changed
                             self.cachedOffsetMap = nil
+                            self.forceFullRestyle = true
                             self.parent.text = self.buildRawMarkdown(from: textStorage)
                         }
                         if let validAttachment = attachment {
@@ -1979,14 +2019,15 @@ struct SwashTextView: NSViewRepresentable {
                     }
                 }
             }
-            
-            textStorage.endEditing()
-            isHighlighting = false
+        }
+        
+        /// Bookkeeping after a styling pass: spellcheck exclusions, selection, scroll position, state.
+        private func finishStyling(in textView: NSTextView, rawText: String, exclusions: [NSRange], savedRawSelection: NSRange, savedScrollOrigin: NSPoint?) {
             cachedOffsetMap = nil
             highlightedGeneration = editGeneration
             
             let map = offsetMap(for: textView)
-            cachedStorageCodeBlocks = (styledCodeRanges ?? codeRanges.blockRanges).map { map.storageRange(forRaw: $0) }
+            cachedStorageCodeBlocks = exclusions.map { map.storageRange(forRaw: $0) }
             let restoredSelection = storageRange(forRaw: savedRawSelection, in: textView)
             if textView.selectedRange() != restoredSelection {
                 textView.setSelectedRange(restoredSelection)
@@ -2003,7 +2044,7 @@ struct SwashTextView: NSViewRepresentable {
                 }
             }
             
-            lastStyledText = text
+            lastStyledText = rawText
             lastIsStyled = true
             lastFlavor = parent.flavor
             lastBaseURL = parent.baseURL ?? textView.window?.representedURL ?? (textView.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
@@ -2024,6 +2065,97 @@ struct SwashTextView: NSViewRepresentable {
                 }
             }
         }
+        
+        // MARK: Incremental restyling
+        
+        /// Top-level blocks of the last AST styling pass: raw source, range, and whether the block is a
+        /// definition (link reference / footnote) that can affect other blocks.
+        private var lastBlocks: [(source: String, range: NSRange, isDefinition: Bool)]? = nil
+        private var lastRawLength = 0
+        /// Set whenever the storage was replaced or styling inputs changed; the next pass is a full one.
+        var forceFullRestyle = true
+        
+        private static func blockSummaries(_ document: MarkdownDocument, raw: NSString) -> [(source: String, range: NSRange, isDefinition: Bool)] {
+            document.root.children.map { block in
+                let isDefinition: Bool
+                switch block.kind {
+                case .linkReferenceDefinition, .footnoteDefinition: isDefinition = true
+                default: isDefinition = false
+                }
+                return (raw.substring(with: block.range), block.range, isDefinition)
+            }
+        }
+        
+        /// Restyles only the top-level blocks that changed since the last pass. Returns false when a
+        /// full pass is required (first pass, definitions changed, or the change cannot be localised).
+        private func highlightIncrementally(in textView: NSTextView, storage: NSTextStorage) -> Bool {
+            guard parent.flavor != .slack, !forceFullRestyle, let previous = lastBlocks else { return false }
+            let savedScrollOrigin = textView.enclosingScrollView?.contentView.bounds.origin ?? lastKnownScrollOrigin
+            let savedRawSelection = pendingRawSelection ?? rawRange(forStorage: textView.selectedRange(), in: textView)
+            
+            let rawText = buildRawMarkdown(from: storage)
+            let raw = rawText as NSString
+            let document = MarkdownDocument.parse(rawText)
+            let blocks = document.root.children
+            let current = Coordinator.blockSummaries(document, raw: raw)
+            
+            // Unchanged blocks at the start and end
+            var prefix = 0
+            while prefix < min(previous.count, current.count),
+                  previous[prefix].source == current[prefix].source, previous[prefix].range == current[prefix].range { prefix += 1 }
+            var suffix = 0
+            while suffix < min(previous.count, current.count) - prefix {
+                let old = previous[previous.count - 1 - suffix]
+                let new = current[current.count - 1 - suffix]
+                guard old.source == new.source, lastRawLength - old.range.location == raw.length - new.range.location else { break }
+                suffix += 1
+            }
+            let changedOld = previous[prefix..<(previous.count - suffix)]
+            let changedNew = current[prefix..<(current.count - suffix)]
+            if changedOld.contains(where: { $0.isDefinition }) || changedNew.contains(where: { $0.isDefinition }) { return false }
+            
+            // The last unchanged leading block is restyled too: its trailing line break may have been
+            // retyped or be part of its own styling (a collapsed closing fence). The region starts at the
+            // beginning of that block's line, whose preceding character is untouched.
+            let firstStyled = max(0, prefix - 1)
+            let start = prefix > 0 ? raw.lineRange(for: NSRange(location: current[firstStyled].range.location, length: 0)).location : 0
+            let end = suffix > 0 ? current[current.count - suffix].range.location : raw.length
+            guard end >= start else { return false }
+            
+            let map = offsetMap(for: textView)
+            let storageStart = map.storageLocation(forRaw: start, roundUp: false)
+            let storageEnd = map.storageLocation(forRaw: end, roundUp: true)
+            guard storageEnd >= storageStart, storageEnd <= storage.length else { return false }
+            let storageRegion = NSRange(location: storageStart, length: storageEnd - storageStart)
+            let shift = start - storageStart
+            
+            isHighlighting = true
+            storage.beginEditing()
+            // Expand attachments in the region back to their source (removing their table views)
+            storage.enumerateAttribute(.attachment, in: storageRegion, options: []) { value, _, _ in
+                (value as? TableTextAttachment)?.cell.hostingView?.removeFromSuperview()
+            }
+            storage.replaceCharacters(in: storageRegion, with: raw.substring(with: NSRange(location: start, length: end - start)))
+            let region = NSRange(location: storageStart, length: end - start)
+            storage.setAttributes([.font: NSFont.systemFont(ofSize: 14, weight: .regular), .foregroundColor: NSColor.textColor], range: region)
+            
+            let styler = MarkdownEditorStyler(storage: storage, document: document, storageShift: shift)
+            let changedBlocks = Array(blocks[firstStyled..<(blocks.count - suffix)])
+            styler.style(blocks: changedBlocks)
+            collapseAttachments(Coordinator.pending(styler.attachments).map { $0.shifted(by: shift) }, in: textView)
+            storage.endEditing()
+            isHighlighting = false
+            
+            lastBlocks = current
+            lastRawLength = raw.length
+            incrementalPassCount += 1
+            finishStyling(in: textView, rawText: rawText, exclusions: MarkdownEditorStyler.spellcheckExclusions(in: document),
+                          savedRawSelection: savedRawSelection, savedScrollOrigin: savedScrollOrigin)
+            return true
+        }
+        
+        /// Number of incremental passes (diagnostics and tests).
+        private(set) var incrementalPassCount = 0
         
         func applyPlainStyle(in textView: NSTextView) {
             guard let textStorage = textView.textStorage, !isHighlighting else { return }

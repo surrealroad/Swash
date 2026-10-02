@@ -27,7 +27,10 @@ func findTextView(in v: NSView) -> NSTextView? { if let tv = v as? NSTextView { 
             total += Date().timeIntervalSince(start)
             pump(0.05)
         }
-        print("keystroke-latency lines=\(t.components(separatedBy: "\n").count) avg=\(Int(total / 5 * 1000))ms (edit + restyle + full layout)")
+        let average = total / 5 * 1000
+        print("keystroke-latency lines=\(t.components(separatedBy: "\n").count) avg=\(Int(average))ms (edit + incremental restyle + layout)")
+        // Budget: was ~70 ms with full restyling on every keystroke
+        if average > 50 { print("PERF FAILURE: keystroke latency \(Int(average))ms exceeds 50ms budget"); exit(1) }
     }
     let section = "## Section\n\nSome **bold** and *italic* text with a [link](https://x.com) and `code`.\n\n- item one\n- item two\n\n```swift\nlet x = 1\n```\n\n"
     for n in [10, 50, 200] {
@@ -39,9 +42,9 @@ func findTextView(in v: NSView) -> NSTextView? { if let tv = v as? NSTextView { 
         let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false); win.contentView = host
         pump(0.5)
         let tv = findTextView(in: host)!; let c = tv.delegate as! SwashTextView.Coordinator
-        let start = Date(); for _ in 0..<3 { c.highlightMarkdown(in: tv) }
+        let start = Date(); for _ in 0..<3 { c.forceFullRestyle = true; c.highlightMarkdown(in: tv) }
         let ms = Date().timeIntervalSince(start) / 3 * 1000
-        print("lines=\(md.components(separatedBy: "\n").count) chars=\(md.count) highlight-per-keystroke=\(Int(ms))ms")
+        print("lines=\(md.components(separatedBy: "\n").count) chars=\(md.count) full-restyle=\(Int(ms))ms")
         // Budget: must stay roughly linear (was 27 s at 2,200 lines before code ranges were precomputed)
         if n == 200 && ms > 500 { print("PERF FAILURE: \(Int(ms))ms exceeds 500ms budget at 2,200 lines"); exit(1) }
     }
