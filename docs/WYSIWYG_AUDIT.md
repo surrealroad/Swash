@@ -49,6 +49,11 @@ Reports and side-by-side editor/preview PNGs are written to `build/editor-audit/
 > - **Editor polish:** alerts show icons, and code badges keep clear of long first lines.
 > - **Incremental restyling:** keystroke latency at 2,250 lines dropped from ~70 ms to ~20 ms.
 >
+> **Math and Mermaid (branch `feat/rendered-math-mermaid`):** done. KaTeX 0.19 and Mermaid 12.1 are bundled in `Swash/Rendering/` and run offline in an offscreen `WKWebView` (`RichContentRenderer`), which snapshots each formula or diagram to a cached image.
+> - **Preview and Quick Look:** `$$` blocks and ```` ```mermaid ```` blocks render as images, and `$…$` renders inline on the text baseline. The Unicode approximation or the code is shown while rendering, or when rendering fails, with the KaTeX or Mermaid error.
+> - **Edit Text:** the source stays editable. The rendering is drawn under it inside the block. While the source changes, the last good rendering stays (dimmed) until the new one lands, so the layout does not jump. Only the affected blocks are restyled.
+> - **Tests:** `scripts/run_rich_render_tests.sh` covers the renderer, the editor and the Preview headlessly; it also runs in the PR Build workflow.
+>
 > The sections below describe the pre-fix state.
 
 ---

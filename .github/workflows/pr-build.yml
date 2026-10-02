@@ -30,3 +30,6 @@ jobs:
             -configuration Release \
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="-"
+
+      - name: Math and Mermaid rendering tests
+        run: scripts/run_rich_render_tests.sh

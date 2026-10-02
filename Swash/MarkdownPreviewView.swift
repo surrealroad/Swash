@@ -426,13 +426,11 @@ struct MarkdownBlockView: View {
             }
             
         case .codeBlock(_, let info) where info.lowercased() == "math":
-            // $$ display math (or ```math): a readable Unicode rendering, centred
-            Text(MarkdownMath.unicode(node.literal.replacingOccurrences(of: "\n", with: " ")))
-                .font(.system(size: 17, design: .serif))
-                .italic()
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, 8)
+            // $$ display math (or ```math): typeset with KaTeX, centred
+            MarkdownDisplayMathView(tex: node.literal)
+            
+        case .codeBlock(_, let info) where MarkdownBlockView.isMermaid(info):
+            MarkdownMermaidView(source: node.literal)
             
         case .codeBlock(_, let info):
             let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init)
@@ -471,6 +469,10 @@ struct MarkdownBlockView: View {
         }
     }
     
+    static func isMermaid(_ info: String) -> Bool {
+        info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first?.lowercased() == "mermaid"
+    }
+    
     static func tableData(_ table: MarkdownNode, alignments: [TableAlignment], source: String) -> MarkdownTableData {
         let cells = MarkdownTableSource(table, source: source)
         return MarkdownTableData(headers: cells.headers, alignments: alignments, rows: cells.rows)
@@ -504,6 +506,97 @@ struct MarkdownBlockView: View {
         case .warning: return "exclamationmark.triangle.fill"
         case .caution: return "octagon.fill"
         }
+    }
+}
+
+/// A KaTeX formula or Mermaid diagram rendered to an image. `fallback` is shown while it renders,
+/// when the bundled renderer is unavailable, and on failure (with the error message).
+struct RichContentImage<Fallback: View>: View {
+    let kind: RichContentRenderer.Kind
+    let source: String
+    var fontSize: CGFloat = 13
+    @ViewBuilder let fallback: (_ error: String?) -> Fallback
+    
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var result: (request: RichContentRenderer.Request, outcome: RichContentRenderer.Outcome)?
+    
+    var body: some View {
+        let request = RichContentRenderer.Request(kind: kind, source: source, dark: colorScheme == .dark, fontSize: fontSize)
+        let outcome = result?.request == request ? result?.outcome : RichContentRenderer.shared.cached(request)
+        Group {
+            switch outcome {
+            case .rendered(let rendered)?:
+                Image(nsImage: rendered.image)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: rendered.image.size.width)
+                    // Its full height for the width: stacks would otherwise squeeze a flexible image
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(Text(source))
+                    .help(source)
+            case .failed(let message)?:
+                fallback(RichContentRenderer.isAvailable ? message : nil)
+            case nil:
+                fallback(nil)
+            }
+        }
+        .task(id: request) {
+            let outcome = await RichContentRenderer.shared.render(request)
+            result = (request, outcome)
+        }
+    }
+}
+
+/// `$$` display math: KaTeX, with the Unicode approximation as the fallback.
+struct MarkdownDisplayMathView: View {
+    let tex: String
+    
+    var body: some View {
+        RichContentImage(kind: .displayMath, source: tex, fontSize: 15) { error in
+            VStack(spacing: 4) {
+                Text(MarkdownMath.unicode(tex.replacingOccurrences(of: "\n", with: " ")))
+                    .font(.system(size: 17, design: .serif))
+                    .italic()
+                    .textSelection(.enabled)
+                if let error = error {
+                    RichContentErrorLabel(title: "TeX", message: error)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 8)
+    }
+}
+
+/// ```mermaid code blocks: the diagram, or the code itself until it renders (and on errors).
+struct MarkdownMermaidView: View {
+    let source: String
+    
+    var body: some View {
+        RichContentImage(kind: .mermaid, source: source) { error in
+            VStack(alignment: .leading, spacing: 4) {
+                if let error = error {
+                    RichContentErrorLabel(title: "Mermaid", message: error)
+                }
+                CodeBlockView(code: source.hasSuffix("\n") ? String(source.dropLast()) : source, language: "mermaid")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 6)
+    }
+}
+
+struct RichContentErrorLabel: View {
+    let title: String
+    let message: String
+    
+    var body: some View {
+        Label("\(title): \(message.components(separatedBy: .newlines).first ?? message)", systemImage: "exclamationmark.triangle")
+            .font(.caption)
+            .foregroundColor(.orange)
+            .lineLimit(2)
+            .help(message)
     }
 }
 
@@ -730,8 +823,22 @@ struct MarkdownInlineView: View {
     let nodes: [MarkdownNode]
     let context: MarkdownRenderContext
     
+    @Environment(\.colorScheme) private var colorScheme
+    /// Bumped when a formula this view is waiting on finishes rendering.
+    @State private var renderGeneration = 0
+    
     var body: some View {
-        let segments = MarkdownInlineAttributes.segments(nodes, context: context)
+        var pendingMath = false
+        let segments = MarkdownInlineAttributes.segments(nodes, context: context, dark: colorScheme == .dark, pendingMath: &pendingMath)
+        let _ = renderGeneration
+        content(segments)
+            .onReceive(NotificationCenter.default.publisher(for: RichContentRenderer.didRender)) { _ in
+                if pendingMath { renderGeneration += 1 }
+            }
+    }
+    
+    @ViewBuilder
+    private func content(_ segments: [MarkdownInlineSegment]) -> some View {
         if segments.count == 1, case .text(let text) = segments[0] {
             text.fixedSize(horizontal: false, vertical: true)
         } else {
@@ -809,8 +916,16 @@ enum MarkdownInlineAttributes {
         }
     }
     
-    static func segments(_ nodes: [MarkdownNode], context: MarkdownRenderContext) -> [MarkdownInlineSegment] {
+    /// Inline math uses its KaTeX rendering once cached; until then (or if it fails) the Unicode
+    /// approximation, with `pendingMath` set so the caller can refresh when the render lands.
+    static func segments(_ nodes: [MarkdownNode], context: MarkdownRenderContext, dark: Bool = false) -> [MarkdownInlineSegment] {
+        var pending = false
+        return segments(nodes, context: context, dark: dark, pendingMath: &pending)
+    }
+    
+    static func segments(_ nodes: [MarkdownNode], context: MarkdownRenderContext, dark: Bool, pendingMath: inout Bool) -> [MarkdownInlineSegment] {
         var segments: [MarkdownInlineSegment] = []
+        var pending = false
         var current: Text? = nil
         func flush() {
             if let text = current {
@@ -893,8 +1008,19 @@ enum MarkdownInlineAttributes {
                 default: break
                 }
             case .math:
-                style.math = true
-                append(MarkdownMath.unicode(node.literal), style)
+                let request = RichContentRenderer.Request(kind: .inlineMath, source: node.literal, dark: dark, fontSize: 13)
+                switch RichContentRenderer.cachedOrRequest(request) {
+                case .rendered(let rendered)?:
+                    let run = Text(Image(nsImage: rendered.image)).baselineOffset(-rendered.descent)
+                    current = current.map { $0 + run } ?? run
+                case .failed?:
+                    style.math = true
+                    append(MarkdownMath.unicode(node.literal), style)
+                case nil:
+                    pending = RichContentRenderer.isAvailable
+                    style.math = true
+                    append(MarkdownMath.unicode(node.literal), style)
+                }
             case .footnoteReference(let label):
                 style.superscript = true
                 style.link = URL(string: "#fn-\(MarkdownSyntax.normalizeURI(label))")
@@ -906,6 +1032,7 @@ enum MarkdownInlineAttributes {
         visitChildren(nodes, Style())
         flush()
         if segments.isEmpty { segments.append(.text(Text(""))) }
+        pendingMath = pending
         return segments
     }
 }

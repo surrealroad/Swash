@@ -159,6 +159,30 @@ final class SwashLayoutManager: NSLayoutManager {
         }
     }
     
+    /// Draws a rendered formula or diagram centred in the paragraph spacing below its block's last line.
+    private func drawRichPreview(_ info: RichPreviewInfo, atCharacter location: Int, origin: NSPoint) {
+        let glyph = glyphIndexForCharacter(at: location)
+        guard glyph < numberOfGlyphs else { return }
+        let lineRect = lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let used = lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+        var y = origin.y + used.maxY + RichPreviewInfo.spacing
+        if let error = info.error {
+            let message = "⚠︎ " + error
+            (message as NSString).draw(with: NSRect(x: origin.x + lineRect.minX + 4, y: y, width: max(0, lineRect.width - 8), height: RichPreviewInfo.errorHeight),
+                                      options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: RichPreviewInfo.errorAttributes)
+            y += RichPreviewInfo.errorHeight
+        }
+        guard info.size.width > 0, info.size.height > 0 else { return }
+        // Fit the current line width too (the window may have narrowed since the reservation)
+        var size = info.size
+        let available = max(20, lineRect.width - 8)
+        if size.width > available {
+            size = NSSize(width: available, height: size.height * available / size.width)
+        }
+        let rect = NSRect(x: origin.x + lineRect.minX + (lineRect.width - size.width) / 2, y: y, width: size.width, height: size.height)
+        info.image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: info.alpha, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
+    }
+    
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         fillIndentedTextBlocks(forGlyphRange: glyphsToShow, at: origin)
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
@@ -182,6 +206,11 @@ final class SwashLayoutManager: NSLayoutManager {
             let size = image.size
             let rect = NSRect(x: origin.x + titleX - size.width - 5, y: origin.y + lineRect.midY - size.height / 2, width: size.width, height: size.height)
             image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+        
+        textStorage.enumerateAttribute(.richPreview, in: charRange, options: []) { value, range, _ in
+            guard let info = value as? RichPreviewInfo else { return }
+            drawRichPreview(info, atCharacter: range.location, origin: origin)
         }
         
         textStorage.enumerateAttribute(.listMarker, in: charRange, options: []) { value, range, _ in
@@ -212,6 +241,12 @@ final class SwashLayoutManager: NSLayoutManager {
 
 class SwashNSTextView: NSTextView {
     var isStyled: Bool = true
+    
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        (delegate as? SwashTextView.Coordinator)?.effectiveAppearanceChanged(in: self)
+    }
+
     var flavor: MarkdownFlavor = .github
     /// Formatting shortcuts (⌘B, ⌘I, …), handled here so they take precedence over menu key equivalents.
     var onFormatCommand: ((FormatCommand) -> Void)?
@@ -1384,7 +1419,9 @@ struct SwashTextView: NSViewRepresentable {
                 // CommonMark / GFM: style from the shared Markdown AST
                 let document = MarkdownDocument.parse(text)
                 let styler = MarkdownEditorStyler(storage: textStorage, document: document)
+                configureRichPreviews(styler, for: textView)
                 styler.style()
+                collectRichPreviews(from: styler, fullPass: true)
                 pendingAttachments = Coordinator.pending(styler.attachments)
                 styledCodeRanges = MarkdownEditorStyler.spellcheckExclusions(in: document)
                 lastBlocks = Coordinator.blockSummaries(document, raw: text as NSString)
@@ -2140,8 +2177,10 @@ struct SwashTextView: NSViewRepresentable {
             storage.setAttributes([.font: NSFont.systemFont(ofSize: 14, weight: .regular), .foregroundColor: NSColor.textColor], range: region)
             
             let styler = MarkdownEditorStyler(storage: storage, document: document, storageShift: shift)
+            configureRichPreviews(styler, for: textView)
             let changedBlocks = Array(blocks[firstStyled..<(blocks.count - suffix)])
             styler.style(blocks: changedBlocks)
+            collectRichPreviews(from: styler, fullPass: false)
             collapseAttachments(Coordinator.pending(styler.attachments).map { $0.shifted(by: shift) }, in: textView)
             storage.endEditing()
             isHighlighting = false
@@ -2156,6 +2195,79 @@ struct SwashTextView: NSViewRepresentable {
         
         /// Number of incremental passes (diagnostics and tests).
         private(set) var incrementalPassCount = 0
+        
+        // MARK: Rendered math and Mermaid
+        
+        /// Last good render per block (raw block location), carried between passes.
+        private var richPreviewMemory: [Int: RichContentRenderer.Rendered] = [:]
+        /// Renders the styled text is waiting on; their blocks are restyled when they land.
+        private(set) var pendingRichPreviews: [(location: Int, request: RichContentRenderer.Request)] = []
+        private var richPreviewsDark = false
+        private var richPreviewRefreshScheduled = false
+        private var observesRichRenders = false
+        
+        private func configureRichPreviews(_ styler: MarkdownEditorStyler, for textView: NSTextView) {
+            guard RichContentRenderer.isAvailable else { return }
+            if !observesRichRenders {
+                observesRichRenders = true
+                NotificationCenter.default.addObserver(self, selector: #selector(handleRichContentRendered(_:)), name: RichContentRenderer.didRender, object: nil)
+            }
+            styler.richPreviewDark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            var width = textView.bounds.width - textView.textContainerInset.width * 2
+            if let container = textView.textContainer {
+                width = min(width, container.size.width) - container.lineFragmentPadding * 2
+            }
+            // Leave room for the code block's padding and border
+            styler.richPreviewMaxWidth = max(120, min(900, width - 48))
+            styler.richPreviewMemory = richPreviewMemory
+        }
+        
+        private func collectRichPreviews(from styler: MarkdownEditorStyler, fullPass: Bool) {
+            guard RichContentRenderer.isAvailable else { return }
+            richPreviewMemory = styler.richPreviewMemory
+            richPreviewsDark = styler.richPreviewDark
+            if fullPass {
+                pendingRichPreviews = styler.pendingRichPreviews
+            } else {
+                pendingRichPreviews += styler.pendingRichPreviews
+            }
+        }
+        
+        @objc private func handleRichContentRendered(_ notification: Notification) {
+            guard !pendingRichPreviews.isEmpty, !richPreviewRefreshScheduled else { return }
+            richPreviewRefreshScheduled = true
+            DispatchQueue.main.async { [weak self] in self?.refreshRichPreviews() }
+        }
+        
+        /// Restyles just the blocks whose renders have landed (marking them changed for the
+        /// incremental pass), so the formula or diagram appears without a full restyle.
+        func refreshRichPreviews() {
+            richPreviewRefreshScheduled = false
+            guard let textView = currentTextView, lastIsStyled == true, parent.flavor != .slack, !isHighlighting else { return }
+            let ready = pendingRichPreviews.filter { RichContentRenderer.cachedOutcome($0.request) != nil }
+            guard !ready.isEmpty else { return }
+            pendingRichPreviews.removeAll { pending in ready.contains { $0.request == pending.request } }
+            if var blocks = lastBlocks {
+                for item in ready {
+                    if let index = blocks.firstIndex(where: { NSLocationInRange(item.location, $0.range) }) {
+                        blocks[index].source = "\u{0}" + blocks[index].source
+                    }
+                }
+                lastBlocks = blocks
+            } else {
+                forceFullRestyle = true
+            }
+            highlightMarkdown(in: textView)
+        }
+        
+        /// Rendered previews are drawn for one appearance; switching re-renders them.
+        func effectiveAppearanceChanged(in textView: NSTextView) {
+            guard lastIsStyled == true, RichContentRenderer.isAvailable, !richPreviewMemory.isEmpty || !pendingRichPreviews.isEmpty else { return }
+            let dark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            guard dark != richPreviewsDark else { return }
+            forceFullRestyle = true
+            highlightMarkdown(in: textView)
+        }
         
         func applyPlainStyle(in textView: NSTextView) {
             guard let textStorage = textView.textStorage, !isHighlighting else { return }
