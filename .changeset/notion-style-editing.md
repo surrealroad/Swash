@@ -24,4 +24,6 @@ Notion-style structural editing in the editor:
 
   Shortcuts also work with only a caret.
 
+- **Clickable to-do checkboxes**: clicking a checkbox in Edit Text checks or unchecks the item.
+
 Code blocks are never affected, and every change can be undone.

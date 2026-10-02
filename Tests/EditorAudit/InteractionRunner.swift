@@ -166,6 +166,33 @@ struct InteractionRunner {
              tv.insertText("X", replacementRange: tv.selectedRange()); pump()
              log("arrow-over-collapsed-fence-line", "```\ncode\n```\nafter", b.text, expect: "```\ncode\n```\nXafter") }
         
+        // 23. Clicking a task checkbox toggles it (and undo restores it)
+        func clickCheckbox(_ tv: NSTextView, line index: Int) {
+            guard let lm = tv.layoutManager, let storage = tv.textStorage else { return }
+            var markers: [NSRange] = []
+            storage.enumerateAttribute(.listMarker, in: NSRange(location: 0, length: storage.length)) { v, r, _ in if v != nil { markers.append(r) } }
+            guard index < markers.count else { return }
+            let r = markers[index]
+            let glyph = lm.glyphIndexForCharacter(at: NSMaxRange(r))
+            let lineRect = lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let contentX = lineRect.minX + lm.location(forGlyphAt: glyph).x
+            let containerPoint = NSPoint(x: contentX - 14, y: lineRect.midY)
+            let viewPoint = NSPoint(x: containerPoint.x + tv.textContainerOrigin.x, y: containerPoint.y + tv.textContainerOrigin.y)
+            let windowPoint = tv.convert(viewPoint, to: nil)
+            let event = NSEvent.mouseEvent(with: .leftMouseDown, location: windowPoint, modifierFlags: [], timestamp: 0,
+                                           windowNumber: tv.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+            tv.mouseDown(with: event)
+        }
+        do { let md = "- [ ] first\n- [x] second"
+             let b = TextBox(md); let tv = makeEditor(b)
+             clickCheckbox(tv, line: 0); pump()
+             let afterFirst = b.text
+             clickCheckbox(tv, line: 1); pump()
+             let afterSecond = b.text
+             tv.undoManager?.undo(); pump()
+             log("checkbox-click-toggles", md, afterFirst + " | " + afterSecond + " | undo: " + b.text,
+                 expect: "- [x] first\n- [x] second | - [x] first\n- [ ] second | undo: - [x] first\n- [x] second") }
+        
         // 20. Enter on an empty item leaves the list; Backspace with the caret before the hidden marker
         do { let b = TextBox("- a\n- b"); let tv = makeEditor(b); caretAfter("b", in: tv)
              tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump()

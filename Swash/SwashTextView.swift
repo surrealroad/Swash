@@ -161,6 +161,39 @@ class SwashNSTextView: NSTextView {
     /// Formatting shortcuts (⌘B, ⌘I, …), handled here so they take precedence over menu key equivalents.
     var onFormatCommand: ((FormatCommand) -> Void)?
     
+    /// Storage range of the task checkbox marker under `point` (view coordinates), if any.
+    func taskMarkerRange(at point: NSPoint) -> NSRange? {
+        guard isStyled, let layoutManager = layoutManager, let container = textContainer, let storage = textStorage,
+              layoutManager.numberOfGlyphs > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: container)
+        var lineGlyphs = NSRange()
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineGlyphs)
+        guard containerPoint.y >= lineRect.minY, containerPoint.y <= lineRect.maxY else { return nil }
+        let lineCharacters = layoutManager.characterRange(forGlyphRange: lineGlyphs, actualGlyphRange: nil)
+        var hit: NSRange? = nil
+        storage.enumerateAttribute(.listMarker, in: lineCharacters, options: []) { value, range, stop in
+            guard let info = value as? ListMarkerInfo, info.text == "☐" || info.text == "☑" else { return }
+            let contentGlyph = layoutManager.glyphIndexForCharacter(at: min(NSMaxRange(range), max(0, storage.length - 1)))
+            let contentX = lineRect.minX + layoutManager.location(forGlyphAt: contentGlyph).x
+            // The checkbox is drawn just left of the item's text
+            if containerPoint.x >= contentX - 30 && containerPoint.x <= contentX + 2 {
+                hit = range
+                stop.pointee = true
+            }
+        }
+        return hit
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let marker = taskMarkerRange(at: point), let coordinator = delegate as? SwashTextView.Coordinator {
+            coordinator.toggleTask(markerRange: marker, in: self)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+    
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if window?.firstResponder === self, let handler = onFormatCommand, let command = FormatCommand.command(for: event) {
             handler(command)
@@ -724,6 +757,22 @@ struct SwashTextView: NSViewRepresentable {
             let formatting = MarkdownFormatting(text: text)
             cachedLinkFormatting = formatting
             return formatting
+        }
+        
+        /// Toggles `[ ]` ↔ `[x]` for the task marker at `markerRange` (storage offsets), keeping the selection.
+        func toggleTask(markerRange: NSRange, in textView: NSTextView) {
+            guard let storage = textView.textStorage else { return }
+            let raw = buildRawMarkdown(from: storage) as NSString
+            let rawMarker = rawRange(forStorage: markerRange, in: textView)
+            guard NSMaxRange(rawMarker) <= raw.length else { return }
+            let markerText = raw.substring(with: rawMarker) as NSString
+            let box = markerText.range(of: "\\[[ xX]\\]", options: .regularExpression)
+            guard box.location != NSNotFound else { return }
+            let checked = markerText.substring(with: NSRange(location: box.location + 1, length: 1)) != " "
+            let absolute = NSRange(location: rawMarker.location + box.location + 1, length: 1)
+            let updated = raw.replacingCharacters(in: absolute, with: checked ? " " : "x")
+            let selection = rawRange(forStorage: textView.selectedRange(), in: textView)
+            applyEdit(in: textView, newRawText: updated, rawSelection: selection, actionName: checked ? "Uncheck To-do" : "Check To-do")
         }
         
         func invalidateOffsetMap() {
