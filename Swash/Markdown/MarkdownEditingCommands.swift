@@ -308,4 +308,23 @@ enum MarkdownEditingCommands {
         let caret = current.range.location + (caretOffset ?? (lineText as NSString).length)
         return MarkdownEdit(text: edited, selection: NSRange(location: caret, length: 0))
     }
+    
+    // MARK: - Code block language
+    
+    static let commonLanguages = ["swift", "python", "javascript", "typescript", "json", "html", "css", "bash",
+                                  "ruby", "go", "rust", "java", "kotlin", "c", "cpp", "sql", "yaml", "markdown", "mermaid"]
+    
+    /// Sets (or clears, with nil) the info string of the fenced code block containing `location`.
+    static func setCodeLanguage(_ language: String?, text: String, location: Int) -> MarkdownEdit? {
+        let ns = text as NSString
+        let formatting = MarkdownFormatting(text: text)
+        guard let block = formatting.codeBlock(containing: NSRange(location: location, length: 0)),
+              case .codeBlock(true, _) = block.kind, let fence = block.markers.first else { return nil }
+        let fenceLine = ns.substring(with: fence)
+        let fenceChars = fenceLine.prefix(while: { $0 == "`" || $0 == "~" })
+        let replacement = String(fenceChars) + (language ?? "")
+        let edited = ns.replacingCharacters(in: fence, with: replacement)
+        let delta = (replacement as NSString).length - fence.length
+        return MarkdownEdit(text: edited, selection: NSRange(location: location > fence.location ? location + delta : location, length: 0))
+    }
 }

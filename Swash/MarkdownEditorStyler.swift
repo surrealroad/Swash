@@ -32,6 +32,28 @@ final class IndentedTextBlock: NSTextBlock {
     }
 }
 
+extension NSAttributedString.Key {
+    /// Marks the first character of a fenced code block; the layout manager draws its language badge.
+    static let codeBadge = NSAttributedString.Key("SwashCodeBadgeKey")
+}
+
+struct CodeBadgeInfo {
+    let language: String?
+    var title: String { (language?.isEmpty == false ? language! : "plain").uppercased() }
+    
+    static let attributes: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+        .foregroundColor: NSColor.tertiaryLabelColor,
+        .kern: 0.6,
+    ]
+    
+    /// Badge rect in text-container coordinates for the line fragment holding the block's first line.
+    func rect(in lineRect: NSRect) -> NSRect {
+        let size = (title as NSString).size(withAttributes: Self.attributes)
+        return NSRect(x: lineRect.maxX - size.width - 10, y: lineRect.minY + 1, width: size.width + 4, height: size.height + 2)
+    }
+}
+
 /// A table or image the editor should collapse into an attachment.
 struct EditorAttachmentRequest {
     enum Kind {
@@ -341,6 +363,15 @@ final class MarkdownEditorStyler {
             apply(InlineStyle(size: 14, mono: true, color: NSColor.labelColor.withAlphaComponent(0.85)), to: node.range)
             if fenced {
                 for marker in node.markers { hideMarker(marker, collapseLine: true) }
+                // Language badge, drawn at the top-right of the first visible line of the block
+                if let opening = node.markers.first {
+                    let firstContent = NSMaxRange(opening) + 1
+                    let blockEnd = node.markers.count > 1 ? node.markers[1].location : NSMaxRange(node.range)
+                    if firstContent < blockEnd, firstContent < text.length {
+                        let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init)
+                        storage.addAttribute(.codeBadge, value: CodeBadgeInfo(language: language), range: NSRange(location: firstContent, length: 1))
+                    }
+                }
             } else {
                 hideContinuationIndent(in: node.range, maxColumns: 4, includeFirstLine: true)
             }

@@ -142,6 +142,20 @@ enum ParserChecks {
             failures += 1
             print("❌ block menu trigger \(text.debugDescription)@\(location): expected \(expected)")
         }
+        let languageCases: [(String, String?, String)] = [
+            ("```swift\nlet x = 1\n```", "python", "```python\nlet x = 1\n```"),
+            ("```\ncode\n```", "bash", "```bash\ncode\n```"),
+            ("~~~ruby title=x\nputs 1\n~~~", nil, "~~~\nputs 1\n~~~"),
+            ("> ```js\n> a()\n> ```", "ts", "> ```ts\n> a()\n> ```"),
+        ]
+        for (text, language, expected) in languageCases {
+            let location = (text as NSString).range(of: "\n").location + 2
+            let actual = MarkdownEditingCommands.setCodeLanguage(language, text: text, location: location)?.text ?? "nil"
+            if actual != expected {
+                failures += 1
+                print("❌ code language \(language ?? "nil") on \(text.debugDescription): expected \(expected.debugDescription), got \(actual.debugDescription)")
+            }
+        }
         for (text, kind, expected) in blockMenuCases {
             let slash = (text as NSString).range(of: "/").location
             let edit = MarkdownEditingCommands.insertBlock(kind, text: text, slashLocation: slash)

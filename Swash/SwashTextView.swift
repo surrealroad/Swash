@@ -141,6 +141,14 @@ final class SwashLayoutManager: NSLayoutManager {
         guard let textStorage = textStorage else { return }
         let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
         
+        textStorage.enumerateAttribute(.codeBadge, in: charRange, options: []) { value, range, _ in
+            guard let badge = value as? CodeBadgeInfo else { return }
+            let glyph = glyphIndexForCharacter(at: range.location)
+            let lineRect = lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let rect = badge.rect(in: lineRect).offsetBy(dx: origin.x, dy: origin.y)
+            (badge.title as NSString).draw(at: NSPoint(x: rect.minX + 2, y: rect.minY + 1), withAttributes: CodeBadgeInfo.attributes)
+        }
+        
         textStorage.enumerateAttribute(.listMarker, in: charRange, options: []) { value, range, _ in
             if let markerInfo = value as? ListMarkerInfo {
                 let glyphRange = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
@@ -197,8 +205,30 @@ class SwashNSTextView: NSTextView {
         return hit
     }
     
+    /// Storage location of the code block whose language badge is under `point`, if any.
+    func codeBadgeLocation(at point: NSPoint) -> Int? {
+        guard isStyled, let layoutManager = layoutManager, let container = textContainer, let storage = textStorage,
+              layoutManager.numberOfGlyphs > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: container)
+        var lineGlyphs = NSRange()
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineGlyphs)
+        let lineCharacters = layoutManager.characterRange(forGlyphRange: lineGlyphs, actualGlyphRange: nil)
+        var hit: Int? = nil
+        storage.enumerateAttribute(.codeBadge, in: lineCharacters, options: []) { value, range, stop in
+            guard let badge = value as? CodeBadgeInfo, badge.rect(in: lineRect).insetBy(dx: -4, dy: -3).contains(containerPoint) else { return }
+            hit = range.location
+            stop.pointee = true
+        }
+        return hit
+    }
+    
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if let badgeLocation = codeBadgeLocation(at: point), let coordinator = delegate as? SwashTextView.Coordinator {
+            coordinator.chooseCodeLanguage(atStorageLocation: badgeLocation, point: point, in: self)
+            return
+        }
         if let marker = taskMarkerRange(at: point), let coordinator = delegate as? SwashTextView.Coordinator {
             coordinator.toggleTask(markerRange: marker, in: self)
             return
@@ -1077,6 +1107,48 @@ struct SwashTextView: NSViewRepresentable {
                 let raw = self.buildRawMarkdown(from: storage)
                 guard let edit = MarkdownEditingCommands.insertBlock(kind, text: raw, slashLocation: slashLocation) else { return }
                 self.applyEdit(in: textView, newRawText: edit.text, rawSelection: edit.selection, actionName: kind.title)
+            }
+        }
+        
+        // MARK: Code block language
+        
+        /// Presents the language menu and reports the choice (`.some(nil)` for plain, nil when dismissed).
+        static var languageMenuPresenter: (NSTextView, NSPoint, String?, @escaping (String??) -> Void) -> Void = { textView, point, current, choose in
+            let menu = NSMenu(title: "Language")
+            var chosen: String?? = nil
+            var targets: [BlockMenuTarget] = []
+            func add(_ title: String, _ value: String?) {
+                let target = BlockMenuTarget { chosen = .some(value) }
+                targets.append(target)
+                let item = NSMenuItem(title: title, action: #selector(BlockMenuTarget.select), keyEquivalent: "")
+                item.target = target
+                item.state = (value ?? "") == (current ?? "") ? .on : .off
+                menu.addItem(item)
+            }
+            add("Plain Text", nil)
+            menu.addItem(.separator())
+            for language in MarkdownEditingCommands.commonLanguages { add(language.capitalized, language) }
+            if let current = current, !current.isEmpty, !MarkdownEditingCommands.commonLanguages.contains(current.lowercased()) {
+                menu.addItem(.separator())
+                add(current, current)
+            }
+            menu.popUp(positioning: nil, at: point, in: textView)
+            _ = targets
+            choose(chosen)
+        }
+        
+        func chooseCodeLanguage(atStorageLocation location: Int, point: NSPoint, in textView: NSTextView) {
+            guard let storage = textView.textStorage else { return }
+            let current = (storage.attribute(.codeBadge, at: location, effectiveRange: nil) as? CodeBadgeInfo)?.language
+            let rawLocation = rawRange(forStorage: NSRange(location: location, length: 0), in: textView).location
+            Coordinator.languageMenuPresenter(textView, point, current) { [weak self, weak textView] choice in
+                guard let self = self, let textView = textView, let choice = choice, let storage = textView.textStorage else { return }
+                let raw = self.buildRawMarkdown(from: storage)
+                guard let edit = MarkdownEditingCommands.setCodeLanguage(choice, text: raw, location: rawLocation) else { return }
+                let selection = self.rawRange(forStorage: textView.selectedRange(), in: textView)
+                let delta = (edit.text as NSString).length - (raw as NSString).length
+                let kept = selection.location > rawLocation ? NSRange(location: selection.location + delta, length: selection.length) : selection
+                self.applyEdit(in: textView, newRawText: edit.text, rawSelection: kept, actionName: "Code Language")
             }
         }
         

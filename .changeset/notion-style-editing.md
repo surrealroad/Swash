@@ -35,4 +35,6 @@ Notion-style structural editing in the editor:
   - quote or callout;
   - code block, divider or table.
 
+- **Code block language badge**: fenced code blocks in Edit Text show their language in the top-right corner. Click the badge to choose another language.
+
 Code blocks are never affected, and every change can be undone.

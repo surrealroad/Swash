@@ -242,6 +242,24 @@ struct InteractionRunner {
              tv.insertText("/", replacementRange: tv.selectedRange()); pump(0.3)
              log("slash-menu-dismissed-keeps-slash", "'/' then Escape", "\(b.text) presented=\(presented)", expect: "/ presented=true") }
         
+        // 25. Code block language badge: shown, and clicking it changes the fence's language
+        SwashTextView.Coordinator.languageMenuPresenter = { _, _, _, choose in choose(.some("python")) }
+        do { let md = "Intro\n\n```swift\nlet x = 1\n```"
+             let b = TextBox(md); let tv = makeEditor(b)
+             var badges: [String] = []
+             var badgeRange = NSRange(location: NSNotFound, length: 0)
+             tv.textStorage!.enumerateAttribute(.codeBadge, in: NSRange(location: 0, length: tv.textStorage!.length)) { v, r, _ in
+                 if let info = v as? CodeBadgeInfo { badges.append(info.title); badgeRange = r } }
+             if badgeRange.location != NSNotFound, let lm = tv.layoutManager {
+                 let lineRect = lm.lineFragmentRect(forGlyphAt: lm.glyphIndexForCharacter(at: badgeRange.location), effectiveRange: nil)
+                 let rect = CodeBadgeInfo(language: "swift").rect(in: lineRect)
+                 let viewPoint = NSPoint(x: rect.midX + tv.textContainerOrigin.x, y: rect.midY + tv.textContainerOrigin.y)
+                 let event = NSEvent.mouseEvent(with: .leftMouseDown, location: tv.convert(viewPoint, to: nil), modifierFlags: [], timestamp: 0,
+                                                windowNumber: tv.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+                 tv.mouseDown(with: event); pump()
+             }
+             log("code-language-badge", md, "badges=\(badges) | \(b.text)", expect: "badges=[\"SWIFT\"] | Intro\n\n```python\nlet x = 1\n```") }
+        
         // 20. Enter on an empty item leaves the list; Backspace with the caret before the hidden marker
         do { let b = TextBox("- a\n- b"); let tv = makeEditor(b); caretAfter("b", in: tv)
              tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump()
