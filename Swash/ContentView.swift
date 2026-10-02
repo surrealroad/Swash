@@ -313,7 +313,7 @@ struct ContentView: View {
                 let activeCodeFormat = determineActiveCodeFormat()
                 let activeHeadingLevel = determineActiveHeadingLevel()
                 let bubbleContext = determineBubbleMenuContext()
-                let activeLink = LinkDetector.findLink(at: selectedRange, in: document.text, flavor: document.flavor)
+                let activeLink = determineActiveLink()
                 let measuredWidth = bubbleMenuSize.width > 0 ? bubbleMenuSize.width : (activeCodeFormat != nil ? 426 : 380)
                 let measuredHeight = bubbleMenuSize.height > 0 ? bubbleMenuSize.height : 40
                 
@@ -474,6 +474,24 @@ struct ContentView: View {
     
     // Determine active formats for current selection
     private func determineActiveFormats() -> Set<FormatAction> {
+        if let formatting = astFormatting, let range = selectedRange {
+            var active = Set<FormatAction>()
+            if formatting.isActive(.strong, selection: range) { active.insert(.bold) }
+            if formatting.isActive(.emphasis, selection: range) { active.insert(.italic) }
+            if formatting.isActive(.strikethrough, selection: range) { active.insert(.strikethrough) }
+            if determineActiveCodeFormat() != nil { active.insert(.code) }
+            switch formatting.activeBlockFormat(selection: range) {
+            case .bulletList?: active.insert(.bulletList)
+            case .numberedList?: active.insert(.numberedList)
+            case .heading(let level)?:
+                active.insert(.heading)
+                let levels: [FormatAction] = [.h1, .h2, .h3, .h4, .h5, .h6]
+                if (1...6).contains(level) { active.insert(levels[level - 1]) }
+            default: break
+            }
+            if formatting.isQuoted(selection: range) { active.insert(.quote) }
+            return active
+        }
         guard let range = selectedRange,
               let textRange = Range(inlineTargetRange(range), in: document.text) else { return [] }
         
@@ -684,6 +702,10 @@ struct ContentView: View {
     }
     
     private func determineActiveHeadingLevel() -> Int? {
+        if let formatting = astFormatting, let range = selectedRange {
+            if case .heading(let level)? = formatting.activeBlockFormat(selection: range) { return level }
+            return nil
+        }
         guard let range = selectedRange,
               let block = extractSelectedBlockLines(from: document.text, range: range) else { return nil }
         
@@ -730,6 +752,21 @@ struct ContentView: View {
         if determineActiveCodeFormat() != nil || isSelectionInsideCodeBlock().inside {
             return .codeBlock
         }
+        if let formatting = astFormatting, let range = selectedRange {
+            if formatting.isInTable(range) { return .tableCell }
+            let containers = formatting.inlineContainers(intersecting: range)
+            guard !containers.isEmpty else { return .standard }
+            func isHeading(_ n: MarkdownNode) -> Bool { if case .heading = n.kind { return true }; return false }
+            func inList(_ n: MarkdownNode) -> Bool { n.ancestors.contains { if case .listItem = $0.kind { return true }; return false } }
+            func inQuote(_ n: MarkdownNode) -> Bool {
+                n.ancestors.contains { switch $0.kind { case .blockQuote, .alert: return true; default: return false } }
+            }
+            if containers.allSatisfy(isHeading) { return .heading }
+            if containers.contains(where: inList) { return .listItem }
+            if containers.contains(where: isHeading) { return .heading }
+            if containers.contains(where: inQuote) { return .blockquote }
+            return .standard
+        }
         
         guard let range = selectedRange,
               let block = extractSelectedBlockLines(from: document.text, range: range) else { return .standard }
@@ -762,6 +799,12 @@ struct ContentView: View {
     }
     
     private func applyHeadingLevel(_ level: Int) {
+        if let formatting = astFormatting, let range = selectedRange {
+            if let edit = formatting.toggleBlock(.heading(level), selection: range) {
+                commitEdit(edit.text, selection: edit.selection, actionName: "Heading \(level)")
+            }
+            return
+        }
         guard let range = selectedRange,
               let block = extractSelectedBlockLines(from: document.text, range: range) else { return }
         
@@ -886,6 +929,58 @@ struct ContentView: View {
         return markdownLines.joined(separator: "\n")
     }
 
+    // MARK: - AST Formatting
+    
+    /// The parsed document for CommonMark/GFM flavors (Slack mrkdwn keeps the legacy string logic).
+    private var astFormatting: MarkdownFormatting? {
+        document.flavor == .slack ? nil : editor.formatting(for: document.text)
+    }
+    
+    private func determineActiveLink() -> DetectedLink? {
+        guard let formatting = astFormatting else {
+            return LinkDetector.findLink(at: selectedRange, in: document.text, flavor: document.flavor)
+        }
+        guard let range = selectedRange, let node = formatting.link(at: range),
+              case .link(let destination, _, let kind) = node.kind, kind != .extendedAutolink else { return nil }
+        let textRange = formatting.linkTextRange(node)
+        let text = (document.text as NSString).substring(with: textRange)
+        return DetectedLink(fullRange: node.range, textRange: textRange, urlRange: node.range, text: text, url: destination, isBareURL: false)
+    }
+    
+    /// Applies inline and block actions through the AST engine; returns false for actions it does not handle.
+    private func applyASTFormatting(_ action: FormatAction, formatting: MarkdownFormatting, range: NSRange) -> Bool {
+        var edit: MarkdownEdit? = nil
+        switch action {
+        case .bold: edit = formatting.toggle(.strong, selection: range)
+        case .italic: edit = formatting.toggle(.emphasis, selection: range)
+        case .strikethrough: edit = formatting.toggle(.strikethrough, selection: range)
+        case .code:
+            // Code blocks and existing spans use the code-format path; multi-line text becomes a block
+            if determineActiveCodeFormat() != nil { return false }
+            if formatting.segments(in: range).count > 1 {
+                applyCodeFormat(.plainBlock)
+                return true
+            }
+            edit = formatting.toggle(.code, selection: range)
+        case .quote: edit = formatting.toggleBlock(.quote, selection: range)
+        case .bulletList: edit = formatting.toggleBlock(.bulletList, selection: range)
+        case .numberedList: edit = formatting.toggleBlock(.numberedList, selection: range)
+        case .heading:
+            if determineActiveHeadingLevel() != nil {
+                edit = formatting.toggleBlock(.paragraph, selection: range)
+            } else {
+                applyHeadingLevel(determineSmartHeadingLevel())
+                return true
+            }
+        case .h1, .h2, .h3, .h4, .h5, .h6, .table:
+            return false
+        }
+        if let edit = edit {
+            commitEdit(edit.text, selection: edit.selection, actionName: actionName(for: action))
+        }
+        return true
+    }
+    
     // MARK: - Editing Helpers
     
     /// Applies a bubble-menu edit. In the live editor this is a minimal, undoable text-view edit;
@@ -1003,6 +1098,9 @@ struct ContentView: View {
     private func applyFormatting(_ action: FormatAction) {
         guard let range = selectedRange,
               Range(range, in: document.text) != nil else { return }
+        if let formatting = astFormatting, applyASTFormatting(action, formatting: formatting, range: range) {
+            return
+        }
         
         let fullText = document.text
         let activeFormats = determineActiveFormats()
@@ -1332,6 +1430,12 @@ struct ContentView: View {
     }
     
     private func applyLink(url: String, activeLink: DetectedLink?) {
+        if let formatting = astFormatting, let range = selectedRange {
+            if let edit = formatting.setLink(url, selection: activeLink?.fullRange ?? range) {
+                commitEdit(edit.text, selection: edit.selection, actionName: activeLink == nil ? "Add Link" : "Edit Link")
+            }
+            return
+        }
         let fullText = document.text
         
         if let link = activeLink {
@@ -1354,6 +1458,12 @@ struct ContentView: View {
     }
     
     private func removeLink(activeLink: DetectedLink?) {
+        if let formatting = astFormatting, let link = activeLink {
+            if let edit = formatting.removeLink(selection: link.fullRange) {
+                commitEdit(edit.text, selection: edit.selection, actionName: "Remove Link")
+            }
+            return
+        }
         guard let link = activeLink,
               let replaceRange = Range(link.fullRange, in: document.text) else { return }
         

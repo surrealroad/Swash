@@ -2,7 +2,7 @@
 
 This document tracks Swash's compliance against the official GitHub-Flavored Markdown (GFM) specification for supported syntax extensions and core blocks.
 
-Automated verification runs via `./Scripts/run_spec_tests.sh`.
+Automated verification runs via `./scripts/run_spec_tests.sh`, which checks these fixtures against the shared Markdown AST (`Swash/Markdown/`) and writes snapshots. Full conformance against the CommonMark 0.31.2 spec (652 examples) and the GFM extension examples (50) runs via `./scripts/run_commonmark_spec.sh`.
 
 ---
 

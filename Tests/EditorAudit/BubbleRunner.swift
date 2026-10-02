@@ -59,10 +59,10 @@ let cases: [Case] = [
     Case(id: "heading-level-change", md: "## Heading Here", select: "Heading", press: "H", arg: "4", expect: "#### Heading Here"),
     Case(id: "heading-toggle-off", md: "## Heading Here", select: "Heading", press: "heading", expect: "Heading Here"),
     Case(id: "heading-on-list", md: "- list item one", select: "item", press: "heading"),
-    Case(id: "quote-on-heading", md: "## Heading Here", select: "Heading", press: "quote"),
+    Case(id: "quote-on-heading", md: "## Heading Here", select: "Heading", press: "quote", expect: "> ## Heading Here"),
     Case(id: "ctx-quote", md: "> quoted line here", select: "quoted", press: nil),
     Case(id: "quote-off", md: "> quoted line here", select: "quoted", press: "quote"),
-    Case(id: "bullet-in-quote", md: "> quoted line here", select: "quoted", press: "bulletList"),
+    Case(id: "bullet-in-quote", md: "> quoted line here", select: "quoted", press: "bulletList", expect: "> - quoted line here"),
     Case(id: "ctx-task", md: "- [ ] task item", select: "task", press: nil),
     Case(id: "bullet-on-task", md: "- [ ] task item", select: "task", press: "bulletList", expect: "- task item"),
     Case(id: "numbered-on-task", md: "- [ ] task item", select: "task", press: "numberedList"),
@@ -81,6 +81,14 @@ let cases: [Case] = [
     Case(id: "link-add-after-image", md: "![i](x.png) add link here", select: "link", press: "LINK", arg: "https://c.com", expect: "![i](x.png) add [link](https://c.com) here"),
     Case(id: "ctx-pipe-text", md: "Use a | b for OR", select: "OR", press: nil),
     Case(id: "table-from-text", md: "Name  Age\nBob  30", select: "Name  Age\nBob  30", press: "table"),
+    Case(id: "bold-merge-overlap", md: "**bold text** plain", select: "text** pl", press: "bold", expect: "**bold text pl**ain"),
+    Case(id: "bold-off-inside-italic", md: "*italic with **bold** inside*", select: "bold", press: "bold", expect: "*italic with bold inside*"),
+    Case(id: "italic-on-bold-partial", md: "**bold words here**", select: "words", press: "italic", expect: "**bold *words* here**"),
+    Case(id: "link-edit-reference", md: "[full][ref]\n\n[ref]: https://a.com", select: "full", press: "LINK", arg: "https://b.com", expect: "[full](https://b.com)\n\n[ref]: https://a.com"),
+    Case(id: "ctx-list-in-quote", md: "> - item in quote", select: "item", press: nil),
+    Case(id: "ctx-heading-in-quote", md: "> ## Heading", select: "Heading", press: nil),
+    Case(id: "ctx-alert-body", md: "> [!TIP]\n> tip body", select: "body", press: nil),
+    Case(id: "heading-in-list-item", md: "- list item", select: "list", press: "H", arg: "2", expect: "## list item"),
     Case(id: "strike-plain", md: "remove this text", select: "this", press: "strikethrough", expect: "remove ~~this~~ text"),
 ]
 
@@ -106,7 +114,8 @@ struct BubbleRunner {
             snapshot(win, outDir.appendingPathComponent("\(c.id)-menu.png"))
             out += "## \(c.id)\nINPUT: \(c.md.debugDescription)  SELECT: \(c.select.debugDescription) (storage range \(r))\n"
             out += "STATE: \(TestHooks.state)\n"
-            let expectedContexts = ["ctx-tilde-code-block": "context=codeBlock", "ctx-ordered-paren": "context=listItem", "ctx-pipe-text": "context=standard", "ctx-task": "context=listItem", "ctx-inline-code": "code=inline"]
+            let expectedContexts = ["ctx-tilde-code-block": "context=codeBlock", "ctx-ordered-paren": "context=listItem", "ctx-pipe-text": "context=standard", "ctx-task": "context=listItem", "ctx-inline-code": "code=inline",
+                                    "ctx-list-in-quote": "context=listItem", "ctx-heading-in-quote": "context=heading", "ctx-alert-body": "context=blockquote", "ctx-heading": "heading=H2", "ctx-link": "link=https://a.com", "ctx-plain": "context=standard"]
             if let ctx = expectedContexts[c.id], !TestHooks.state.contains(ctx) {
                 failures.append("\(c.id): expected \(ctx), got \(TestHooks.state)")
             }

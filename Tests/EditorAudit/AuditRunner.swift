@@ -243,7 +243,7 @@ struct AuditRunner {
             if let expected = expectedVisible[p.id], expected != visible {
                 failures.append("\(p.id): expected visible \(expected.debugDescription), got \(visible.debugDescription)")
             }
-            let blocks = MarkdownParser.parse(p.md).map { "\($0.type)".prefix(70) + ($0.text.isEmpty ? "" : " «\($0.text.prefix(40))»") }
+            let blocks = MarkdownDocument.parse(p.md).root.children.map { "\($0.kind)".components(separatedBy: "(").first ?? "" }
             report += "PREVIEW BLOCKS: \(blocks.joined(separator: " | "))\n\n"
             _ = host
             sideBySide(p.md, to: outDir.appendingPathComponent("shots/\(p.id).png"))

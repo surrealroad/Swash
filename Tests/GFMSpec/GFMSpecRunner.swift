@@ -321,7 +321,7 @@ struct GFMSpecRunner {
             print("  Case [\(testCase.id)] (GFM #\(testCase.example)): \(testCase.description)")
             
             // 1. Parse AST
-            let blocks = MarkdownParser.parse(testCase.markdown)
+            let blocks = ASTBlocks.parse(testCase.markdown)
             let tableBlock = blocks.first(where: {
                 if case .table = $0.type { return true }
                 return false
@@ -393,7 +393,7 @@ struct GFMSpecRunner {
             print("  Case [\(testCase.id)] (GFM #\(testCase.example)): \(testCase.description)")
             
             // 1. Parse AST
-            let blocks = MarkdownParser.parse(testCase.markdown)
+            let blocks = ASTBlocks.parse(testCase.markdown)
             let taskListBlocks = blocks.filter {
                 if case .taskList = $0.type { return true }
                 return false
@@ -475,7 +475,7 @@ struct GFMSpecRunner {
         for testCase in suite.cases {
             print("  Case [\(testCase.id)] (GFM #\(testCase.example)): \(testCase.description)")
             
-            let blocks = MarkdownParser.parse(testCase.markdown)
+            let blocks = ASTBlocks.parse(testCase.markdown)
             let breaks = blocks.filter {
                 if case .horizontalRule = $0.type { return true }
                 return false
@@ -529,7 +529,7 @@ struct GFMSpecRunner {
         for testCase in suite.cases {
             print("  Case [\(testCase.id)] (GFM #\(testCase.example)): \(testCase.description)")
             
-            let blocks = MarkdownParser.parse(testCase.markdown)
+            let blocks = ASTBlocks.parse(testCase.markdown)
             let parsedHeadings: [(Int, String)] = blocks.compactMap { block in
                 if case .heading(let level) = block.type {
                     return (level, block.text)
@@ -600,7 +600,7 @@ struct GFMSpecRunner {
         for testCase in suite.cases {
             print("  Case [\(testCase.id)] (GFM #\(testCase.example)): \(testCase.description)")
             
-            let blocks = MarkdownParser.parse(testCase.markdown)
+            let blocks = ASTBlocks.parse(testCase.markdown)
             let codeBlocks: [(String, String?)] = blocks.compactMap { block in
                 if case let .codeBlock(code, lang) = block.type {
                     return (code, lang)
@@ -668,7 +668,7 @@ struct GFMSpecRunner {
         for testCase in suite.cases {
             print("  Case [\(testCase.id)] (GFM #\(testCase.example)): \(testCase.description)")
             
-            let blocks = MarkdownParser.parse(testCase.markdown)
+            let blocks = ASTBlocks.parse(testCase.markdown)
             var astSuccess = false
             var astFailureReason = ""
             
@@ -743,7 +743,7 @@ struct GFMSpecRunner {
         for testCase in suite.cases {
             print("  Case [\(testCase.id)] (GFM #\(testCase.example)): \(testCase.description)")
             
-            let blocks = MarkdownParser.parse(testCase.markdown)
+            let blocks = ASTBlocks.parse(testCase.markdown)
             let astSuccess = !blocks.isEmpty
             let astFailureReason = astSuccess ? "" : "Parser produced no blocks"
             
@@ -792,7 +792,7 @@ struct GFMSpecRunner {
         for testCase in suite.cases {
             print("  Case [\(testCase.id)] (GFM #\(testCase.example)): \(testCase.description)")
             
-            let blocks = MarkdownParser.parse(testCase.markdown)
+            let blocks = ASTBlocks.parse(testCase.markdown)
             let footnoteDef = blocks.first(where: {
                 if case .footnoteDefinition = $0.type { return true }
                 return false
@@ -846,7 +846,7 @@ struct GFMSpecRunner {
         for testCase in suite.cases {
             print("  Case [\(testCase.id)] (GFM #\(testCase.example)): \(testCase.description)")
             
-            let blocks = MarkdownParser.parse(testCase.markdown)
+            let blocks = ASTBlocks.parse(testCase.markdown)
             let astSuccess = !blocks.isEmpty
             let astFailureReason = astSuccess ? "" : "Parser produced no blocks"
             
@@ -879,5 +879,123 @@ struct GFMSpecRunner {
         }
         
         return (passed, failed)
+    }
+}
+
+// MARK: - AST adapter
+//
+// The GFM fixtures were written against Swash's original flat block parser. These types map
+// the shared Markdown AST (Swash/Markdown) onto that flat shape so the same assertions now
+// exercise the parser the app actually uses.
+
+enum BlockType: Equatable {
+    case heading(level: Int)
+    case blockquote
+    case alertCallout(type: AlertType, text: String)
+    case codeBlock(code: String, language: String?)
+    case list(isOrdered: Bool, indentLevel: Int, itemNumber: Int)
+    case taskList(isChecked: Bool, indentLevel: Int)
+    case table(headers: [String], alignments: [TableAlignment], rows: [[String]])
+    case horizontalRule
+    case footnoteDefinition(label: String, text: String)
+    case linkReference(label: String, url: String)
+    case paragraph
+}
+
+struct MarkdownBlock {
+    let type: BlockType
+    let text: String
+}
+
+enum ASTBlocks {
+    static func parse(_ text: String) -> [MarkdownBlock] {
+        let document = MarkdownDocument.parse(text)
+        let ns = text as NSString
+        var blocks: [MarkdownBlock] = []
+        
+        func source(_ r: NSRange) -> String { ns.substring(with: r) }
+        /// Source of `range` with the given marker ranges removed, per line, trimmed.
+        func stripped(_ range: NSRange, markers: [NSRange]) -> String {
+            let inside = markers.filter { NSIntersectionRange($0, range).length > 0 }.sorted { $0.location > $1.location }
+            let result = NSMutableString(string: source(range))
+            for m in inside {
+                let local = NSIntersectionRange(m, range)
+                result.deleteCharacters(in: NSRange(location: local.location - range.location, length: local.length))
+            }
+            return (result as String).components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: "\n")
+        }
+        func quoteMarkers(_ node: MarkdownNode) -> [NSRange] {
+            var markers: [NSRange] = []
+            node.walk { n in
+                switch n.kind {
+                case .blockQuote, .alert: markers += n.markers
+                default: break
+                }
+            }
+            return markers
+        }
+        func depth(_ node: MarkdownNode) -> Int {
+            node.ancestors.filter { if case .listItem = $0.kind { return true }; return false }.count
+        }
+        func visit(_ node: MarkdownNode) {
+            switch node.kind {
+            case .heading(let level, let setext):
+                let text = setext
+                    ? stripped(node.range, markers: node.markers).components(separatedBy: "\n").filter { !$0.isEmpty }.joined(separator: " ")
+                    : stripped(node.range, markers: node.markers)
+                blocks.append(MarkdownBlock(type: .heading(level: level), text: text.trimmingCharacters(in: .whitespaces)))
+            case .paragraph:
+                blocks.append(MarkdownBlock(type: .paragraph, text: source(node.range)))
+            case .blockQuote:
+                blocks.append(MarkdownBlock(type: .blockquote, text: stripped(node.range, markers: quoteMarkers(node))))
+            case .alert(let type):
+                let body = node.children.map { stripped($0.range, markers: quoteMarkers(node)) }.joined(separator: "\n")
+                blocks.append(MarkdownBlock(type: .alertCallout(type: type, text: body), text: ""))
+            case .codeBlock(_, let info):
+                let code = node.literal.hasSuffix("\n") ? String(node.literal.dropLast()) : node.literal
+                let language = info.split(separator: " ").first.map(String.init)
+                blocks.append(MarkdownBlock(type: .codeBlock(code: code, language: language), text: ""))
+            case .listItem(let task):
+                let firstText = node.firstChild.map { source($0.range) } ?? ""
+                if let task = task {
+                    blocks.append(MarkdownBlock(type: .taskList(isChecked: task == .checked, indentLevel: depth(node)), text: firstText))
+                } else if let list = node.parent, case .list(let ordered, let start, _, _, _) = list.kind {
+                    let index = list.children.firstIndex { $0 === node } ?? 0
+                    blocks.append(MarkdownBlock(type: .list(isOrdered: ordered, indentLevel: depth(node), itemNumber: start + index), text: firstText))
+                }
+                for child in node.children.dropFirst() { visit(child) }
+                return
+            case .table(let alignments):
+                var headers: [String] = []
+                var rows: [[String]] = []
+                for section in node.children {
+                    if case .tableHead = section.kind {
+                        headers = section.firstChild?.children.map { source($0.range).replacingOccurrences(of: "\\|", with: "|") } ?? []
+                    } else if case .tableRow = section.kind {
+                        rows.append(section.children.map { source($0.range) })
+                    }
+                }
+                blocks.append(MarkdownBlock(type: .table(headers: headers, alignments: alignments, rows: rows), text: ""))
+                return
+            case .thematicBreak:
+                blocks.append(MarkdownBlock(type: .horizontalRule, text: ""))
+            case .footnoteDefinition(let label):
+                let body = node.children.map { source($0.range) }.joined(separator: " ")
+                blocks.append(MarkdownBlock(type: .footnoteDefinition(label: label, text: body), text: ""))
+                return
+            case .linkReferenceDefinition(let label, let destination, _):
+                blocks.append(MarkdownBlock(type: .linkReference(label: label, url: destination), text: ""))
+            default:
+                break
+            }
+            switch node.kind {
+            case .blockQuote, .alert, .heading, .paragraph:
+                return
+            default:
+                for child in node.children { visit(child) }
+            }
+        }
+        visit(document.root)
+        return blocks
     }
 }

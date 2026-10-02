@@ -8,5 +8,11 @@ Edit Text, the Preview pane, Quick Look and table cells now all render Markdown 
 - Bold and inline code inside headings keep the heading size, in both panes.
 - The Preview renders soft line breaks as spaces (CommonMark), hides raw inline HTML tags (`<br>` becomes a line break), and shows front matter as a metadata box.
 - Styling large documents is faster.
-- Slack mrkdwn documents keep their existing styling.
+- The bubble menu works from the same parse:
+  - Removing bold, italic, strikethrough or code deletes exactly that span's markers, even when the caret is inside it or the span is nested.
+  - Formatting across an existing span merges into it instead of producing broken markers.
+  - Lists and headings inside quotes stay quoted (`> - item`), and quoting a heading keeps it a heading.
+  - Reference links, autolinks and nested formatting inside links are detected, edited and removed correctly.
+  - Context detection understands lists inside quotes, headings inside quotes and alerts.
+- Slack mrkdwn documents keep their existing styling and bubble-menu behaviour.
 - The parser passes all 652 CommonMark spec examples and all 50 GFM extension examples (`./scripts/run_commonmark_spec.sh`).

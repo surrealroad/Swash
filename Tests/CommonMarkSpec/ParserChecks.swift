@@ -47,8 +47,89 @@ enum ParserChecks {
         ("---\ntitle: Doc\n---\n# Body", "frontMatter", ["---", "---"]),
     ]
 
-    static func run() -> Int {
+    /// (markdown, selected substring or "|" caret marker, operation, expected markdown)
+    private static let formattingCases: [(String, String, String, String)] = [
+        ("Plain beta gamma.", "beta", "bold", "Plain **beta** gamma."),
+        ("Plain **beta** gamma.", "beta", "bold", "Plain beta gamma."),
+        ("Plain **be|ta** gamma.", "|", "bold", "Plain beta gamma."),
+        ("an _emph_ word", "emph", "italic", "an emph word"),
+        ("**bold text** plain", "text** pl", "bold", "**bold text pl**ain"),
+        ("*italic with **bold** inside*", "bold", "bold", "*italic with bold inside*"),
+        ("*italic*", "italic", "bold", "***italic***"),
+        ("double click word then", "word ", "bold", "double click **word** then"),
+        ("line one\nline two", "one\nline", "bold", "line **one**\n**line** two"),
+        ("> first line\n> second line", "line\n> second", "bold", "> first **line**\n> **second** line"),
+        ("- item one\n- item two", "one\n- item", "italic", "- item *one*\n- *item* two"),
+        ("see [docs](https://a.com) here", "e [do", "bold", "se**e [docs](https://a.com)** here"),
+        ("remove this text", "this", "strike", "remove ~~this~~ text"),
+        ("call foo() now", "foo()", "code", "call `foo()` now"),
+        ("a `b` c", "a `b` c", "code", "`a b c`"),
+        ("use `x` here", "x", "code", "use x here"),
+        ("tick ` inside", "tick ` inside", "code", "`` tick ` inside ``"),
+        ("👋 beta", "beta", "bold", "👋 **beta**"),
+        ("see docs here", "docs", "link:https://x.com", "see [docs](https://x.com) here"),
+        ("see [do|cs](https://a.com) here", "|", "link:https://b.com", "see [docs](https://b.com) here"),
+        ("see [**docs**](https://a.com) here", "docs", "unlink", "see **docs** here"),
+        ("[full][ref]\n\n[ref]: /u", "full", "unlink", "full\n\n[ref]: /u"),
+        ("go <https://a.c|om> now", "|", "unlink", "go https://a.com now"),
+        ("![i](x.png) add link here", "link", "link:https://c.com", "![i](x.png) add [link](https://c.com) here"),
+        ("> quoted line", "quoted", "bullet", "> - quoted line"),
+        ("- a\n- b", "a\n- b", "numbered", "1. a\n2. b"),
+        ("- [ ] task item", "task", "bullet", "- task item"),
+        ("## Heading", "Heading", "quote", "> ## Heading"),
+        ("> ## Heading", "Heading", "quote", "## Heading"),
+        ("> > nested", "nested", "quote", "> nested"),
+        ("## Heading", "Heading", "h4", "#### Heading"),
+        ("## Heading", "Heading", "paragraph", "Heading"),
+        ("- list item", "item", "h1", "# list item"),
+        ("text\n```\ncode\n```", "text\n```\ncode", "bullet", "- text\n```\ncode\n```"),
+    ]
+    
+    private static func runFormatting() -> Int {
         var failures = 0
+        for (markdown, select, operation, expected) in formattingCases {
+            if ProcessInfo.processInfo.environment["SWASH_TRACE"] != nil { print("case \(operation) \(markdown.debugDescription)"); fflush(stdout) }
+            var text = markdown
+            var selection: NSRange
+            if select == "|" {
+                let caret = (text as NSString).range(of: "|")
+                text = (text as NSString).replacingCharacters(in: caret, with: "")
+                selection = NSRange(location: caret.location, length: 0)
+            } else {
+                selection = (text as NSString).range(of: select)
+            }
+            let f = MarkdownFormatting(text: text)
+            let edit: MarkdownEdit?
+            switch operation {
+            case "bold": edit = f.toggle(.strong, selection: selection)
+            case "italic": edit = f.toggle(.emphasis, selection: selection)
+            case "strike": edit = f.toggle(.strikethrough, selection: selection)
+            case "code": edit = f.toggle(.code, selection: selection)
+            case "unlink": edit = f.removeLink(selection: selection)
+            case "bullet": edit = f.toggleBlock(.bulletList, selection: selection)
+            case "numbered": edit = f.toggleBlock(.numberedList, selection: selection)
+            case "quote": edit = f.toggleBlock(.quote, selection: selection)
+            case "paragraph": edit = f.toggleBlock(.paragraph, selection: selection)
+            case "h1": edit = f.toggleBlock(.heading(1), selection: selection)
+            case "h4": edit = f.toggleBlock(.heading(4), selection: selection)
+            default:
+                edit = operation.hasPrefix("link:") ? f.setLink(String(operation.dropFirst(5)), selection: selection) : nil
+            }
+            let result = edit?.text ?? text
+            if result != expected {
+                failures += 1
+                print("❌ format \(operation) on \(markdown.debugDescription) [\(select.debugDescription)]: expected \(expected.debugDescription), got \(result.debugDescription)")
+            } else if let edit = edit, NSMaxRange(edit.selection) > (edit.text as NSString).length {
+                failures += 1
+                print("❌ format \(operation) on \(markdown.debugDescription): selection \(edit.selection) out of bounds")
+            }
+        }
+        print("Formatting engine checks: \(failures == 0 ? "all passed" : "\(failures) failed") (\(formattingCases.count) cases)")
+        return failures
+    }
+    
+    static func run() -> Int {
+        var failures = runFormatting()
         // 1. Marker ranges
         for (markdown, nodeName, expected) in markerCases {
             let document = MarkdownDocument.parse(markdown)

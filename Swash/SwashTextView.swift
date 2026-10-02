@@ -90,6 +90,15 @@ struct AttachmentOffsetMap {
 final class SwashEditorController {
     weak var textView: NSTextView?
     weak var coordinator: SwashTextView.Coordinator?
+    private var cachedFormatting: MarkdownFormatting?
+    
+    /// Parsed formatting state for `text`, reused until the text changes.
+    func formatting(for text: String) -> MarkdownFormatting {
+        if let cached = cachedFormatting, cached.text == text { return cached }
+        let formatting = MarkdownFormatting(text: text)
+        cachedFormatting = formatting
+        return formatting
+    }
 
     /// Applies `newText` as a minimal edit to the live editor. Returns false when no editor is attached,
     /// in which case the caller should assign the document text directly.
@@ -687,6 +696,16 @@ struct SwashTextView: NSViewRepresentable {
         
         // MARK: - Storage ↔ Raw Offsets
         
+        private var cachedLinkFormatting: MarkdownFormatting?
+        
+        /// Parsed document used to detect the link under the caret; reused until the text changes.
+        private func linkFormatting(for text: String) -> MarkdownFormatting {
+            if let cached = cachedLinkFormatting, cached.text == text { return cached }
+            let formatting = MarkdownFormatting(text: text)
+            cachedLinkFormatting = formatting
+            return formatting
+        }
+        
         func invalidateOffsetMap() {
             cachedOffsetMap = nil
         }
@@ -827,7 +846,15 @@ struct SwashTextView: NSViewRepresentable {
             
             // Published selections and link ranges are in raw-markdown offsets
             let rawSelection = rawRange(forStorage: range, in: textView)
-            let activeLink = LinkDetector.findLink(at: rawSelection, in: parent.text, flavor: self.parent.flavor)
+            let activeLink: (fullRange: NSRange, url: String)?
+            if parent.flavor == .slack {
+                activeLink = LinkDetector.findLink(at: rawSelection, in: parent.text, flavor: .slack).map { ($0.fullRange, $0.url) }
+            } else if let node = linkFormatting(for: parent.text).link(at: rawSelection),
+                      case .link(let destination, _, let kind) = node.kind, kind != .extendedAutolink {
+                activeLink = (node.range, destination)
+            } else {
+                activeLink = nil
+            }
             
             if range.length > 0 || activeLink != nil {
                 self.parent.selectedRange = rawSelection
