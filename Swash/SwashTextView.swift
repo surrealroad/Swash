@@ -21,6 +21,86 @@ extension Notification.Name {
     static let removeCurrentTable = Notification.Name("removeCurrentTable")
 }
 
+/// The markdown source an attachment stands in for, or nil for non-Swash attachments.
+func swashRawMarkdown(for attachment: Any?) -> String? {
+    if let table = attachment as? TableTextAttachment { return table.rawMarkdown }
+    if let image = attachment as? ImageTextAttachment { return image.rawMarkdown }
+    return nil
+}
+
+/// Maps between text-storage offsets (where each table/image is a single attachment character)
+/// and raw-markdown offsets (where it is its full source). All public selection ranges and all
+/// edits coming from SwiftUI are expressed in raw-markdown offsets.
+struct AttachmentOffsetMap {
+    /// Storage location of each attachment and the UTF-16 length of the markdown it replaces, ascending.
+    private(set) var spans: [(storage: Int, rawLength: Int)] = []
+
+    static let identity = AttachmentOffsetMap()
+
+    init() {}
+
+    init(storage: NSAttributedString) {
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length), options: []) { value, range, _ in
+            if let raw = swashRawMarkdown(for: value) {
+                for i in 0..<range.length {
+                    spans.append((storage: range.location + i, rawLength: (raw as NSString).length))
+                }
+            }
+        }
+    }
+
+    func rawLocation(forStorage location: Int) -> Int {
+        var delta = 0
+        for span in spans {
+            guard span.storage < location else { break }
+            delta += span.rawLength - 1
+        }
+        return location + delta
+    }
+
+    func rawRange(forStorage range: NSRange) -> NSRange {
+        let start = rawLocation(forStorage: range.location)
+        let end = rawLocation(forStorage: range.location + range.length)
+        return NSRange(location: start, length: end - start)
+    }
+
+    /// A raw location inside an attachment's source snaps to the attachment's start (or end when `roundUp`).
+    func storageLocation(forRaw location: Int, roundUp: Bool) -> Int {
+        var delta = 0
+        for span in spans {
+            let rawStart = span.storage + delta
+            if location <= rawStart { break }
+            if location < rawStart + span.rawLength {
+                return roundUp ? span.storage + 1 : span.storage
+            }
+            delta += span.rawLength - 1
+        }
+        return location - delta
+    }
+
+    func storageRange(forRaw range: NSRange) -> NSRange {
+        let start = storageLocation(forRaw: range.location, roundUp: false)
+        let end = storageLocation(forRaw: range.location + range.length, roundUp: range.length > 0)
+        return NSRange(location: start, length: max(0, end - start))
+    }
+}
+
+/// Lets SwiftUI views apply document edits through the live text view, so they are undoable and
+/// keep the editor's selection, scroll position and styling intact.
+final class SwashEditorController {
+    weak var textView: NSTextView?
+    weak var coordinator: SwashTextView.Coordinator?
+
+    /// Applies `newText` as a minimal edit to the live editor. Returns false when no editor is attached,
+    /// in which case the caller should assign the document text directly.
+    @discardableResult
+    func apply(newText: String, selection: NSRange?, actionName: String) -> Bool {
+        guard let textView = textView, let coordinator = coordinator, textView.window != nil else { return false }
+        coordinator.applyEdit(in: textView, newRawText: newText, rawSelection: selection, actionName: actionName)
+        return true
+    }
+}
+
 struct ListMarkerInfo {
     let text: String
     let indent: CGFloat
@@ -168,15 +248,8 @@ class SwashNSTextView: NSTextView {
         let fullRange = NSRange(location: 0, length: selectedSubstring.length)
         
         selectedSubstring.enumerateAttribute(.attachment, in: fullRange, options: .reverse) { value, attRange, _ in
-            if let tableAttachment = value as? TableTextAttachment {
-                let markdown = MarkdownParser.tableToMarkdown(
-                    headers: tableAttachment.tableData.headers,
-                    alignments: tableAttachment.tableData.alignments,
-                    rows: tableAttachment.tableData.rows
-                )
+            if let markdown = swashRawMarkdown(for: value) {
                 result.replaceCharacters(in: attRange, with: markdown)
-            } else if let imageAttachment = value as? ImageTextAttachment {
-                result.replaceCharacters(in: attRange, with: imageAttachment.rawMarkdown)
             }
         }
         return result as String
@@ -319,6 +392,7 @@ struct SwashTextView: NSViewRepresentable {
     var onCommit: (() -> Void)? = nil
     var onNextCell: (() -> Void)? = nil
     var onPrevCell: (() -> Void)? = nil
+    var controller: SwashEditorController? = nil
     
     init(
         text: Binding<String>,
@@ -330,7 +404,8 @@ struct SwashTextView: NSViewRepresentable {
         baseURL: URL? = nil,
         onCommit: (() -> Void)? = nil,
         onNextCell: (() -> Void)? = nil,
-        onPrevCell: (() -> Void)? = nil
+        onPrevCell: (() -> Void)? = nil,
+        controller: SwashEditorController? = nil
     ) {
         self._text = text
         self._selectedRange = selectedRange
@@ -342,6 +417,7 @@ struct SwashTextView: NSViewRepresentable {
         self.onCommit = onCommit
         self.onNextCell = onNextCell
         self.onPrevCell = onPrevCell
+        self.controller = controller
     }
     
     func makeNSView(context: Context) -> NSScrollView {
@@ -416,6 +492,8 @@ struct SwashTextView: NSViewRepresentable {
         context.coordinator.isUpdatingFromSwiftUI = true
         context.coordinator.parent = self
         context.coordinator.currentTextView = textView
+        controller?.textView = textView
+        controller?.coordinator = context.coordinator
         
         let currentRawText = isStyled ? context.coordinator.buildRawMarkdown(from: textView.textStorage ?? NSTextStorage()) : textView.string
         let normalizedTextView = currentRawText.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
@@ -436,6 +514,7 @@ struct SwashTextView: NSViewRepresentable {
                 context.coordinator.lastKnownScrollOrigin = origin
             }
             textView.string = text
+            context.coordinator.invalidateOffsetMap()
             if let origin = context.coordinator.lastKnownScrollOrigin, let clipView = textView.enclosingScrollView?.contentView {
                 clipView.scroll(to: origin)
                 textView.enclosingScrollView?.reflectScrolledClipView(clipView)
@@ -468,7 +547,9 @@ struct SwashTextView: NSViewRepresentable {
         
         // Update selection if needed, preserving scroll position to prevent alt-tab jumping
         logDebug("[SwashTextView] updateNSView - selectedRange: \(String(describing: selectedRange)), textView.selectedRange(): \(textView.selectedRange())")
-        if isFirstResponder, let range = selectedRange, textView.selectedRange() != range {
+        if isFirstResponder, let rawRange = selectedRange,
+           case let range = context.coordinator.storageRange(forRaw: rawRange, in: textView),
+           textView.selectedRange() != range {
             logDebug("[SwashTextView] updateNSView - Setting selection to: \(range)")
             let savedOrigin = textView.enclosingScrollView?.contentView.bounds.origin
             textView.setSelectedRange(range)
@@ -512,6 +593,17 @@ struct SwashTextView: NSViewRepresentable {
         
         var lastKnownScrollOrigin: NSPoint? = nil
         weak var currentTextView: NSTextView? = nil
+        
+        /// Storage ↔ raw offset map; invalidated whenever the storage changes.
+        private var cachedOffsetMap: AttachmentOffsetMap? = nil
+        /// Code-block ranges in storage coordinates, refreshed on every styling pass (used by spellcheck).
+        private var cachedStorageCodeBlocks: [NSRange] = []
+        /// Code ranges of the raw text currently being styled.
+        private var currentCodeRanges = MarkdownParser.CodeRanges()
+        /// Raw-markdown selection to restore after the next styling pass.
+        private var pendingRawSelection: NSRange? = nil
+        private var editGeneration = 0
+        private var highlightedGeneration = -1
         
         init(_ parent: SwashTextView) {
             self.parent = parent
@@ -582,27 +674,95 @@ struct SwashTextView: NSViewRepresentable {
             let fullRange = NSRange(location: 0, length: textStorage.length)
             
             textStorage.enumerateAttribute(.attachment, in: fullRange, options: .reverse) { value, range, _ in
-                if let tableAttachment = value as? TableTextAttachment {
-                    let markdown = MarkdownParser.tableToMarkdown(
-                        headers: tableAttachment.tableData.headers,
-                        alignments: tableAttachment.tableData.alignments,
-                        rows: tableAttachment.tableData.rows
-                    )
+                if let markdown = swashRawMarkdown(for: value) {
                     result.replaceCharacters(in: range, with: markdown)
-                } else if let imageAttachment = value as? ImageTextAttachment {
-                    result.replaceCharacters(in: range, with: imageAttachment.rawMarkdown)
                 }
             }
             return result as String
         }
+        
+        // MARK: - Storage ↔ Raw Offsets
+        
+        func invalidateOffsetMap() {
+            cachedOffsetMap = nil
+        }
+        
+        func offsetMap(for textView: NSTextView) -> AttachmentOffsetMap {
+            guard parent.isStyled, let storage = textView.textStorage else { return .identity }
+            if let map = cachedOffsetMap { return map }
+            let map = AttachmentOffsetMap(storage: storage)
+            cachedOffsetMap = map
+            return map
+        }
+        
+        func rawRange(forStorage range: NSRange, in textView: NSTextView) -> NSRange {
+            offsetMap(for: textView).rawRange(forStorage: range)
+        }
+        
+        func storageRange(forRaw range: NSRange, in textView: NSTextView) -> NSRange {
+            let length = textView.textStorage?.length ?? 0
+            let mapped = offsetMap(for: textView).storageRange(forRaw: range)
+            let start = min(max(0, mapped.location), length)
+            return NSRange(location: start, length: min(mapped.length, length - start))
+        }
+        
+        /// Applies a whole-document rewrite as the smallest equivalent edit on the live text view,
+        /// registering it with the undo manager and restoring `rawSelection` afterwards.
+        func applyEdit(in textView: NSTextView, newRawText: String, rawSelection: NSRange?, actionName: String) {
+            guard let storage = textView.textStorage else { return }
+            let oldRaw = (parent.isStyled ? buildRawMarkdown(from: storage) : textView.string) as NSString
+            let newRaw = newRawText as NSString
+            guard oldRaw != newRaw else {
+                if let selection = rawSelection { textView.setSelectedRange(storageRange(forRaw: selection, in: textView)) }
+                return
+            }
+            
+            // Common prefix / suffix in UTF-16 units, never splitting a surrogate pair
+            let minLength = min(oldRaw.length, newRaw.length)
+            var prefix = 0
+            while prefix < minLength && oldRaw.character(at: prefix) == newRaw.character(at: prefix) { prefix += 1 }
+            if prefix > 0 && CFStringIsSurrogateHighCharacter(oldRaw.character(at: prefix - 1)) { prefix -= 1 }
+            var suffix = 0
+            while suffix < minLength - prefix &&
+                  oldRaw.character(at: oldRaw.length - 1 - suffix) == newRaw.character(at: newRaw.length - 1 - suffix) { suffix += 1 }
+            if suffix > 0 && CFStringIsSurrogateLowCharacter(oldRaw.character(at: oldRaw.length - suffix)) { suffix -= 1 }
+            
+            let changedRaw = NSRange(location: prefix, length: oldRaw.length - prefix - suffix)
+            let map = offsetMap(for: textView)
+            // Attachments touched by the edit are replaced whole, by their (new) raw source
+            let storageTarget = map.storageRange(forRaw: changedRaw)
+            let expandedRaw = map.rawRange(forStorage: storageTarget)
+            let delta = newRaw.length - oldRaw.length
+            let replacement = newRaw.substring(with: NSRange(location: expandedRaw.location, length: expandedRaw.length + delta))
+            
+            guard textView.shouldChangeText(in: storageTarget, replacementString: replacement) else { return }
+            let attributes = textView.typingAttributes
+            storage.replaceCharacters(in: storageTarget, with: NSAttributedString(string: replacement, attributes: attributes))
+            textView.didChangeText()
+            textView.undoManager?.setActionName(actionName)
+            
+            if parent.isStyled {
+                pendingRawSelection = rawSelection
+                highlightMarkdown(in: textView)
+            } else if let selection = rawSelection {
+                let length = storage.length
+                let start = min(selection.location, length)
+                textView.setSelectedRange(NSRange(location: start, length: min(selection.length, length - start)))
+            }
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            cachedOffsetMap = nil
             if !isUpdatingFromSwiftUI {
                 if parent.isStyled, let textStorage = textView.textStorage {
                     parent.text = buildRawMarkdown(from: textStorage)
+                    editGeneration += 1
+                    let generation = editGeneration
                     DispatchQueue.main.async { [weak self, weak textView] in
                         guard let self = self, let textView = textView else { return }
+                        // Skip if a synchronous pass (e.g. a bubble-menu edit) already styled this revision
+                        guard self.highlightedGeneration < generation else { return }
                         self.highlightMarkdown(in: textView)
                     }
                 } else {
@@ -661,13 +821,14 @@ struct SwashTextView: NSViewRepresentable {
             let range = textView.selectedRange()
             logDebug("[SwashTextView] updateSelectionRect - range: \(range)")
             
-            let text = textView.string
-            let activeLink = LinkDetector.findLink(at: range, in: text, flavor: self.parent.flavor)
+            // Published selections and link ranges are in raw-markdown offsets
+            let rawSelection = rawRange(forStorage: range, in: textView)
+            let activeLink = LinkDetector.findLink(at: rawSelection, in: parent.text, flavor: self.parent.flavor)
             
             if range.length > 0 || activeLink != nil {
-                self.parent.selectedRange = range
+                self.parent.selectedRange = rawSelection
                 
-                let targetRange = (range.length > 0) ? range : (activeLink?.fullRange ?? range)
+                let targetRange = (range.length > 0) ? range : (activeLink.map { storageRange(forRaw: $0.fullRange, in: textView) } ?? range)
                 
                 if let layoutManager = textView.layoutManager,
                    let textContainer = textView.textContainer {
@@ -743,7 +904,7 @@ struct SwashTextView: NSViewRepresentable {
         
         // Disable spellcheck inside code blocks
         func textView(_ textView: NSTextView, willCheckTextIn range: NSRange, options: [NSSpellChecker.OptionKey : Any], types: UnsafeMutablePointer<NSTextCheckingTypes>) -> [NSSpellChecker.OptionKey : Any] {
-            if isRangeInCodeBlock(range, in: textView.string) {
+            if MarkdownParser.CodeRanges.anyIntersects(cachedStorageCodeBlocks, range) {
                 types.pointee = 0
             }
             return options
@@ -751,53 +912,10 @@ struct SwashTextView: NSViewRepresentable {
         
         // Intercept and prevent spelling underlines inside code blocks
         func textView(_ textView: NSTextView, shouldSetSpellingState value: Int, range: NSRange) -> Int {
-            if isRangeInCodeBlock(range, in: textView.string) {
+            if MarkdownParser.CodeRanges.anyIntersects(cachedStorageCodeBlocks, range) {
                 return 0
             }
             return value
-        }
-        
-        private func isRangeInCodeBlock(_ range: NSRange, in text: String) -> Bool {
-            var searchRange = NSRange(location: 0, length: text.utf16.count)
-            var delimiterLocations: [Int] = []
-            
-            let nsString = text as NSString
-            while searchRange.location < nsString.length {
-                let r3 = nsString.range(of: "```", options: [], range: searchRange)
-                let rt = nsString.range(of: "~~~", options: [], range: searchRange)
-                let r: NSRange
-                if r3.location != NSNotFound && rt.location != NSNotFound {
-                    r = r3.location < rt.location ? r3 : rt
-                } else if r3.location != NSNotFound {
-                    r = r3
-                } else {
-                    r = rt
-                }
-                if r.location == NSNotFound {
-                    break
-                }
-                delimiterLocations.append(r.location)
-                searchRange.location = r.location + r.length
-                searchRange.length = nsString.length - searchRange.location
-            }
-            
-            var i = 0
-            while i < delimiterLocations.count {
-                let start = delimiterLocations[i]
-                let end: Int
-                if i + 1 < delimiterLocations.count {
-                    end = delimiterLocations[i + 1] + 3
-                } else {
-                    end = nsString.length
-                }
-                
-                let blockRange = NSRange(location: start, length: end - start)
-                if NSIntersectionRange(range, blockRange).length > 0 {
-                    return true
-                }
-                i += 2
-            }
-            return false
         }
         
         // Custom interactive high-fidelity Markdown inline styling
@@ -820,14 +938,22 @@ struct SwashTextView: NSViewRepresentable {
                 }
             }
             
+            // Remember the selection in raw-markdown offsets so it survives attachment rebuilding
+            let savedRawSelection = pendingRawSelection ?? rawRange(forStorage: textView.selectedRange(), in: textView)
+            pendingRawSelection = nil
+            
             // Reconstruct raw text from any existing attachments so parsing is deterministic
             let rawText = buildRawMarkdown(from: textStorage)
             if textStorage.string != rawText {
                 textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: rawText)
             }
+            cachedOffsetMap = nil
             
             let text = textStorage.string
             let fullRange = NSRange(location: 0, length: textStorage.length)
+            // Locate all code once per pass; every inline rule consults this instead of rescanning
+            let codeRanges = MarkdownParser.codeRanges(in: text)
+            currentCodeRanges = codeRanges
             
             textStorage.beginEditing()
             
@@ -929,12 +1055,12 @@ struct SwashTextView: NSViewRepresentable {
             }
             
             enum PendingAttachment {
-                case table(range: NSRange, headers: [String], alignments: [TableAlignment], rows: [[String]])
+                case table(range: NSRange, source: String, headers: [String], alignments: [TableAlignment], rows: [[String]])
                 case image(range: NSRange, alt: String, urlString: String, rawMarkdown: String)
                 
                 var location: Int {
                     switch self {
-                    case .table(let range, _, _, _): return range.location
+                    case .table(let range, _, _, _, _): return range.location
                     case .image(let range, _, _, _): return range.location
                     }
                 }
@@ -1021,6 +1147,19 @@ struct SwashTextView: NSViewRepresentable {
                 
                 let trimmedLine = line.trimmingCharacters(in: .whitespaces)
                 
+                // Indented (4-space / tab) code block lines
+                if lineLength > 0, MarkdownParser.CodeRanges.anyIntersects(codeRanges.indentedBlocks, lineRange) {
+                    activeAlertColor = nil
+                    let valid = NSIntersectionRange(lineRange, NSRange(location: 0, length: textStorage.length))
+                    if valid.length > 0 {
+                        textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: valid)
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor.withAlphaComponent(0.85), range: valid)
+                    }
+                    currentOffset += lineLength + 1
+                    lineIndex += 1
+                    continue
+                }
+                
                 // Detect Table Block
                 let isTableStart = trimmedLine.contains("|") && lineIndex + 1 < lines.count
                 if isTableStart {
@@ -1054,7 +1193,8 @@ struct SwashTextView: NSViewRepresentable {
                             let tableTotalLen = min(textStorage.length - tableStartOffset, max(1, tableEndOffset - tableStartOffset - 1))
                             let tableFullRange = NSRange(location: tableStartOffset, length: tableTotalLen)
                             
-                            pendingAttachments.append(.table(range: tableFullRange, headers: headers, alignments: alignments, rows: tableRows))
+                            let tableSource = (text as NSString).substring(with: tableFullRange)
+                            pendingAttachments.append(.table(range: tableFullRange, source: tableSource, headers: headers, alignments: alignments, rows: tableRows))
                             
                             currentOffset = tableEndOffset
                             lineIndex = tableLineIdx
@@ -1252,6 +1392,20 @@ struct SwashTextView: NSViewRepresentable {
                 lineIndex += 1
             }
             
+            // Code spans (CommonMark backtick-run matching); contents are never further interpreted
+            func styleCodeSpans() {
+                let monoFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+                for span in codeRanges.spans where span.content.length > 0 {
+                    let content = NSIntersectionRange(span.content, NSRange(location: 0, length: textStorage.length))
+                    guard content.length > 0 else { continue }
+                    textStorage.addAttribute(.font, value: monoFont, range: content)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: content)
+                    hideRange(NSRange(location: span.full.location, length: span.content.location - span.full.location))
+                    let contentEnd = span.content.location + span.content.length
+                    hideRange(NSRange(location: contentEnd, length: span.full.location + span.full.length - contentEnd))
+                }
+            }
+            
             // 3. Inline style parsing via regexes
             if parent.flavor == .slack {
                 // Slack Bold: *text*
@@ -1279,12 +1433,7 @@ struct SwashTextView: NSViewRepresentable {
                 }
                 
                 // Slack Inline Code: `code`
-                applyRegex(pattern: "`([^`\\n]+)`", in: text) { matchRange, contentRange in
-                    textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: contentRange)
-                    textStorage.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: contentRange)
-                    hideRange(NSRange(location: matchRange.location, length: 1))
-                    hideRange(NSRange(location: matchRange.location + matchRange.length - 1, length: 1))
-                }
+                styleCodeSpans()
                 
                 // Slack Links: <url|text>
                 if let linkWithPipeRegex = try? NSRegularExpression(pattern: "(<(https?://[^>|\\n]+)\\|)([^>|\\n]+)(>)", options: []) {
@@ -1397,14 +1546,8 @@ struct SwashTextView: NSViewRepresentable {
                     hideRange(NSRange(location: matchRange.location + matchRange.length - 2, length: 2))
                 }
                 
-                // Multi-backtick / Single-backtick Inline Code: ``code`` or `code`
-                applyRegex(pattern: "(?:``([^`\\n]+?)``|`([^`\\n]+)`)", in: text) { matchRange, contentRange in
-                    textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: contentRange)
-                    textStorage.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: contentRange)
-                    let fenceLen = (text as NSString).substring(with: matchRange).hasPrefix("``") ? 2 : 1
-                    hideRange(NSRange(location: matchRange.location, length: fenceLen))
-                    hideRange(NSRange(location: matchRange.location + matchRange.length - fenceLen, length: fenceLen))
-                }
+                // Inline Code spans of any backtick length: `code`, ``co`de``
+                styleCodeSpans()
                 
                 // Links: [text](url) - ignore images ![alt](url)
                 if let markdownLinkRegex = try? NSRegularExpression(pattern: "(?<!\\])(?<!!)\\[(.*?)\\]\\((.*?)\\)", options: []) {
@@ -1413,7 +1556,7 @@ struct SwashTextView: NSViewRepresentable {
                     for match in matches {
                         if match.numberOfRanges >= 3 {
                             let matchRange = match.range(at: 0)
-                            if isRangeInCodeBlock(matchRange, in: text) { continue }
+                            if codeRanges.excludes(matchRange) { continue }
                             let contentRange = match.range(at: 1)
                             let urlRange = match.range(at: 2)
                             let rawUrl = nsString.substring(with: urlRange).trimmingCharacters(in: .whitespaces)
@@ -1442,7 +1585,7 @@ struct SwashTextView: NSViewRepresentable {
                     let matches = fnRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
                     for match in matches {
                         let matchRange = match.range(at: 0)
-                        if isRangeInCodeBlock(matchRange, in: text) { continue }
+                        if codeRanges.excludes(matchRange) { continue }
                         let valid = NSIntersectionRange(matchRange, NSRange(location: 0, length: textStorage.length))
                         if valid.length > 0 {
                             textStorage.addAttribute(.baselineOffset, value: 4, range: valid)
@@ -1463,7 +1606,7 @@ struct SwashTextView: NSViewRepresentable {
                 let matches = bareUrlRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
                 for match in matches {
                     var matchRange = match.range(at: 0)
-                    if isRangeInCodeBlock(matchRange, in: text) {
+                    if codeRanges.excludes(matchRange) {
                         continue
                     }
                     
@@ -1509,6 +1652,15 @@ struct SwashTextView: NSViewRepresentable {
                 }
             }
             
+            // Images inside a table become part of the table attachment, never separate attachments
+            let tableRanges: [NSRange] = pendingAttachments.compactMap {
+                if case .table(let range, _, _, _, _) = $0 { return range }
+                return nil
+            }
+            func isInsideTable(_ range: NSRange) -> Bool {
+                tableRanges.contains { NSIntersectionRange($0, range).length > 0 }
+            }
+            
             // Scan for Inline Images: ![alt](url)
             let inlineImgPattern = "!\\[(.*?)\\]\\((.*?)\\)"
             if let regex = try? NSRegularExpression(pattern: inlineImgPattern) {
@@ -1516,7 +1668,7 @@ struct SwashTextView: NSViewRepresentable {
                 let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
                 for match in matches {
                     let matchRange = match.range(at: 0)
-                    if isRangeInCodeBlock(matchRange, in: text) { continue }
+                    if codeRanges.excludes(matchRange) || isInsideTable(matchRange) { continue }
                     let alt = nsText.substring(with: match.range(at: 1))
                     let urlStr = nsText.substring(with: match.range(at: 2))
                     let raw = nsText.substring(with: matchRange)
@@ -1531,7 +1683,7 @@ struct SwashTextView: NSViewRepresentable {
                 let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
                 for match in matches {
                     let matchRange = match.range(at: 0)
-                    if isRangeInCodeBlock(matchRange, in: text) { continue }
+                    if codeRanges.excludes(matchRange) || isInsideTable(matchRange) { continue }
                     let alt = nsText.substring(with: match.range(at: 1))
                     let refKey = nsText.substring(with: match.range(at: 2)).lowercased()
                     let targetKey = refKey.isEmpty ? alt.lowercased() : refKey
@@ -1549,7 +1701,7 @@ struct SwashTextView: NSViewRepresentable {
                 let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
                 for match in matches {
                     let matchRange = match.range(at: 0)
-                    if isRangeInCodeBlock(matchRange, in: text) { continue }
+                    if codeRanges.excludes(matchRange) || isInsideTable(matchRange) { continue }
                     let alt = nsText.substring(with: match.range(at: 1))
                     if let urlStr = linkReferences[alt.lowercased()] {
                         let raw = nsText.substring(with: matchRange)
@@ -1562,14 +1714,16 @@ struct SwashTextView: NSViewRepresentable {
             pendingAttachments.sort { $0.location > $1.location }
             for item in pendingAttachments {
                 switch item {
-                case .table(let range, let headers, let alignments, let rows):
+                case .table(let range, let source, let headers, let alignments, let rows):
                     let validRange = NSIntersectionRange(range, NSRange(location: 0, length: textStorage.length))
                     if validRange.length > 0 {
                         let tableData = MarkdownTableData(headers: headers, alignments: alignments, rows: rows)
                         var attachment: TableTextAttachment? = nil
-                        attachment = TableTextAttachment(tableData: tableData, flavor: parent.flavor) { [weak self, weak textView] updatedData in
+                        attachment = TableTextAttachment(tableData: tableData, flavor: parent.flavor, originalMarkdown: source) { [weak self, weak textView] updatedData in
                             guard let self = self, let textView = textView, let textStorage = textView.textStorage, let attachment = attachment else { return }
                             attachment.tableData = updatedData
+                            // The table's raw length may have changed
+                            self.cachedOffsetMap = nil
                             self.parent.text = self.buildRawMarkdown(from: textStorage)
                         }
                         if let validAttachment = attachment {
@@ -1606,6 +1760,15 @@ struct SwashTextView: NSViewRepresentable {
             
             textStorage.endEditing()
             isHighlighting = false
+            cachedOffsetMap = nil
+            highlightedGeneration = editGeneration
+            
+            let map = offsetMap(for: textView)
+            cachedStorageCodeBlocks = codeRanges.blockRanges.map { map.storageRange(forRaw: $0) }
+            let restoredSelection = storageRange(forRaw: savedRawSelection, in: textView)
+            if textView.selectedRange() != restoredSelection {
+                textView.setSelectedRange(restoredSelection)
+            }
             
             if let origin = savedScrollOrigin, let clipView = textView.enclosingScrollView?.contentView {
                 clipView.scroll(to: origin)
@@ -1655,6 +1818,8 @@ struct SwashTextView: NSViewRepresentable {
             
             textStorage.endEditing()
             isHighlighting = false
+            cachedOffsetMap = nil
+            cachedStorageCodeBlocks = MarkdownParser.codeRanges(in: textView.string).blockRanges
             
             lastStyledText = textView.string
             lastIsStyled = false
@@ -1669,7 +1834,7 @@ struct SwashTextView: NSViewRepresentable {
             for match in matches {
                 if match.numberOfRanges >= 2 {
                     let matchRange = match.range(at: 0)
-                    if isRangeInCodeBlock(matchRange, in: text) {
+                    if currentCodeRanges.excludes(matchRange) {
                         continue
                     }
                     action(matchRange, match.range(at: 1))

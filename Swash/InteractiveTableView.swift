@@ -872,11 +872,24 @@ final class TableTextAttachment: NSTextAttachment {
     var flavor: MarkdownFlavor
     var onUpdate: ((MarkdownTableData) -> Void)?
     var cell: TableAttachmentCell
-    
-    init(tableData: MarkdownTableData, flavor: MarkdownFlavor, onUpdate: ((MarkdownTableData) -> Void)?) {
+    /// The exact source the table was parsed from, and the data parsed from it. While the table is
+    /// unedited, the original source is written back verbatim so untouched tables never churn.
+    let originalMarkdown: String?
+    private let originalTableData: MarkdownTableData
+
+    var rawMarkdown: String {
+        if let original = originalMarkdown, tableData == originalTableData {
+            return original
+        }
+        return MarkdownParser.tableToMarkdown(headers: tableData.headers, alignments: tableData.alignments, rows: tableData.rows)
+    }
+
+    init(tableData: MarkdownTableData, flavor: MarkdownFlavor, originalMarkdown: String? = nil, onUpdate: ((MarkdownTableData) -> Void)?) {
         self.tableData = tableData
         self.flavor = flavor
         self.onUpdate = onUpdate
+        self.originalMarkdown = originalMarkdown
+        self.originalTableData = tableData
         
         let cell = TableAttachmentCell(tableData: tableData, flavor: flavor, onUpdate: onUpdate)
         self.cell = cell

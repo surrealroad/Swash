@@ -23,23 +23,10 @@ struct LinkDetector {
         let length = nsText.length
         if length == 0 { return [] }
         
-        // Helper to check if range is in code block or inline code
+        // Code is located once per call; links inside code blocks or spans are not links
+        let codeRanges = MarkdownParser.codeRanges(in: fullText)
         func isInCode(_ range: NSRange) -> Bool {
-            // Find code blocks ```...```
-            if let regex = try? NSRegularExpression(pattern: "```[\\s\\S]*?```", options: []) {
-                let matches = regex.matches(in: fullText, options: [], range: NSRange(location: 0, length: length))
-                if matches.contains(where: { NSIntersectionRange($0.range, range).length > 0 }) {
-                    return true
-                }
-            }
-            // Find inline code `...`
-            if let regex = try? NSRegularExpression(pattern: "`[^`\\n]+`", options: []) {
-                let matches = regex.matches(in: fullText, options: [], range: NSRange(location: 0, length: length))
-                if matches.contains(where: { NSIntersectionRange($0.range, range).length > 0 }) {
-                    return true
-                }
-            }
-            return false
+            codeRanges.excludes(range)
         }
         
         if flavor == .slack {
@@ -76,6 +63,8 @@ struct LinkDetector {
                 for m in matches {
                     let fullR = m.range(at: 0)
                     if isInCode(fullR) { continue }
+                    // `![alt](src)` is an image, not a link
+                    if fullR.location > 0 && nsText.character(at: fullR.location - 1) == 0x21 { continue }
                     let textR = m.range(at: 1)
                     let urlR = m.range(at: 2)
                     let textStr = nsText.substring(with: textR)

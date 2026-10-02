@@ -258,6 +258,7 @@ struct BubbleMenuView: View {
             .cornerRadius(6)
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .frame(width: 72)
         .help("Select code format or language")
         .transition(.asymmetric(
@@ -295,6 +296,7 @@ struct BubbleMenuView: View {
             .cornerRadius(6)
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .frame(width: 48)
         .help("Select heading level")
         .transition(.asymmetric(
