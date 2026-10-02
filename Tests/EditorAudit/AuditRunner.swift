@@ -200,6 +200,14 @@ struct AuditRunner {
         let outDir = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "audit-out")
         try? FileManager.default.createDirectory(at: outDir.appendingPathComponent("shots"), withIntermediateDirectories: true)
         var report = ""
+        var failures: [String] = []
+        // Visible-text expectations for fixed behaviour (markers hidden, code literal)
+        let expectedVisible: [String: String] = [
+            "code-inline-with-emphasis-chars": "Call __init__ and a*b*c and [x](y)",
+            "code-inline-double-backtick": "Use a `tick` here",
+            "code-indented": "Para\n\n    indented code **x**\n    line2",
+            "img-in-table": "[TABLE]\n\nAfter table paragraph",
+        ]
         for p in probes {
             let box = TextBox(p.md)
             let (host, tvOpt) = makeEditor(box)
@@ -208,7 +216,13 @@ struct AuditRunner {
             let coord = tv.delegate as? SwashTextView.Coordinator
             let raw = coord?.buildRawMarkdown(from: storage) ?? "?"
             report += "## \(p.id)\nINPUT:   \(p.md.debugDescription)\nVISIBLE: \(visible.debugDescription)\nRUNS:    \(runs.joined(separator: " "))\n"
-            if raw != p.md { report += "ROUNDTRIP MISMATCH: \(raw.debugDescription)\n" }
+            if raw != p.md {
+                report += "ROUNDTRIP MISMATCH: \(raw.debugDescription)\n"
+                failures.append("\(p.id): raw markdown did not round-trip: \(raw.debugDescription)")
+            }
+            if let expected = expectedVisible[p.id], expected != visible {
+                failures.append("\(p.id): expected visible \(expected.debugDescription), got \(visible.debugDescription)")
+            }
             let blocks = MarkdownParser.parse(p.md).map { "\($0.type)".prefix(70) + ($0.text.isEmpty ? "" : " «\($0.text.prefix(40))»") }
             report += "PREVIEW BLOCKS: \(blocks.joined(separator: " | "))\n\n"
             _ = host
@@ -216,5 +230,7 @@ struct AuditRunner {
         }
         try? report.write(to: outDir.appendingPathComponent("report.md"), atomically: true, encoding: .utf8)
         print(report)
+        print(failures.isEmpty ? "RENDER: all expectations passed" : "RENDER FAILURES:\n" + failures.joined(separator: "\n"))
+        exit(failures.isEmpty ? 0 : 1)
     }
 }

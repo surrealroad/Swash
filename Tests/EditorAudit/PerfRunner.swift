@@ -18,5 +18,7 @@ func findTextView(in v: NSView) -> NSTextView? { if let tv = v as? NSTextView { 
         let start = Date(); for _ in 0..<3 { c.highlightMarkdown(in: tv) }
         let ms = Date().timeIntervalSince(start) / 3 * 1000
         print("lines=\(md.components(separatedBy: "\n").count) chars=\(md.count) highlight-per-keystroke=\(Int(ms))ms")
+        // Budget: must stay roughly linear (was 27 s at 2,200 lines before code ranges were precomputed)
+        if n == 200 && ms > 500 { print("PERF FAILURE: \(Int(ms))ms exceeds 500ms budget at 2,200 lines"); exit(1) }
     }
 }}

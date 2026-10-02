@@ -11,6 +11,18 @@ All findings below come from building and running the app's actual code: the rea
 
 Reports and side-by-side editor/preview PNGs are written to `build/editor-audit/`.
 
+> **Phase 0 status (2026-10-02, branch `fix/wysiwyg-phase0`):** all six Phase 0 items in §8 are done and covered by asserting regression tests in `Tests/EditorAudit/` (`run_audit.sh all` exits non-zero on any regression).
+> - D1–D5 are fixed.
+> - Bubble edits can be undone.
+> - Restyling takes 56 ms at 2,200 lines (was 26,949 ms).
+> - Code spans of any backtick length and indented code render and are no longer interpreted.
+> - `~~~` fences, `1)` lists and task items are recognised by the bubble menu.
+> - Prose containing `|` is no longer treated as a table.
+> - The italic-underscore toggle is fixed, selections are whitespace-trimmed, multi-line selections are wrapped per line, and code fences are placed on their own lines.
+> - The duplicate dropdown chevrons are removed.
+>
+> The sections below describe the pre-fix state.
+
 ---
 
 ## 1. Executive summary

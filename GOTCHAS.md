@@ -35,5 +35,17 @@
 - **Solution**: After a local run, restore with `git checkout -- Tests/GFMSpec/snapshots` unless the snapshots were intentionally regenerated.
 
 ## 9. Editor Text Storage Offsets ≠ Raw Markdown Offsets
-- **Issue**: In styled ("Edit Text") mode, tables and images are collapsed into a single U+FFFC attachment character, so `NSTextView.selectedRange()` does not index into `document.text`. Any code applying a selection range to raw markdown edits the wrong span after an attachment (see `docs/WYSIWYG_AUDIT.md` §3).
-- **Solution**: Map ranges through the attachments (storage ↔ raw) before applying edits to `document.text`, or apply edits to the text storage itself.
+- **Issue**: In styled ("Edit Text") mode, tables and images are collapsed into a single U+FFFC attachment character, so `NSTextView.selectedRange()` does not index into `document.text`. Applying a storage range to raw markdown edits the wrong span after an attachment.
+- **Solution**: The `selectedRange` binding published by `SwashTextView` is **always in raw-markdown offsets**. Convert with `Coordinator.rawRange(forStorage:in:)` / `storageRange(forRaw:in:)` (backed by `AttachmentOffsetMap`). Never apply a raw range to the text storage, or a storage range to `document.text`, without mapping. Invalidate the cached map (`invalidateOffsetMap()`) whenever storage changes outside `textDidChange`.
+
+## 10. Bubble-Menu Edits Must Go Through the Text View
+- **Issue**: Assigning `document.text = …` from SwiftUI makes `updateNSView` reset `textView.string`, which bypasses `NSUndoManager`. The edit can't be undone, and selection and typing state are lost.
+- **Solution**: Use `commitEdit(_:selection:actionName:)` in `ContentView`, which calls `SwashEditorController.apply`. That turns the rewrite into a minimal `shouldChangeText`/`replaceCharacters`/`didChangeText` edit on the live text view. Assign `document.text` directly only when no editor is attached.
+
+## 11. `ObservableObject` Conformance Fails for Plain Helper Classes
+- **Issue**: Declaring a property-less helper such as `final class SwashEditorController: ObservableObject` fails to build in this target (`does not conform to protocol 'ObservableObject'`).
+- **Solution**: Don't make non-observable helpers `ObservableObject`. Hold the reference in `@State private var editor = SwashEditorController()`; `@State` keeps the same instance across view updates.
+
+## 12. Code Detection Must Use `MarkdownParser.codeRanges(in:)`
+- **Issue**: Ad-hoc checks (counting ``` lines, regexing backticks) miss `~~~` fences, indented code and multi-backtick spans. Calling them once per regex match made styling quadratic (27 s per keystroke at 2,200 lines).
+- **Solution**: Compute `MarkdownParser.codeRanges(in:)` once per pass (one O(n) scan), then query it with `excludes(_:)`, `blockIntersects(_:)` or `spanContains(_:)` (binary search). `fencedCodeBlock(containing:in:)` locates the block around a selection.

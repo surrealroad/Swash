@@ -37,8 +37,13 @@ func caretBefore(_ needle: String, in tv: NSTextView) {
 }
 
 var out = ""
-func log(_ id: String, _ before: String, _ after: String, _ note: String = "") {
+var failures: [String] = []
+/// Records a probe. When `expect` is given the probe is a regression assertion.
+func log(_ id: String, _ before: String, _ after: String, _ note: String = "", expect: String? = nil) {
     out += "## \(id)\nBEFORE: \(before.debugDescription)\nAFTER:  \(after.debugDescription)\n\(note.isEmpty ? "" : "NOTE: \(note)\n")\n"
+    if let expected = expect, expected != after {
+        failures.append("\(id): expected \(expected.debugDescription), got \(after.debugDescription)")
+    }
 }
 
 @main
@@ -91,7 +96,7 @@ struct InteractionRunner {
              let afterType = b.text
              tv.undoManager?.undo(); pump()
              let afterUndo = b.text
-             log("undo-with-table-present", md, afterUndo, "after typing: \(afterType.debugDescription)\nexpected after undo: original text with 'Para'") }
+             log("undo-with-table-present", md, afterUndo, "after typing: \(afterType.debugDescription)", expect: md) }
         // 11. Undo after typing in a doc with an image
         do { let md = "![alt](missing.png)\n\nHello"
              let b = TextBox(md); let tv = makeEditor(b); caretAfter("Hello", in: tv)
@@ -104,12 +109,12 @@ struct InteractionRunner {
              let b = TextBox(md); let tv = makeEditor(b); caretAfter("Hello", in: tv)
              tv.insertText(" world", replacementRange: tv.selectedRange()); pump()
              tv.undoManager?.undo(); pump()
-             log("undo-plain", md, b.text, "expect 'Hello'") }
+             log("undo-plain", md, b.text, expect: "Hello") }
         // 13. Opening doc then typing: are untouched tables reformatted?
         do { let md = "|a|b|\n|-|-|\n|1|2|\n\nx"
              let b = TextBox(md); let tv = makeEditor(b); caretAfter("x", in: tv)
              tv.insertText("y", replacementRange: tv.selectedRange()); pump()
-             log("typing-rewrites-untouched-table", md, b.text, "a single keystroke elsewhere normalises every table in the file") }
+             log("typing-rewrites-untouched-table", md, b.text, "untouched tables must round-trip verbatim", expect: md + "y") }
         // 14. Selection coordinates vs raw markdown (attachments collapse to 1 char)
         do { let md = "![alt](missing.png) target word"
              let b = TextBox(md); let tv = makeEditor(b)
@@ -132,7 +137,24 @@ struct InteractionRunner {
              tv.insertText("---", replacementRange: tv.selectedRange()); pump()
              log("type-hr-under-paragraph", "Para\\n + '---'", b.text, "'Para' immediately becomes a setext H2 and '---' disappears (no blank line)") }
 
+        // 18. Consecutive keystrokes after a table keep the caret in place
+        do { let md = "| A | B |\n|---|---|\n| 1 | 2 |\n\nPara"
+             let b = TextBox(md); let tv = makeEditor(b); caretAfter("Para", in: tv)
+             for ch in ["a", "b", "c"] { tv.insertText(ch, replacementRange: tv.selectedRange()); pump() }
+             log("consecutive-typing-after-table", md, b.text, expect: md + "abc") }
+        // 19. Consecutive keystrokes between two images
+        do { let md = "![a](x.png) mid ![b](y.png) end"
+             let b = TextBox(md); let tv = makeEditor(b); caretAfter("mid", in: tv)
+             for ch in ["1", "2"] { tv.insertText(ch, replacementRange: tv.selectedRange()); pump() }
+             tv.undoManager?.undo(); pump()
+             let afterUndo = b.text
+             tv.undoManager?.redo(); pump()
+             log("typing-undo-redo-between-images", md, b.text, "after undo: \(afterUndo.debugDescription)", expect: "![a](x.png) mid12 ![b](y.png) end")
+             if afterUndo != md { failures.append("typing-undo-redo-between-images: undo expected original, got \(afterUndo.debugDescription)") } }
+
         try? out.write(toFile: CommandLine.arguments[1], atomically: true, encoding: .utf8)
         print(out)
+        print(failures.isEmpty ? "INTERACTION: all expectations passed" : "INTERACTION FAILURES:\n" + failures.joined(separator: "\n"))
+        exit(failures.isEmpty ? 0 : 1)
     }
 }
