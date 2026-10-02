@@ -42,6 +42,13 @@ Reports and side-by-side editor/preview PNGs are written to `build/editor-audit/
 > - **Coverage:** unit checks run in `./scripts/run_commonmark_spec.sh`; end-to-end cases run in `./Tests/EditorAudit/run_audit.sh`.
 > - **Remaining (Phase 3):** HTML/math/Mermaid rendering, incremental (per-block) restyling, and keeping the code badge clear of long first lines.
 >
+> **Phase 3 status (branch `feat/wysiwyg-phase3`):** done, except real math typesetting and Mermaid diagrams. Both need a rendering engine (for example a WebView with KaTeX and mermaid.js, or a dependency), which is still a decision to make.
+> - **Inline HTML** (`<kbd>`, `<sub>`/`<sup>`, `<mark>`, `<u>`, `<s>`, `<b>`/`<i>`, `<small>`, `<img width>`) renders in both panes.
+> - **Preview HTML blocks:** `<details>` disclosures, HTML converted to Markdown, and image-only blocks at their width.
+> - **Math:** `$…$` and `$$` blocks are parsed and styled, protected from Markdown, with a Unicode rendering in the Preview.
+> - **Editor polish:** alerts show icons, and code badges keep clear of long first lines.
+> - **Incremental restyling:** keystroke latency at 2,250 lines dropped from ~70 ms to ~20 ms.
+>
 > The sections below describe the pre-fix state.
 
 ---

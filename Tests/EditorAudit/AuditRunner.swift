@@ -182,6 +182,10 @@ let probes: [Probe] = [
     // HTML & extensions
     Probe(id: "html-inline", md: "Press <kbd>⌘</kbd>+<kbd>B</kbd>, H<sub>2</sub>O, x<sup>2</sup>, line<br>break, <mark>hi</mark>"),
     Probe(id: "html-block-details", md: "<details>\n<summary>More</summary>\n\nHidden **content**\n\n</details>"),
+    Probe(id: "html-block-image", md: "<p align=\"center\">\n  <img src=\"missing.png\" alt=\"Screenshot\" width=\"200\">\n</p>\n\nAfter"),
+    Probe(id: "html-block-converted", md: "<div>\n<b>Bold</b> and <a href=\"https://x.com\">link</a>\n</div>"),
+    Probe(id: "code-long-first-line", md: "```swift\nlet aVeryLongVariableName = someFunction(withArgument: 1, andAnother: 2, andYetAnother: 3)\n```"),
+    Probe(id: "alert-tip-icon", md: "> [!TIP]\n> Helpful advice."),
     Probe(id: "html-comment", md: "Visible <!-- hidden comment --> text"),
     Probe(id: "math", md: "Inline $E=mc^2$ and block:\n\n$$\n\\int_0^1 x dx\n$$"),
     Probe(id: "mermaid", md: "```mermaid\ngraph TD; A-->B\n```"),
@@ -207,6 +211,9 @@ struct AuditRunner {
             "code-inline-double-backtick": "Use a `tick` here",
             "code-indented": "Para\n\nindented code **x**\nline2",
             "img-in-table": "[TABLE]\n\nAfter table paragraph",
+            // Phase 3: inline HTML (tags hidden, content styled)
+            "html-inline": "Press ⌘+B, H2O, x2, line<br>break, hi",
+            "math": "Inline $E=mc^2$ and block:\n\n\\int_0^1 x dx\n",
             // Phase 1: AST-driven styling
             "em-nested-italic-in-bold": "bold with italic inside",
             "em-nested-bold-in-italic": "italic with bold inside",

@@ -45,6 +45,8 @@ enum ParserChecks {
         ("| a | b |\n|---|---|\n| 1 | 2 |", "table", ["|---|---|"]),
         ("| a | b |\n|---|---|\n| 1 | 2 |", "tableRow", ["|", "|", "|"]),
         ("---\ntitle: Doc\n---\n# Body", "frontMatter", ["---", "---"]),
+        ("Energy $E=mc^2$ here", "math", ["$", "$"]),
+        ("$$\nx^2\n$$", "codeBlock", ["$$", "$$"]),
     ]
 
     /// (markdown, selected substring or "|" caret marker, operation, expected markdown)
@@ -209,8 +211,33 @@ enum ParserChecks {
         ("<p>   spaced    out   </p>", "spaced out"),
     ]
     
+    private static let mathCases: [(String, String)] = [
+        ("E=mc^2", "E=mc²"),
+        ("\\alpha + \\beta", "α + β"),
+        ("x_1, x_{n+1}", "x₁, xₙ₊₁"),
+        ("\\frac{1}{2}", "1⁄2"),
+        ("\\frac{a+b}{c}", "(a+b)/c"),
+        ("\\sqrt{x}", "√x"),
+        ("\\sum_{i=1}^{n} i", "∑ᵢ₌₁ⁿ i"),
+        ("\\int_0^1 x\\,dx", "∫₀¹ x\u{2009}dx"),
+        ("a \\le b \\neq c", "a ≤ b ≠ c"),
+        ("\\mathbb{R}^n", "ℝⁿ"),
+        ("\\text{if } x > 0", "if x > 0"),
+        ("\\left( x \\right)", "( x )"),
+        ("x^{\\alpha}", "x^α"),
+        ("x^{ab+c}", "xᵃᵇ⁺ᶜ"),
+        ("x^{qz}", "x^(qz)"),
+    ]
+    
     private static func runHTML() -> Int {
         var failures = 0
+        for (tex, expected) in mathCases {
+            let actual = MarkdownMath.unicode(tex)
+            if actual != expected {
+                failures += 1
+                print("❌ math \(tex.debugDescription): expected \(expected.debugDescription), got \(actual.debugDescription)")
+            }
+        }
         for (html, expected) in htmlCases {
             let actual = HTMLToMarkdown.convert(html) ?? "nil"
             if actual != expected {
@@ -290,6 +317,9 @@ enum ParserChecks {
             ("---\ntitle: Doc\ntags: [a]\n---\n\n# Body", "frontMatter"),
             ("---\n\n# Not front matter\n\n---", "thematicBreak"),
             ("1. [x] ordered task", "listItem(task: Optional(Swash.TaskState.checked))|listItem(task: Optional(main.TaskState.checked))"),
+            ("$a_1 * b_2$ text", "math"),
+            ("$5 and $10", "text"),
+            ("$$\n\\int_0^1 x\\,dx\n$$", "codeBlock(fenced: true, info: \"math\")"),
         ]
         for (markdown, expectedKind) in extensionCases {
             let document = MarkdownDocument.parse(markdown)
@@ -304,7 +334,7 @@ enum ParserChecks {
 
         // 2. Fuzzing: random markdown-ish input must parse with valid, nested ranges
         var generator = SplitMix64(seed: 0x5157A5)
-        let alphabet = Array("ab *_~`#>-+=|:[]()!<>&;\\\n\n  \t1.)x^\"'/@w.")
+        let alphabet = Array("ab *_~`#>-+=|:[]()!<>&;\\\n\n  \t1.)x^\"'/@w.$$")
         var fuzzFailures = 0
         for _ in 0..<3000 {
             let length = Int(generator.next() % 120)
@@ -329,6 +359,7 @@ enum ParserChecks {
             ("backticks", String(repeating: "`a``", count: 3000)),
             ("link openers", String(repeating: "[a](", count: 3000)),
             ("underscores", String(repeating: "_a ", count: 5000)),
+            ("math openers", String(repeating: "$a ", count: 5000)),
             ("long document", String(repeating: "## Head *x*\n\nPara **b** [l](u) `c`\n\n- item\n\n", count: 1000)),
         ]
         for (name, input) in pathological {

@@ -126,9 +126,7 @@ struct MarkdownPreviewView: View {
                         .italic()
                         .padding(.top, 24)
                 } else {
-                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                        MarkdownBlockView(node: block, context: context)
-                    }
+                    MarkdownBlockList(nodes: blocks, context: context)
                     MarkdownFootnotesView(context: context)
                 }
             }
@@ -146,6 +144,183 @@ struct MarkdownPreviewView: View {
     static func parse(_ text: String, flavor: MarkdownFlavor) -> MarkdownDocument {
         let source = flavor == .slack ? MarkdownParser.convertSlackToGithub(text) : text
         return MarkdownDocument.parse(source)
+    }
+}
+
+/// A sequence of sibling blocks. `<details>` … `</details>` HTML blocks and the Markdown between
+/// them are grouped into a disclosure; every other block renders on its own.
+struct MarkdownBlockList: View {
+    let nodes: [MarkdownNode]
+    let context: MarkdownRenderContext
+    var spacing: CGFloat = 14
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            ForEach(Array(MarkdownBlockList.group(nodes).enumerated()), id: \.offset) { _, item in
+                switch item {
+                case .block(let node):
+                    AnyView(MarkdownBlockView(node: node, context: context))
+                case .details(let summary, let open, let content):
+                    AnyView(MarkdownDetailsView(summary: summary, initiallyOpen: open, content: content, context: context))
+                }
+            }
+        }
+    }
+    
+    enum Item {
+        case block(MarkdownNode)
+        case details(summary: String, open: Bool, content: [MarkdownNode])
+    }
+    
+    private static func isDetailsOpen(_ node: MarkdownNode) -> Bool {
+        guard case .htmlBlock = node.kind else { return false }
+        return node.literal.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("<details")
+    }
+    
+    private static func isDetailsClose(_ node: MarkdownNode) -> Bool {
+        guard case .htmlBlock = node.kind else { return false }
+        return node.literal.lowercased().contains("</details>")
+    }
+    
+    static func summary(in html: String) -> String? {
+        guard let start = html.range(of: "<summary[^>]*>", options: [.regularExpression, .caseInsensitive]),
+              let end = html.range(of: "</summary>", options: .caseInsensitive, range: start.upperBound..<html.endIndex) else { return nil }
+        let inner = String(html[start.upperBound..<end.lowerBound])
+        return inner.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    static func group(_ nodes: [MarkdownNode]) -> [Item] {
+        var items: [Item] = []
+        var i = 0
+        while i < nodes.count {
+            let node = nodes[i]
+            if isDetailsOpen(node), !isDetailsClose(node) {
+                // Find the matching </details>, allowing nesting
+                var depth = 1
+                var j = i + 1
+                while j < nodes.count {
+                    if isDetailsOpen(nodes[j]) && !isDetailsClose(nodes[j]) { depth += 1 }
+                    if isDetailsClose(nodes[j]) { depth -= 1; if depth == 0 { break } }
+                    j += 1
+                }
+                if j < nodes.count {
+                    var content = Array(nodes[(i + 1)..<j])
+                    var summary = summary(in: node.literal)
+                    // <summary> may be its own HTML block right after <details>
+                    if summary == nil, let first = content.first, case .htmlBlock = first.kind, let s = MarkdownBlockList.summary(in: first.literal) {
+                        summary = s
+                        content.removeFirst()
+                    }
+                    let open = node.literal.range(of: "<details[^>]*\\bopen\\b", options: [.regularExpression, .caseInsensitive]) != nil
+                    items.append(.details(summary: summary ?? "Details", open: open, content: content))
+                    i = j + 1
+                    continue
+                }
+            }
+            items.append(.block(node))
+            i += 1
+        }
+        return items
+    }
+}
+
+struct MarkdownDetailsView: View {
+    let summary: String
+    let content: [MarkdownNode]
+    let context: MarkdownRenderContext
+    @State private var isExpanded: Bool
+    
+    init(summary: String, initiallyOpen: Bool, content: [MarkdownNode], context: MarkdownRenderContext) {
+        self.summary = summary
+        self.content = content
+        self.context = context
+        _isExpanded = State(initialValue: initiallyOpen)
+    }
+    
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            MarkdownBlockList(nodes: content, context: context, spacing: 10)
+                .padding(.top, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text(summary).fontWeight(.semibold)
+        }
+    }
+}
+
+/// Raw HTML blocks: images (with their width) render directly; other HTML is converted to Markdown
+/// and rendered as blocks. Fragments with no content (an opening <div>, a comment) render nothing.
+struct MarkdownHTMLBlockView: View {
+    let html: String
+    let context: MarkdownRenderContext
+    
+    private static let imageTagRegex = try! NSRegularExpression(pattern: "<img\\b[^>]*>", options: [.caseInsensitive])
+    
+    var body: some View {
+        let images = MarkdownHTMLBlockView.images(in: html)
+        let markdown = HTMLToMarkdown.convert(html)
+        let document = markdown.map { MarkdownDocument.parse($0) }
+        let textContent = document.map { doc -> String in
+            var text = ""
+            doc.root.walk { if case .text = $0.kind { text += $0.literal } }
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        } ?? ""
+        if !images.isEmpty && textContent.isEmpty {
+            MarkdownFlowLayout(spacing: 6) {
+                ForEach(Array(images.enumerated()), id: \.offset) { _, image in
+                    MarkdownImageView(alt: image.alt, urlString: image.src, baseURL: context.baseURL, maxWidth: image.width)
+                }
+            }
+        } else if let document = document {
+            MarkdownBlockList(nodes: document.root.children, context: MarkdownRenderContext(document: document, baseURL: context.baseURL), spacing: 10)
+        }
+    }
+    
+    static func images(in html: String) -> [(src: String, alt: String, width: CGFloat?)] {
+        let ns = html as NSString
+        return imageTagRegex.matches(in: html, options: [], range: NSRange(location: 0, length: ns.length)).compactMap { match in
+            if case .image(let src, let alt, let width) = InlineHTMLTag(ns.substring(with: match.range)).kind {
+                return (src, alt, width.map { CGFloat($0) })
+            }
+            return nil
+        }
+    }
+}
+
+/// Lays children out left to right, wrapping onto new rows (badge rows, image galleries).
+struct MarkdownFlowLayout: Layout {
+    var spacing: CGFloat = 6
+    
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0 && x + size.width > maxWidth {
+                y += rowHeight + spacing
+                x = 0
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+            widest = max(widest, x - spacing)
+        }
+        return CGSize(width: min(widest, maxWidth), height: y + rowHeight)
+    }
+    
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX && x + size.width > bounds.maxX {
+                y += rowHeight + spacing
+                x = bounds.minX
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 
@@ -169,11 +344,7 @@ struct MarkdownBlockView: View {
     }
     
     private func children(spacing: CGFloat = 10) -> some View {
-        VStack(alignment: .leading, spacing: spacing) {
-            ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in
-                AnyView(MarkdownBlockView(node: child, context: context))
-            }
-        }
+        MarkdownBlockList(nodes: node.children, context: context, spacing: spacing)
     }
     
     @ViewBuilder
@@ -254,15 +425,21 @@ struct MarkdownBlockView: View {
                 }
             }
             
+        case .codeBlock(_, let info) where info.lowercased() == "math":
+            // $$ display math (or ```math): a readable Unicode rendering, centred
+            Text(MarkdownMath.unicode(node.literal.replacingOccurrences(of: "\n", with: " ")))
+                .font(.system(size: 17, design: .serif))
+                .italic()
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 8)
+            
         case .codeBlock(_, let info):
             let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init)
             CodeBlockView(code: node.literal.hasSuffix("\n") ? String(node.literal.dropLast()) : node.literal, language: language)
             
         case .htmlBlock:
-            Text(node.literal)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            MarkdownHTMLBlockView(html: node.literal, context: context)
             
         case .thematicBreak:
             Divider()
@@ -453,6 +630,8 @@ struct MarkdownImageView: View {
     let alt: String
     let urlString: String
     var baseURL: URL? = nil
+    /// Width from an HTML <img width="…"> attribute.
+    var maxWidth: CGFloat? = nil
     @ObservedObject private var folderAccessManager = FolderAccessManager.shared
     
     private var cleanedData: (url: String, title: String?) {
@@ -485,6 +664,7 @@ struct MarkdownImageView: View {
                     image
                         .resizable()
                         .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: maxWidth)
                         .cornerRadius(6)
                         .help(tooltip)
                 case .failure:
@@ -507,6 +687,7 @@ struct MarkdownImageView: View {
             Image(nsImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: maxWidth ?? nsImage.size.width)
                 .cornerRadius(6)
                 .help(tooltip)
                 .padding(.vertical, 6)
@@ -559,8 +740,8 @@ struct MarkdownInlineView: View {
                     switch segment {
                     case .text(let text):
                         text.fixedSize(horizontal: false, vertical: true)
-                    case .image(let alt, let url):
-                        MarkdownImageView(alt: alt, urlString: url, baseURL: context.baseURL)
+                    case .image(let alt, let url, let width):
+                        MarkdownImageView(alt: alt, urlString: url, baseURL: context.baseURL, maxWidth: width)
                     }
                 }
             }
@@ -593,7 +774,7 @@ struct InlineMarkdownText: View {
 
 enum MarkdownInlineSegment {
     case text(Text)
-    case image(alt: String, url: String)
+    case image(alt: String, url: String, width: CGFloat?)
 }
 
 /// Builds SwiftUI Text from inline AST nodes.
@@ -605,6 +786,27 @@ enum MarkdownInlineAttributes {
         var strike = false
         var link: URL? = nil
         var superscript = false
+        var lowered = false
+        var math = false
+        var underline = false
+        var highlight = false
+        var keyboard = false
+        var small = false
+        
+        mutating func apply(_ html: InlineHTMLStyle) {
+            switch html {
+            case .keyboard: keyboard = true; mono = true
+            case .lowered: lowered = true
+            case .raised: superscript = true
+            case .highlight: highlight = true
+            case .underline: underline = true
+            case .strikethrough: strike = true
+            case .bold: bold = true
+            case .italic: italic = true
+            case .small: small = true
+            case .code: mono = true
+            }
+        }
     }
     
     static func segments(_ nodes: [MarkdownNode], context: MarkdownRenderContext) -> [MarkdownInlineSegment] {
@@ -624,18 +826,35 @@ enum MarkdownInlineAttributes {
                 attributed.underlineStyle = .single
                 attributed.foregroundColor = .accentColor
             }
+            if style.highlight { attributed.backgroundColor = Color.yellow.opacity(0.4) }
+            if style.keyboard { attributed.backgroundColor = Color.secondary.opacity(0.15) }
             var run = Text(attributed)
             if style.bold { run = run.bold() }
             if style.italic { run = run.italic() }
             if style.strike { run = run.strikethrough() }
+            if style.underline { run = run.underline() }
+            if style.math { run = run.fontDesign(.serif).italic() }
             if style.mono {
                 run = run.monospaced()
-                if style.link == nil { run = run.foregroundColor(Color(nsColor: .systemPurple)) }
+                if style.link == nil && !style.keyboard { run = run.foregroundColor(Color(nsColor: .systemPurple)) }
             }
+            if style.small { run = run.font(.callout) }
+            if style.lowered { run = run.font(.system(size: 10)).baselineOffset(-3) }
             if style.superscript {
-                run = run.font(.system(size: 10, weight: .semibold)).baselineOffset(4).foregroundColor(.accentColor)
+                // Footnote references (links) are accent-coloured; <sup> text keeps its colour
+                run = run.font(.system(size: 10, weight: .semibold)).baselineOffset(4)
+                if style.link != nil { run = run.foregroundColor(.accentColor) }
             }
             current = current.map { $0 + run } ?? run
+        }
+        /// Visits siblings, applying paired inline HTML tags (<kbd>…</kbd>) to the nodes between them.
+        func visitChildren(_ children: [MarkdownNode], _ style: Style) {
+            let pairing = MarkdownInlineHTML.pairing(of: children)
+            for (index, child) in children.enumerated() where !pairing.pairedTags.contains(index) {
+                var childStyle = style
+                for html in pairing.styles[index] ?? [] { childStyle.apply(html) }
+                visit(child, childStyle)
+            }
         }
         func visit(_ node: MarkdownNode, _ style: Style) {
             var style = style
@@ -651,31 +870,40 @@ enum MarkdownInlineAttributes {
                 append(node.literal, style)
             case .emphasis:
                 style.italic = true
-                node.children.forEach { visit($0, style) }
+                visitChildren(node.children, style)
             case .strong:
                 style.bold = true
-                node.children.forEach { visit($0, style) }
+                visitChildren(node.children, style)
             case .strikethrough:
                 style.strike = true
-                node.children.forEach { visit($0, style) }
+                visitChildren(node.children, style)
             case .link(let destination, _, _):
                 style.link = MarkdownEditorStyler.url(destination)
-                node.children.forEach { visit($0, style) }
+                visitChildren(node.children, style)
             case .image(let destination, _):
                 flush()
-                segments.append(.image(alt: node.plainText, url: destination))
+                segments.append(.image(alt: node.plainText, url: destination, width: nil))
             case .htmlInline:
-                // Raw HTML tags are not shown; <br> becomes a line break
-                if node.literal.lowercased().hasPrefix("<br") { append("\n", style) }
+                // Raw HTML tags are not shown; <br> becomes a line break and <img> an image
+                switch InlineHTMLTag(node.literal).kind {
+                case .lineBreak: append("\n", style)
+                case .image(let src, let alt, let width):
+                    flush()
+                    segments.append(.image(alt: alt, url: src, width: width.map { CGFloat($0) }))
+                default: break
+                }
+            case .math:
+                style.math = true
+                append(MarkdownMath.unicode(node.literal), style)
             case .footnoteReference(let label):
                 style.superscript = true
                 style.link = URL(string: "#fn-\(MarkdownSyntax.normalizeURI(label))")
                 append(context.footnoteNumber(label).map(String.init) ?? label, style)
             default:
-                node.children.forEach { visit($0, style) }
+                visitChildren(node.children, style)
             }
         }
-        for node in nodes { visit(node, Style()) }
+        visitChildren(nodes, Style())
         flush()
         if segments.isEmpty { segments.append(.text(Text(""))) }
         return segments

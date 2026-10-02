@@ -34,6 +34,28 @@ final class IndentedTextBlock: NSTextBlock {
 extension NSAttributedString.Key {
     /// Marks the first character of a fenced code block; the layout manager draws its language badge.
     static let codeBadge = NSAttributedString.Key("SwashCodeBadgeKey")
+    /// Marks the first character of an alert title; the layout manager draws the alert's icon before it.
+    static let alertIcon = NSAttributedString.Key("SwashAlertIconKey")
+}
+
+struct AlertIconInfo {
+    let type: AlertType
+    let color: NSColor
+    
+    var symbolName: String {
+        switch type {
+        case .note: return "info.circle.fill"
+        case .tip: return "lightbulb.fill"
+        case .important: return "exclamationmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .caution: return "octagon.fill"
+        }
+    }
+    
+    var image: NSImage? {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 12, weight: .bold).applying(.init(paletteColors: [color]))
+        return NSImage(systemSymbolName: symbolName, accessibilityDescription: type.title)?.withSymbolConfiguration(configuration)
+    }
 }
 
 struct CodeBadgeInfo {
@@ -46,6 +68,8 @@ struct CodeBadgeInfo {
         .kern: 0.6,
     ]
     
+    var width: CGFloat { (title as NSString).size(withAttributes: Self.attributes).width + 4 }
+    
     /// Badge rect in text-container coordinates for the line fragment holding the block's first line.
     func rect(in lineRect: NSRect) -> NSRect {
         let size = (title as NSString).size(withAttributes: Self.attributes)
@@ -57,7 +81,7 @@ struct CodeBadgeInfo {
 struct EditorAttachmentRequest {
     enum Kind {
         case table(source: String, headers: [String], alignments: [TableAlignment], rows: [[String]])
-        case image(alt: String, urlString: String, rawMarkdown: String)
+        case image(alt: String, urlString: String, rawMarkdown: String, width: CGFloat?)
     }
     let range: NSRange
     let kind: Kind
@@ -75,8 +99,29 @@ final class MarkdownEditorStyler {
         var strike = false
         var link: URL? = nil
         var superscript = false
+        var subscriptText = false
+        var underline = false
+        var highlight = false
+        var keyboard = false
+        var smallText = false
+        
+        /// Applies an enclosing inline HTML tag (<kbd>, <sub>, <mark>…).
+        mutating func apply(_ html: InlineHTMLStyle) {
+            switch html {
+            case .keyboard: keyboard = true; mono = true
+            case .lowered: subscriptText = true
+            case .raised: superscript = true
+            case .highlight: highlight = true
+            case .underline: underline = true
+            case .strikethrough: strike = true; color = .secondaryLabelColor
+            case .bold: bold = true
+            case .italic: italic = true
+            case .small: smallText = true
+            case .code: mono = true; if link == nil { color = .systemPurple }
+            }
+        }
     }
-
+    
     private struct BlockContext {
         var indent: CGFloat = 0
         var listDepth = 0
@@ -87,36 +132,66 @@ final class MarkdownEditorStyler {
     }
 
     private let storage: NSTextStorage
+    /// The raw Markdown (what the AST ranges index). The storage may differ outside the region being
+    /// styled (collapsed attachments), so writes go to `raw location - storageShift`.
     private let text: NSString
+    private let storageShift: Int
     private let document: MarkdownDocument
     private var hidden: [NSRange] = []
     private(set) var attachments: [EditorAttachmentRequest] = []
     /// Code blocks, code spans, HTML and front matter (raw offsets), excluded from spellchecking.
     private(set) var codeRanges: [NSRange] = []
 
-    init(storage: NSTextStorage, document: MarkdownDocument) {
+    /// `storageShift`: raw offset minus storage offset for the region being styled (0 when the storage
+    /// holds the raw text throughout).
+    init(storage: NSTextStorage, document: MarkdownDocument, storageShift: Int = 0) {
         self.storage = storage
-        self.text = storage.string as NSString
+        self.text = document.source as NSString
+        self.storageShift = storageShift
         self.document = document
     }
-
+    
     /// Applies all styling. The caller has already reset attributes and wraps this in begin/endEditing.
     func style() {
+        style(blocks: document.root.children)
+    }
+    
+    /// Styles only the given top-level blocks (incremental restyling).
+    func style(blocks: [MarkdownNode]) {
         let context = BlockContext()
-        for block in document.root.children {
+        for block in blocks {
             styleBlock(block, context)
         }
         for range in hidden {
             hide(range)
         }
     }
+    
+    /// Code-like ranges of the whole document (raw offsets), sorted: code, HTML, math and front matter
+    /// are excluded from spellchecking.
+    static func spellcheckExclusions(in document: MarkdownDocument) -> [NSRange] {
+        var ranges: [NSRange] = []
+        document.root.walk { node in
+            switch node.kind {
+            case .codeBlock, .htmlBlock, .frontMatter, .code, .htmlInline, .math: ranges.append(node.range)
+            default: break
+            }
+        }
+        return ranges.sorted { $0.location < $1.location }
+    }
 
     // MARK: - Attribute helpers
 
     private var fullRange: NSRange { NSRange(location: 0, length: storage.length) }
-
+    
+    /// Maps a raw range to the storage, clipped to the storage bounds.
     private func valid(_ range: NSRange) -> NSRange {
-        NSIntersectionRange(range, fullRange)
+        NSIntersectionRange(NSRange(location: range.location - storageShift, length: range.length), fullRange)
+    }
+    
+    /// Clips a raw range to the raw text.
+    private func rawClamp(_ range: NSRange) -> NSRange {
+        NSIntersectionRange(range, NSRange(location: 0, length: text.length))
     }
 
     private func hide(_ range: NSRange) {
@@ -141,10 +216,14 @@ final class MarkdownEditorStyler {
 
     private func font(for style: InlineStyle) -> NSFont {
         var font: NSFont
+        var size = style.size
+        if style.smallText { size *= 0.85 }
+        if style.subscriptText { size *= 0.75 }
+        if style.keyboard { size -= 1 }
         if style.mono {
-            font = NSFont.monospacedSystemFont(ofSize: max(1, style.size - 1), weight: style.bold ? .bold : .regular)
+            font = NSFont.monospacedSystemFont(ofSize: max(1, size - 1), weight: style.bold ? .bold : .regular)
         } else {
-            font = NSFont.systemFont(ofSize: style.size, weight: style.bold ? .bold : .regular)
+            font = NSFont.systemFont(ofSize: size, weight: style.bold ? .bold : .regular)
         }
         if style.italic {
             font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
@@ -172,6 +251,18 @@ final class MarkdownEditorStyler {
         if style.superscript {
             storage.addAttribute(.baselineOffset, value: 4, range: r)
         }
+        if style.subscriptText {
+            storage.addAttribute(.baselineOffset, value: -3, range: r)
+        }
+        if style.underline {
+            storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
+        }
+        if style.highlight {
+            storage.addAttribute(.backgroundColor, value: NSColor.systemYellow.withAlphaComponent(0.35), range: r)
+        }
+        if style.keyboard {
+            storage.addAttribute(.backgroundColor, value: NSColor.textColor.withAlphaComponent(0.08), range: r)
+        }
     }
 
     private func paragraphStyle(_ context: BlockContext, lineSpacing: CGFloat = 0) -> NSParagraphStyle {
@@ -185,8 +276,7 @@ final class MarkdownEditorStyler {
 
     private func setParagraphStyle(_ style: NSParagraphStyle, over range: NSRange) {
         // Paragraph attributes must cover whole paragraphs, including the trailing newline
-        var r = text.paragraphRange(for: valid(range))
-        r = valid(r)
+        let r = valid(text.paragraphRange(for: rawClamp(range)))
         guard r.length > 0 else { return }
         storage.addAttribute(.paragraphStyle, value: style, range: r)
     }
@@ -223,7 +313,7 @@ final class MarkdownEditorStyler {
     }
 
     private func source(_ range: NSRange) -> String {
-        text.substring(with: valid(range))
+        text.substring(with: rawClamp(range))
     }
 
     // MARK: - Blocks
@@ -282,10 +372,17 @@ final class MarkdownEditorStyler {
             apply(inner.inline, to: node.range)
             // Quote markers, and the alert's [!TYPE] marker shown as a coloured title
             for marker in node.markers {
-                if case .alert = node.kind, source(marker).hasPrefix("[!") {
+                if case .alert(let type) = node.kind, source(marker).hasPrefix("[!") {
                     apply(InlineStyle(size: 13, bold: true, color: color), to: marker)
                     hideMarker(NSRange(location: marker.location, length: 2))
                     hideMarker(NSRange(location: marker.location + marker.length - 1, length: 1))
+                    // Icon before the title, as in the Preview: indent the title line to make room
+                    let iconRange = valid(NSRange(location: marker.location + 2, length: 1))
+                    if iconRange.length > 0 { storage.addAttribute(.alertIcon, value: AlertIconInfo(type: type, color: color), range: iconRange) }
+                    var titleContext = inner
+                    titleContext.indent = 20
+                    let titleLine = valid(text.paragraphRange(for: NSRange(location: marker.location, length: 0)))
+                    storage.addAttribute(.paragraphStyle, value: paragraphStyle(titleContext), range: titleLine)
                 } else {
                     hideMarker(marker)
                 }
@@ -362,14 +459,23 @@ final class MarkdownEditorStyler {
                     let blockEnd = node.markers.count > 1 ? node.markers[1].location : NSMaxRange(node.range)
                     if firstContent < blockEnd, firstContent < text.length {
                         let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init)
-                        storage.addAttribute(.codeBadge, value: CodeBadgeInfo(language: language), range: NSRange(location: firstContent, length: 1))
+                        let badge = CodeBadgeInfo(language: language)
+                        let badgeRange = valid(NSRange(location: firstContent, length: 1))
+                        if badgeRange.length > 0 { storage.addAttribute(.codeBadge, value: badge, range: badgeRange) }
+                        // Keep the first line's text clear of the badge
+                        let firstLine = valid(text.paragraphRange(for: NSRange(location: firstContent, length: 0)))
+                        if badgeRange.length > 0,
+                           let style = (storage.attribute(.paragraphStyle, at: badgeRange.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+                            style.tailIndent = -(badge.width + 16)
+                            storage.addAttribute(.paragraphStyle, value: style, range: firstLine)
+                        }
                     }
                 }
             } else {
                 hideContinuationIndent(in: node.range, maxColumns: 4, includeFirstLine: true)
             }
             let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map { String($0).lowercased() }
-            highlightCode(in: node, language: language)
+            if language != "math" { highlightCode(in: node, language: language) }
             codeRanges.append(node.range)
 
         case .htmlBlock:
@@ -428,8 +534,17 @@ final class MarkdownEditorStyler {
     // MARK: - Inlines
 
     private func styleInlines(_ node: MarkdownNode, _ style: InlineStyle) {
-        for child in node.children {
-            styleInline(child, style)
+        let children = node.children
+        let pairing = MarkdownInlineHTML.pairing(of: children)
+        for (index, child) in children.enumerated() {
+            if pairing.pairedTags.contains(index) {
+                // Paired formatting tags are syntax, hidden like Markdown markers
+                hideMarker(child.range)
+                continue
+            }
+            var childStyle = style
+            for html in pairing.styles[index] ?? [] { childStyle.apply(html) }
+            styleInline(child, childStyle)
         }
     }
 
@@ -479,11 +594,24 @@ final class MarkdownEditorStyler {
         case .image(let destination, _):
             // Images inside tables are part of the table attachment
             if node.ancestors.contains(where: { if case .table = $0.kind { return true }; return false }) { return }
-            attachments.append(EditorAttachmentRequest(range: node.range, kind: .image(alt: node.plainText, urlString: destination, rawMarkdown: source(node.range))))
+            attachments.append(EditorAttachmentRequest(range: node.range, kind: .image(alt: node.plainText, urlString: destination, rawMarkdown: source(node.range), width: nil)))
         case .htmlInline:
+            if case .image(let src, let alt, let width) = InlineHTMLTag(node.literal).kind,
+               !node.ancestors.contains(where: { if case .table = $0.kind { return true }; return false }) {
+                attachments.append(EditorAttachmentRequest(range: node.range, kind: .image(alt: alt, urlString: src, rawMarkdown: source(node.range), width: width.map { CGFloat($0) })))
+                return
+            }
             var s = style
             s.color = .secondaryLabelColor
             apply(s, to: node.range)
+            codeRanges.append(node.range)
+        case .math:
+            // TeX source in a distinct style; the $ delimiters stay visible but dim
+            var s = style
+            s.mono = true
+            s.color = .systemTeal
+            apply(s, to: node.range)
+            for marker in node.markers { apply(InlineStyle(size: style.size, mono: true, color: .tertiaryLabelColor), to: marker) }
             codeRanges.append(node.range)
         case .footnoteReference:
             var s = style
@@ -504,7 +632,7 @@ final class MarkdownEditorStyler {
 
     private func highlightCode(in node: MarkdownNode, language: String?) {
         guard let language = language else { return }
-        let range = valid(node.range)
+        let range = rawClamp(node.range)
         var line = range.location
         let end = range.location + range.length
         while line < end {
@@ -512,7 +640,7 @@ final class MarkdownEditorStyler {
             var contentLength = lineRange.length
             if contentLength > 0 && text.character(at: lineRange.location + contentLength - 1) == 0x0A { contentLength -= 1 }
             let lineText = text.substring(with: NSRange(location: lineRange.location, length: contentLength))
-            MarkdownCodeHighlighter.highlight(line: lineText, offset: lineRange.location, language: language, in: storage)
+            MarkdownCodeHighlighter.highlight(line: lineText, offset: lineRange.location - storageShift, language: language, in: storage)
             if lineRange.length == 0 { break }
             line = lineRange.location + lineRange.length
         }

@@ -221,6 +221,10 @@ struct MarkdownHTMLRenderer {
             }
         case .htmlInline:
             lit(node.literal)
+        case .math:
+            tag("span", [("class", "math math-inline")])
+            out(node.literal)
+            tag("/span")
         case .footnoteReference(let label):
             let normalized = MarkdownSyntax.normalizeLabel(label)
             let number = footnoteNumbers[normalized] ?? 0
