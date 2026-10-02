@@ -29,4 +29,10 @@ Notion-style structural editing in the editor:
 - **Rich paste**: in Edit Text, text pasted from web pages, Google Docs, Pages, Word or TextEdit is converted to Markdown, keeping bold, italic, strikethrough, code, links, images, headings, lists, to-dos, quotes, code blocks and tables. Text copied from code editors keeps its indentation, and Paste and Match Style still pastes plain text.
 - **Copy and paste between Swash documents** is exact, tables and images included.
 
+- **"/" block menu**: typing `/` at the start of an empty line or list item in Edit Text opens a menu that inserts a block:
+  - text or Heading 1–3;
+  - bulleted, numbered or to-do list;
+  - quote or callout;
+  - code block, divider or table.
+
 Code blocks are never affected, and every change can be undone.

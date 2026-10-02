@@ -92,6 +92,13 @@ struct AttachmentOffsetMap {
 
 /// Lets SwiftUI views apply document edits through the live text view, so they are undoable and
 /// keep the editor's selection, scroll position and styling intact.
+/// Target for closure-backed menu items.
+final class BlockMenuTarget: NSObject {
+    private let action: () -> Void
+    init(_ action: @escaping () -> Void) { self.action = action }
+    @objc func select() { action() }
+}
+
 final class SwashEditorController {
     weak var textView: NSTextView?
     weak var coordinator: SwashTextView.Coordinator?
@@ -1018,6 +1025,58 @@ struct SwashTextView: NSViewRepresentable {
             } else {
                 self.parent.selectedRange = nil
                 self.parent.selectionRect = nil
+            }
+        }
+        
+        // MARK: "/" block menu
+        
+        /// Presents the block menu at a point in the text view and reports the choice (nil when dismissed).
+        /// Replaceable so tests can choose an item without a real menu.
+        static var blockMenuPresenter: (NSTextView, NSPoint, @escaping (MarkdownEditingCommands.BlockInsert?) -> Void) -> Void = { textView, point, choose in
+            let menu = NSMenu(title: "Insert Block")
+            menu.autoenablesItems = false
+            var chosen: MarkdownEditingCommands.BlockInsert? = nil
+            let targets = MarkdownEditingCommands.BlockInsert.allCases.map { kind in BlockMenuTarget { chosen = kind } }
+            for (kind, target) in zip(MarkdownEditingCommands.BlockInsert.allCases, targets) {
+                if kind == .bulletList || kind == .quote || kind == .divider { menu.addItem(.separator()) }
+                let item = NSMenuItem(title: kind.title, action: #selector(BlockMenuTarget.select), keyEquivalent: "")
+                item.target = target
+                item.image = NSImage(systemSymbolName: kind.symbolName, accessibilityDescription: nil)
+                menu.addItem(item)
+            }
+            menu.popUp(positioning: menu.items.first, at: point, in: textView)
+            _ = targets
+            choose(chosen)
+        }
+        
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            guard parent.isStyled, replacementString == "/", affectedCharRange.length == 0, !isHighlighting,
+                  let storage = textView.textStorage else { return true }
+            let raw = buildRawMarkdown(from: storage)
+            let rawLocation = rawRange(forStorage: affectedCharRange, in: textView).location
+            if MarkdownEditingCommands.isBlockMenuTrigger(text: raw, location: rawLocation) {
+                DispatchQueue.main.async { [weak self, weak textView] in
+                    guard let self = self, let textView = textView else { return }
+                    self.presentBlockMenu(in: textView, slashLocation: rawLocation)
+                }
+            }
+            return true
+        }
+        
+        private func presentBlockMenu(in textView: NSTextView, slashLocation: Int) {
+            let caret = textView.selectedRange()
+            var point = NSPoint(x: textView.textContainerOrigin.x, y: textView.textContainerOrigin.y)
+            if let window = textView.window {
+                let screenRect = textView.firstRect(forCharacterRange: NSRange(location: caret.location, length: 0), actualRange: nil)
+                let windowRect = window.convertFromScreen(screenRect)
+                let local = textView.convert(windowRect, from: nil)
+                point = NSPoint(x: local.minX, y: textView.isFlipped ? local.maxY + 4 : local.minY - 4)
+            }
+            Coordinator.blockMenuPresenter(textView, point) { [weak self, weak textView] kind in
+                guard let self = self, let textView = textView, let kind = kind, let storage = textView.textStorage else { return }
+                let raw = self.buildRawMarkdown(from: storage)
+                guard let edit = MarkdownEditingCommands.insertBlock(kind, text: raw, slashLocation: slashLocation) else { return }
+                self.applyEdit(in: textView, newRawText: edit.text, rawSelection: edit.selection, actionName: kind.title)
             }
         }
         

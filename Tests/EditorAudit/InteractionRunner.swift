@@ -220,6 +220,28 @@ struct InteractionRunner {
              log("checkbox-click-toggles", md, afterFirst + " | " + afterSecond + " | undo: " + b.text,
                  expect: "- [x] first\n- [x] second | - [x] first\n- [ ] second | undo: - [x] first\n- [x] second") }
         
+        // 24. "/" on an empty line opens the block menu; the chosen block replaces the slash
+        SwashTextView.Coordinator.blockMenuPresenter = { _, _, choose in choose(.heading2) }
+        do { let b = TextBox("Intro\n"); let tv = makeEditor(b)
+             tv.setSelectedRange(NSRange(location: (tv.string as NSString).length, length: 0))
+             tv.insertText("/", replacementRange: tv.selectedRange()); pump(0.3)
+             tv.insertText("Title", replacementRange: tv.selectedRange()); pump()
+             log("slash-menu-heading", "Intro\n + '/' → Heading 2", b.text, expect: "Intro\n## Title") }
+        SwashTextView.Coordinator.blockMenuPresenter = { _, _, choose in choose(.todoList) }
+        do { let b = TextBox("- a\n- "); let tv = makeEditor(b)
+             tv.setSelectedRange(NSRange(location: (tv.string as NSString).length, length: 0))
+             tv.insertText("/", replacementRange: tv.selectedRange()); pump(0.3)
+             tv.insertText("task", replacementRange: tv.selectedRange()); pump()
+             log("slash-menu-in-list-item", "- a\n- + '/' → To-do", b.text, expect: "- a\n- [ ] task") }
+        var presented = false
+        SwashTextView.Coordinator.blockMenuPresenter = { _, _, choose in presented = true; choose(nil) }
+        do { let b = TextBox("and/or"); let tv = makeEditor(b); caretAfter("and", in: tv)
+             tv.insertText("/", replacementRange: tv.selectedRange()); pump(0.3)
+             log("slash-mid-sentence-no-menu", "and/or", "\(b.text) presented=\(presented)", expect: "and//or presented=false") }
+        do { let b = TextBox(""); let tv = makeEditor(b)
+             tv.insertText("/", replacementRange: tv.selectedRange()); pump(0.3)
+             log("slash-menu-dismissed-keeps-slash", "'/' then Escape", "\(b.text) presented=\(presented)", expect: "/ presented=true") }
+        
         // 20. Enter on an empty item leaves the list; Backspace with the caret before the hidden marker
         do { let b = TextBox("- a\n- b"); let tv = makeEditor(b); caretAfter("b", in: tv)
              tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump()

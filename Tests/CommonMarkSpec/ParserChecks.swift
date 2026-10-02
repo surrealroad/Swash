@@ -118,8 +118,39 @@ enum ParserChecks {
         ("plain |text", "backspace", "default"),
     ]
     
+    private static let blockMenuCases: [(String, MarkdownEditingCommands.BlockInsert, String)] = [
+        ("Intro\n/", .heading2, "Intro\n## |"),
+        ("/", .bulletList, "- |"),
+        ("/", .todoList, "- [ ] |"),
+        ("/", .numberedList, "1. |"),
+        ("/", .text, "|"),
+        ("/", .codeBlock, "```\n|\n```"),
+        ("/", .divider, "---\n|"),
+        ("/", .callout, "> [!NOTE]\n> |"),
+        ("/", .table, "| Column 1 | Column 2 |\n| --- | --- |\n|  |  |\n\n|"),
+        ("- /", .todoList, "- [ ] |"),
+        ("> /", .bulletList, "> - |"),
+        ("> /", .codeBlock, "> ```\n> |\n> ```"),
+    ]
+    
     private static func runEditing() -> Int {
         var failures = 0
+        // "/" trigger detection
+        let triggers: [(String, Int, Bool)] = [("", 0, true), ("- ", 2, true), ("> ", 2, true), ("text", 4, false), ("a\n", 2, true),
+                                               ("## ", 3, false), ("```\n", 4, false)]
+        for (text, location, expected) in triggers where MarkdownEditingCommands.isBlockMenuTrigger(text: text, location: location) != expected {
+            failures += 1
+            print("❌ block menu trigger \(text.debugDescription)@\(location): expected \(expected)")
+        }
+        for (text, kind, expected) in blockMenuCases {
+            let slash = (text as NSString).range(of: "/").location
+            let edit = MarkdownEditingCommands.insertBlock(kind, text: text, slashLocation: slash)
+            let actual = edit.map { ($0.text as NSString).replacingCharacters(in: NSRange(location: $0.selection.location, length: 0), with: "|") } ?? "nil"
+            if actual != expected {
+                failures += 1
+                print("❌ block menu \(kind) on \(text.debugDescription): expected \(expected.debugDescription), got \(actual.debugDescription)")
+            }
+        }
         for (input, key, expected) in editingCases {
             let caret = (input as NSString).range(of: "|")
             let text = (input as NSString).replacingCharacters(in: caret, with: "")

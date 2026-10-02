@@ -221,4 +221,91 @@ enum MarkdownEditingCommands {
         }
         return nil
     }
+    
+    // MARK: - "/" block menu
+    
+    enum BlockInsert: CaseIterable {
+        case text, heading1, heading2, heading3, bulletList, numberedList, todoList, quote, callout, codeBlock, divider, table
+        
+        var title: String {
+            switch self {
+            case .text: return "Text"
+            case .heading1: return "Heading 1"
+            case .heading2: return "Heading 2"
+            case .heading3: return "Heading 3"
+            case .bulletList: return "Bulleted List"
+            case .numberedList: return "Numbered List"
+            case .todoList: return "To-do List"
+            case .quote: return "Quote"
+            case .callout: return "Callout"
+            case .codeBlock: return "Code Block"
+            case .divider: return "Divider"
+            case .table: return "Table"
+            }
+        }
+        
+        var symbolName: String {
+            switch self {
+            case .text: return "text.alignleft"
+            case .heading1: return "textformat.size.larger"
+            case .heading2: return "textformat.size"
+            case .heading3: return "textformat.size.smaller"
+            case .bulletList: return "list.bullet"
+            case .numberedList: return "list.number"
+            case .todoList: return "checklist"
+            case .quote: return "text.quote"
+            case .callout: return "info.circle"
+            case .codeBlock: return "curlybraces"
+            case .divider: return "minus"
+            case .table: return "tablecells"
+            }
+        }
+    }
+    
+    /// Whether typing "/" at `location` should open the block menu: the caret is at the start of an
+    /// otherwise empty block (an empty line, quote line or list item), outside code.
+    static func isBlockMenuTrigger(text: String, location: Int) -> Bool {
+        let ns = text as NSString
+        guard location <= ns.length else { return false }
+        let current = line(at: location, in: ns)
+        guard location - current.range.location >= current.contentOffset else { return false }
+        guard current.structure.content.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        if case .heading = current.structure.format { return false }
+        return !isInCode(location, text: text)
+    }
+    
+    /// Replaces the line holding the "/" at `slashLocation` with the chosen block.
+    static func insertBlock(_ kind: BlockInsert, text: String, slashLocation: Int) -> MarkdownEdit? {
+        let ns = text as NSString
+        guard slashLocation < ns.length, ns.character(at: slashLocation) == 0x2F else { return nil }
+        let current = line(at: slashLocation, in: ns)
+        let s = current.structure
+        // Keep the quote prefix and indentation; replace any list marker
+        let prefix = s.quotePrefix + s.indent
+        let continuation = s.quotePrefix.isEmpty ? "" : s.quotePrefix.trimmingCharacters(in: .whitespaces).isEmpty ? "" : s.quotePrefix
+        let lineText: String
+        var caretOffset: Int? = nil
+        switch kind {
+        case .text: lineText = prefix
+        case .heading1: lineText = prefix + "# "
+        case .heading2: lineText = prefix + "## "
+        case .heading3: lineText = prefix + "### "
+        case .bulletList: lineText = prefix + "- "
+        case .numberedList: lineText = prefix + "1. "
+        case .todoList: lineText = prefix + "- [ ] "
+        case .quote: lineText = prefix + "> "
+        case .callout: lineText = prefix + "> [!NOTE]\n" + continuation + s.indent + "> "
+        case .codeBlock:
+            let open = prefix + "```\n" + continuation + s.indent
+            lineText = open + "\n" + continuation + s.indent + "```"
+            caretOffset = (open as NSString).length
+        case .divider: lineText = prefix + "---\n" + continuation + s.indent
+        case .table:
+            let header = prefix + "| Column 1 | Column 2 |"
+            lineText = header + "\n" + prefix + "| --- | --- |\n" + prefix + "|  |  |\n\n" + continuation + s.indent
+        }
+        let edited = ns.replacingCharacters(in: current.range, with: lineText)
+        let caret = current.range.location + (caretOffset ?? (lineText as NSString).length)
+        return MarkdownEdit(text: edited, selection: NSRange(location: caret, length: 0))
+    }
 }
