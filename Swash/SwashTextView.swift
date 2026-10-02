@@ -16,6 +16,11 @@ extension NSAttributedString.Key {
     static let listMarker = NSAttributedString.Key("SwashListMarkerKey")
 }
 
+extension NSPasteboard.PasteboardType {
+    /// Raw Markdown written by Swash's own copy, so copy/paste between Swash documents is lossless.
+    static let swashMarkdown = NSPasteboard.PasteboardType("com.surrealroad.swash.markdown")
+}
+
 extension Notification.Name {
     static let cellSelectionDidChange = Notification.Name("cellSelectionDidChange")
     static let removeCurrentTable = Notification.Name("removeCurrentTable")
@@ -194,6 +199,41 @@ class SwashNSTextView: NSTextView {
         super.mouseDown(with: event)
     }
     
+    // MARK: Paste
+    
+    /// In Edit Text, pasted rich text (HTML / RTF) is converted to Markdown; Swash's own copies paste
+    /// their raw Markdown. "Paste and Match Style" and the source modes paste plain text.
+    override func paste(_ sender: Any?) {
+        if isStyled, let markdown = Self.markdownForPaste(from: NSPasteboard.general),
+           let coordinator = delegate as? SwashTextView.Coordinator {
+            coordinator.insertMarkdown(markdown, in: self)
+            return
+        }
+        super.paste(sender)
+    }
+    
+    static func markdownForPaste(from pasteboard: NSPasteboard) -> String? {
+        if let own = pasteboard.string(forType: .swashMarkdown) { return own }
+        let plain = pasteboard.string(forType: .string)
+        var html = pasteboard.string(forType: .html) ?? pasteboard.data(forType: .html).flatMap { String(data: $0, encoding: .utf8) }
+        if html == nil, let rtf = pasteboard.data(forType: .rtf) ?? pasteboard.data(forType: .rtfd),
+           let attributed = NSAttributedString(rtf: rtf, documentAttributes: nil) ?? NSAttributedString(rtfd: rtf, documentAttributes: nil),
+           let data = try? attributed.data(from: NSRange(location: 0, length: attributed.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.html]) {
+            html = String(data: data, encoding: .utf8)
+        }
+        guard let source = html else { return nil }
+        // Code editors put pre-formatted HTML on the pasteboard: keep their plain text (indentation intact)
+        if plain != nil, source.range(of: "white-space:\\s*pre", options: [.regularExpression, .caseInsensitive]) != nil { return nil }
+        guard let markdown = HTMLToMarkdown.convert(source) else { return nil }
+        // No formatting gained over the plain text: paste it as-is rather than backslash-escaped
+        if let plain = plain {
+            let unescaped = markdown.replacingOccurrences(of: "\\\\([\\\\*_`\\[\\]])", with: "$1", options: .regularExpression)
+            func normalized(_ s: String) -> String { s.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ") }
+            if normalized(unescaped) == normalized(plain) { return nil }
+        }
+        return markdown
+    }
+    
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if window?.firstResponder === self, let handler = onFormatCommand, let command = FormatCommand.command(for: event) {
             handler(command)
@@ -299,6 +339,7 @@ class SwashNSTextView: NSTextView {
         
         // 2. Raw Markdown string (Fallback for plain-text applications) - Set LAST as fallback
         let rawMarkdown = buildRawMarkdownSubstring(from: textStorage, range: range)
+        item.setString(rawMarkdown, forType: .swashMarkdown)
         item.setString(rawMarkdown, forType: .string)
         
         return pasteboard.writeObjects([item])
@@ -757,6 +798,17 @@ struct SwashTextView: NSViewRepresentable {
             let formatting = MarkdownFormatting(text: text)
             cachedLinkFormatting = formatting
             return formatting
+        }
+        
+        /// Replaces the selection with `markdown` (an undoable edit) and places the caret after it.
+        func insertMarkdown(_ markdown: String, in textView: NSTextView) {
+            guard let storage = textView.textStorage else { return }
+            let raw = (parent.isStyled ? buildRawMarkdown(from: storage) : textView.string) as NSString
+            let selection = rawRange(forStorage: textView.selectedRange(), in: textView)
+            guard NSMaxRange(selection) <= raw.length else { return }
+            let updated = raw.replacingCharacters(in: selection, with: markdown)
+            let caret = NSRange(location: selection.location + (markdown as NSString).length, length: 0)
+            applyEdit(in: textView, newRawText: updated, rawSelection: caret, actionName: "Paste")
         }
         
         /// Toggles `[ ]` ↔ `[x]` for the task marker at `markerRange` (storage offsets), keeping the selection.

@@ -128,7 +128,34 @@ struct InteractionRunner {
              pb.setString("<b>Bold</b> and <a href=\"https://x.com\">link</a>", forType: .html)
              pb.setString("Bold and link", forType: .string)
              tv.paste(nil); pump()
-             log("paste-html", "(empty) + clipboard HTML '<b>Bold</b> and <a>link</a>'", b.text, "Notion converts to '**Bold** and [link](https://x.com)'") }
+             log("paste-html", "(empty) + clipboard HTML '<b>Bold</b> and <a>link</a>'", b.text, expect: "**Bold** and [link](https://x.com)") }
+        // 15b. Plain-equivalent HTML pastes as plain text; code-editor HTML keeps its indentation
+        do { let b = TextBox(""); let tv = makeEditor(b)
+             let pb = NSPasteboard.general; pb.clearContents()
+             pb.setString("<p>5 * 3 = 15</p>", forType: .html); pb.setString("5 * 3 = 15", forType: .string)
+             tv.paste(nil); pump()
+             log("paste-plain-equivalent-html", "<p>5 * 3 = 15</p>", b.text, expect: "5 * 3 = 15") }
+        do { let b = TextBox(""); let tv = makeEditor(b)
+             let pb = NSPasteboard.general; pb.clearContents()
+             pb.setString("<div style=\"white-space: pre;\"><div><span>func a() {</span></div><div><span>    return 1</span></div></div>", forType: .html)
+             pb.setString("func a() {\n    return 1", forType: .string)
+             tv.paste(nil); pump()
+             log("paste-code-editor-html", "VS Code-style HTML", b.text, expect: "func a() {\n    return 1") }
+        // 15d. RTF (TextEdit, Pages) converts through HTML
+        do { let b = TextBox(""); let tv = makeEditor(b)
+             let rich = NSMutableAttributedString(string: "Bold and italic text")
+             rich.addAttribute(.font, value: NSFont.boldSystemFont(ofSize: 13), range: NSRange(location: 0, length: 4))
+             rich.addAttribute(.font, value: NSFontManager.shared.convert(NSFont.systemFont(ofSize: 13), toHaveTrait: .italicFontMask), range: NSRange(location: 9, length: 6))
+             let rtf = try! rich.data(from: NSRange(location: 0, length: rich.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+             let pb = NSPasteboard.general; pb.clearContents()
+             pb.setData(rtf, forType: .rtf); pb.setString(rich.string, forType: .string)
+             tv.paste(nil); pump()
+             log("paste-rtf", "RTF: **Bold** and *italic* text", b.text, expect: "**Bold** and *italic* text") }
+        // 15c. Copy within Swash pastes the exact Markdown (tables and images included)
+        do { let md = "| A | B |\n|---|---|\n| ![i](x.png) | **b** |\n\nPara *x*"
+             let src = TextBox(md); let tv1 = makeEditor(src); tv1.selectAll(nil); tv1.copy(nil); pump()
+             let dst = TextBox(""); let tv2 = makeEditor(dst); tv2.paste(nil); pump()
+             log("copy-paste-roundtrip", md, dst.text, expect: md) }
         // 16. Copy from WYSIWYG → plain-text clipboard content
         do { let md = "**bold** and [link](https://x.com)"
              let b = TextBox(md); let tv = makeEditor(b); tv.selectAll(nil); tv.copy(nil); pump()

@@ -26,4 +26,7 @@ Notion-style structural editing in the editor:
 
 - **Clickable to-do checkboxes**: clicking a checkbox in Edit Text checks or unchecks the item.
 
+- **Rich paste**: in Edit Text, text pasted from web pages, Google Docs, Pages, Word or TextEdit is converted to Markdown, keeping bold, italic, strikethrough, code, links, images, headings, lists, to-dos, quotes, code blocks and tables. Text copied from code editors keeps its indentation, and Paste and Match Style still pastes plain text.
+- **Copy and paste between Swash documents** is exact, tables and images included.
+
 Code blocks are never affected, and every change can be undone.

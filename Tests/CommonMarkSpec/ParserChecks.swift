@@ -141,6 +141,42 @@ enum ParserChecks {
         return failures
     }
     
+    private static let htmlCases: [(String, String)] = [
+        ("<b>Bold</b> and <a href=\"https://x.com\">link</a>", "**Bold** and [link](https://x.com)"),
+        ("<h2>Title</h2><p>Para <em>it</em></p>", "## Title\n\nPara *it*"),
+        ("<ul><li>a</li><li>b<ul><li>c</li></ul></li></ul>", "- a\n- b\n  - c"),
+        ("<ol><li>one</li><li>two</li></ol>", "1. one\n2. two"),
+        ("<ol start=\"3\"><li>three</li></ol>", "3. three"),
+        ("<blockquote><p>q</p></blockquote>", "> q"),
+        ("<pre><code class=\"language-swift\">let x = 1\n</code></pre>", "```swift\nlet x = 1\n```"),
+        ("<p>a<br>b</p>", "a\\\nb"),
+        ("<b style=\"font-weight:normal;\" id=\"docs-internal-guid-1\"><span style=\"font-weight:700\">Bold</span><span style=\"font-style:italic\"> it</span></b>", "**Bold** *it*"),
+        ("<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>", "| A | B |\n| --- | --- |\n| 1 | 2 |"),
+        ("<p>5 * 3 = 15_x</p>", "5 \\* 3 = 15\\_x"),
+        ("<img src=\"a.png\" alt=\"pic\">", "![pic](a.png)"),
+        ("<p>use <code>a*b</code> here</p>", "use `a*b` here"),
+        ("<del>x</del>", "~~x~~"),
+        ("<p><b>bold </b>next</p>", "**bold** next"),
+        ("<em>a <strong>b</strong> c</em>", "*a **b** c*"),
+        ("<ul><li><input type=\"checkbox\" checked> done</li><li><input type=\"checkbox\"> todo</li></ul>", "- [x] done\n- [ ] todo"),
+        ("<p>one</p><hr><p>two</p>", "one\n\n---\n\ntwo"),
+        ("<meta charset=\"utf-8\"><span>just text</span>", "just text"),
+        ("<p>   spaced    out   </p>", "spaced out"),
+    ]
+    
+    private static func runHTML() -> Int {
+        var failures = 0
+        for (html, expected) in htmlCases {
+            let actual = HTMLToMarkdown.convert(html) ?? "nil"
+            if actual != expected {
+                failures += 1
+                print("❌ html \(html.debugDescription): expected \(expected.debugDescription), got \(actual.debugDescription)")
+            }
+        }
+        print("HTML paste conversion checks: \(failures == 0 ? "all passed" : "\(failures) failed") (\(htmlCases.count) cases)")
+        return failures
+    }
+    
     private static func runFormatting() -> Int {
         var failures = 0
         for (markdown, select, operation, expected) in formattingCases {
@@ -185,7 +221,7 @@ enum ParserChecks {
     }
     
     static func run() -> Int {
-        var failures = runFormatting() + runEditing()
+        var failures = runFormatting() + runEditing() + runHTML()
         // 1. Marker ranges
         for (markdown, nodeName, expected) in markerCases {
             let document = MarkdownDocument.parse(markdown)
