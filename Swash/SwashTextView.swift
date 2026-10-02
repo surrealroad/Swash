@@ -126,7 +126,11 @@ final class SwashLayoutManager: NSLayoutManager {
                 ]
                 
                 let markerSize = (markerInfo.text as NSString).size(withAttributes: attrs)
-                let x = origin.x + markerInfo.indent - markerSize.width - 6
+                // Position the marker just left of where the item's text actually starts, so it also
+                // lines up inside quotes, alerts and other text blocks with their own padding
+                let contentGlyph = min(glyphRange.location + glyphRange.length, max(0, numberOfGlyphs - 1))
+                let contentX = lineRect.origin.x + location(forGlyphAt: contentGlyph).x
+                let x = origin.x + (contentX > 0 ? contentX : markerInfo.indent) - markerSize.width - 10
                 let y = origin.y + lineRect.origin.y + (lineRect.height - markerSize.height) / 2
                 
                 let drawRect = CGRect(x: x, y: y, width: markerSize.width + 4, height: markerSize.height)

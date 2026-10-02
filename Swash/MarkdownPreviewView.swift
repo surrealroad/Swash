@@ -108,17 +108,14 @@ struct MarkdownPreviewView: View {
     }
     
     var body: some View {
-        let blocks = MarkdownParser.parse(text)
-        let mainBlocks = blocks.filter {
-            if case .footnoteDefinition = $0.type { return false }
-            return true
-        }
-        let footnoteBlocks = blocks.compactMap { block -> (label: String, text: String)? in
-            if case .footnoteDefinition(let label, let text) = block.type {
-                return (label, text)
+        let document = MarkdownPreviewView.parse(text, flavor: flavor)
+        let blocks = document.root.children.filter {
+            switch $0.kind {
+            case .footnoteDefinition, .linkReferenceDefinition: return false
+            default: return true
             }
-            return nil
         }
+        let context = MarkdownRenderContext(document: document, baseURL: baseURL)
         
         PreviewScrollView(scrollOriginY: $scrollOriginY) {
             VStack(alignment: .leading, spacing: 14) {
@@ -129,38 +126,14 @@ struct MarkdownPreviewView: View {
                         .italic()
                         .padding(.top, 24)
                 } else {
-                    ForEach(mainBlocks) { block in
-                        renderBlock(block)
+                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                        MarkdownBlockView(node: block, context: context)
                     }
-                    
-                    if !footnoteBlocks.isEmpty {
-                        Divider()
-                            .background(Color.secondary.opacity(0.3))
-                            .padding(.top, 16)
-                            .padding(.bottom, 6)
-                        
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(footnoteBlocks, id: \.label) { fn in
-                                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                    Text("[\(fn.label)]")
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(.secondary)
-                                    
-                                    InlineMarkdownText(text: fn.text, flavor: flavor, baseURL: baseURL)
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.secondary)
-                                    
-                                    Link("↩", destination: URL(string: "#fnref-\(fn.label)") ?? URL(string: "about:blank")!)
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(.accentColor)
-                                }
-                                .id("fn-\(fn.label)")
-                                .padding(.vertical, 2)
-                            }
-                        }
-                    }
+                    MarkdownFootnotesView(context: context)
                 }
             }
+            .font(.body)
+            .foregroundColor(.primary)
             .padding(.horizontal, 28)
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -169,141 +142,98 @@ struct MarkdownPreviewView: View {
         .background(Color(NSColor.windowBackgroundColor).opacity(0.8))
     }
     
+    /// Slack mrkdwn is converted to GFM first; everything else is parsed directly.
+    static func parse(_ text: String, flavor: MarkdownFlavor) -> MarkdownDocument {
+        let source = flavor == .slack ? MarkdownParser.convertSlackToGithub(text) : text
+        return MarkdownDocument.parse(source)
+    }
+}
+
+/// Shared state for rendering one document: footnote numbering and the base URL for images.
+struct MarkdownRenderContext {
+    let document: MarkdownDocument
+    let baseURL: URL?
+    
+    func footnoteNumber(_ label: String) -> Int? {
+        document.footnoteOrder.firstIndex(of: MarkdownSyntax.normalizeLabel(label)).map { $0 + 1 }
+    }
+}
+
+/// Renders one block node (recursively for containers).
+struct MarkdownBlockView: View {
+    let node: MarkdownNode
+    let context: MarkdownRenderContext
+    
+    var body: some View {
+        content
+    }
+    
+    private func children(spacing: CGFloat = 10) -> some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in
+                AnyView(MarkdownBlockView(node: child, context: context))
+            }
+        }
+    }
+    
     @ViewBuilder
-    private func renderBlock(_ block: MarkdownBlock) -> some View {
-        switch block.type {
-        case .heading(let level):
+    private var content: some View {
+        switch node.kind {
+        case .heading(let level, _):
             VStack(alignment: .leading, spacing: 6) {
-                InlineMarkdownText(text: block.text, flavor: flavor, baseURL: baseURL)
-                    .font(headingFont(for: level))
+                MarkdownInlineView(nodes: node.children, context: context)
+                    .font(MarkdownBlockView.headingFont(for: level))
                     .fontWeight(.bold)
                     .foregroundColor(.primary)
-                
                 if level == 1 {
-                    Divider()
-                        .background(Color.secondary.opacity(0.3))
-                        .padding(.bottom, 4)
+                    Divider().background(Color.secondary.opacity(0.3)).padding(.bottom, 4)
                 } else if level == 2 {
-                    Divider()
-                        .background(Color.secondary.opacity(0.15))
-                        .padding(.bottom, 2)
+                    Divider().background(Color.secondary.opacity(0.15)).padding(.bottom, 2)
                 }
             }
             .padding(.top, level == 1 ? 16 : 10)
             
-        case .blockquote:
+        case .paragraph:
+            // Font and colour come from the enclosing context (body, quote, footnote…)
+            MarkdownInlineView(nodes: node.children, context: context)
+                .lineSpacing(4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+        case .blockQuote:
             HStack(spacing: 0) {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color.accentColor)
                     .frame(width: 4)
-                
-                VStack(alignment: .leading) {
-                    InlineMarkdownText(text: block.text, flavor: flavor, baseURL: baseURL)
-                        .font(.system(.body, design: .serif))
-                        .italic()
-                        .foregroundColor(.secondary)
-                        .lineSpacing(4)
-                }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.accentColor.opacity(0.04))
+                children()
+                    .font(.system(.body, design: .serif))
+                    .italic()
+                    .foregroundColor(.secondary)
+                    .lineSpacing(4)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.accentColor.opacity(0.04))
             }
             .cornerRadius(4)
             .padding(.vertical, 6)
             
-        case .codeBlock(let code, let language):
-            CodeBlockView(code: code, language: language)
-            
-        case .list(let isOrdered, let indentLevel, let itemNumber):
-            HStack(alignment: .top, spacing: 8) {
-                Spacer()
-                    .frame(width: CGFloat(indentLevel * 18))
-                
-                if isOrdered {
-                    Text("\(itemNumber).")
-                        .font(.body)
-                        .foregroundColor(.secondary)
-                } else {
-                    Text("•")
-                        .font(.body)
-                        .foregroundColor(.secondary)
-                        .frame(width: 10, alignment: .center)
-                }
-                
-                InlineMarkdownText(text: block.text, flavor: flavor, baseURL: baseURL)
-                    .font(.body)
-                    .lineSpacing(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.vertical, 1)
-            
-        case .taskList(let isChecked, let indentLevel):
-            HStack(alignment: .top, spacing: 8) {
-                Spacer()
-                    .frame(width: CGFloat(indentLevel * 18))
-                
-                Image(systemName: isChecked ? "checkmark.square.fill" : "square")
-                    .foregroundColor(isChecked ? .accentColor : .secondary)
-                    .font(.system(size: 14))
-                    .frame(width: 16, height: 16, alignment: .center)
-                
-                InlineMarkdownText(text: block.text, flavor: flavor, baseURL: baseURL)
-                    .font(.body)
-                    .lineSpacing(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.vertical, 1)
-            
-        case .table(let headers, let alignments, let rows):
-            InteractiveTableView(
-                tableData: MarkdownTableData(headers: headers, alignments: alignments, rows: rows),
-                flavor: flavor,
-                isEditable: false
-            )
-            .padding(.vertical, 6)
-            
-        case .horizontalRule:
-            Divider()
-                .padding(.vertical, 12)
-            
-        case .alertCallout(let type, let text):
-            let color: Color = {
-                switch type {
-                case .note: return .blue
-                case .tip: return .green
-                case .important: return .purple
-                case .warning: return .orange
-                case .caution: return .red
-                }
-            }()
-            let iconName: String = {
-                switch type {
-                case .note: return "info.circle.fill"
-                case .tip: return "lightbulb.fill"
-                case .important: return "exclamationmark.circle.fill"
-                case .warning: return "exclamationmark.triangle.fill"
-                case .caution: return "octagon.fill"
-                }
-            }()
-            
+        case .alert(let type):
+            let color = MarkdownBlockView.alertColor(type)
             HStack(spacing: 0) {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(color)
                     .frame(width: 4)
-                
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
-                        Image(systemName: iconName)
+                        Image(systemName: MarkdownBlockView.alertIcon(type))
                             .foregroundColor(color)
                             .font(.system(size: 13, weight: .bold))
                         Text(type.title)
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(color)
                     }
-                    
-                    if !text.isEmpty {
-                        InlineMarkdownText(text: text, flavor: flavor, baseURL: baseURL)
+                    if node.firstChild != nil {
+                        children(spacing: 8)
                             .font(.body)
                             .lineSpacing(3)
                             .foregroundColor(.primary)
@@ -317,37 +247,204 @@ struct MarkdownPreviewView: View {
             .cornerRadius(6)
             .padding(.vertical, 6)
             
-        case .footnoteDefinition(let label, let text):
-            HStack(alignment: .top, spacing: 6) {
-                Text("[\(label)]:")
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.secondary)
-                InlineMarkdownText(text: text, flavor: flavor, baseURL: baseURL)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+        case .list(_, _, _, _, let tight):
+            VStack(alignment: .leading, spacing: tight ? 4 : 10) {
+                ForEach(Array(node.children.enumerated()), id: \.offset) { index, item in
+                    MarkdownListItemView(item: item, index: index, context: context)
+                }
             }
-            .padding(.vertical, 2)
             
-        case .linkReference:
+        case .codeBlock(_, let info):
+            let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init)
+            CodeBlockView(code: node.literal.hasSuffix("\n") ? String(node.literal.dropLast()) : node.literal, language: language)
+            
+        case .htmlBlock:
+            Text(node.literal)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+        case .thematicBreak:
+            Divider()
+                .padding(.vertical, 12)
+            
+        case .table(let alignments):
+            InteractiveTableView(
+                tableData: MarkdownBlockView.tableData(node, alignments: alignments, source: context.document.source),
+                flavor: .github,
+                isEditable: false
+            )
+            .padding(.vertical, 6)
+            
+        case .frontMatter:
+            Text(node.literal.trimmingCharacters(in: .newlines))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondary)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.08))
+                .cornerRadius(6)
+            
+        case .footnoteDefinition, .linkReferenceDefinition:
             EmptyView()
             
-        case .paragraph:
-            InlineMarkdownText(text: block.text, flavor: flavor, baseURL: baseURL)
-                .font(.body)
-                .lineSpacing(4)
-                .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        default:
+            children()
         }
     }
     
-    private func headingFont(for level: Int) -> Font {
+    static func tableData(_ table: MarkdownNode, alignments: [TableAlignment], source: String) -> MarkdownTableData {
+        let cells = MarkdownTableSource(table, source: source)
+        return MarkdownTableData(headers: cells.headers, alignments: alignments, rows: cells.rows)
+    }
+    
+    static func headingFont(for level: Int) -> Font {
         switch level {
         case 1: return .system(size: 26, design: .default)
         case 2: return .system(size: 20, design: .default)
         case 3: return .system(size: 17, design: .default)
         case 4: return .system(size: 15, design: .default)
         default: return .system(size: 14, design: .default)
+        }
+    }
+    
+    static func alertColor(_ type: AlertType) -> Color {
+        switch type {
+        case .note: return .blue
+        case .tip: return .green
+        case .important: return .purple
+        case .warning: return .orange
+        case .caution: return .red
+        }
+    }
+    
+    static func alertIcon(_ type: AlertType) -> String {
+        switch type {
+        case .note: return "info.circle.fill"
+        case .tip: return "lightbulb.fill"
+        case .important: return "exclamationmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .caution: return "octagon.fill"
+        }
+    }
+}
+
+/// Cell markdown of a table node, taken verbatim from the source (escapes intact).
+struct MarkdownTableSource {
+    var headers: [String] = []
+    var rows: [[String]] = []
+    
+    init(_ table: MarkdownNode, source: String) {
+        let text = source as NSString
+        func cell(_ node: MarkdownNode) -> String {
+            NSMaxRange(node.range) <= text.length ? text.substring(with: node.range) : node.plainText
+        }
+        for section in table.children {
+            switch section.kind {
+            case .tableHead:
+                headers = section.firstChild?.children.map(cell) ?? []
+            case .tableRow:
+                rows.append(section.children.map(cell))
+            default:
+                break
+            }
+        }
+    }
+}
+
+struct MarkdownListItemView: View {
+    let item: MarkdownNode
+    let index: Int
+    let context: MarkdownRenderContext
+    
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            marker
+            VStack(alignment: .leading, spacing: isTight ? 4 : 10) {
+                ForEach(Array(item.children.enumerated()), id: \.offset) { _, child in
+                    AnyView(MarkdownBlockView(node: child, context: context))
+                }
+                if item.firstChild == nil {
+                    Text(" ")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 1)
+    }
+    
+    private var isTight: Bool {
+        if let list = item.parent, case .list(_, _, _, _, let tight) = list.kind { return tight }
+        return true
+    }
+    
+    private var depth: Int {
+        item.ancestors.filter { if case .listItem = $0.kind { return true }; return false }.count
+    }
+    
+    @ViewBuilder
+    private var marker: some View {
+        if case .listItem(let task) = item.kind, let task = task {
+            Image(systemName: task == .checked ? "checkmark.square.fill" : "square")
+                .foregroundColor(task == .checked ? .accentColor : .secondary)
+                .font(.system(size: 14))
+                .frame(width: 16, alignment: .center)
+        } else if let list = item.parent, case .list(let ordered, let start, let delimiter, _, _) = list.kind, ordered {
+            Text("\(start + index)\(String(delimiter))")
+                .font(.body)
+                .foregroundColor(.secondary)
+                .monospacedDigit()
+        } else {
+            Text(["•", "◦", "▪"][depth % 3])
+                .font(.body)
+                .foregroundColor(.secondary)
+                .frame(width: 10, alignment: .center)
+        }
+    }
+}
+
+struct MarkdownFootnotesView: View {
+    let context: MarkdownRenderContext
+    
+    var body: some View {
+        let definitions = footnoteDefinitions
+        if !definitions.isEmpty {
+            Divider()
+                .background(Color.secondary.opacity(0.3))
+                .padding(.top, 16)
+                .padding(.bottom, 6)
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(definitions.enumerated()), id: \.offset) { _, entry in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("\(entry.number).")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.secondary)
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(Array(entry.node.children.enumerated()), id: \.offset) { _, child in
+                                AnyView(MarkdownBlockView(node: child, context: context))
+                            }
+                        }
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+    
+    /// Referenced definitions in order of first reference (GFM numbering).
+    private var footnoteDefinitions: [(number: Int, node: MarkdownNode)] {
+        var byLabel: [String: MarkdownNode] = [:]
+        context.document.root.walk { node in
+            if case .footnoteDefinition(let label) = node.kind {
+                let key = MarkdownSyntax.normalizeLabel(label)
+                if byLabel[key] == nil { byLabel[key] = node }
+            }
+        }
+        return context.document.footnoteOrder.enumerated().compactMap { index, label in
+            byLabel[label].map { (index + 1, $0) }
         }
     }
 }
@@ -446,101 +543,142 @@ struct MarkdownImageView: View {
     }
 }
 
+/// Inline Markdown in a view: text runs concatenated into one Text (so emphasis, code and
+/// strikethrough compose with the surrounding font), with images split out as image views.
+struct MarkdownInlineView: View {
+    let nodes: [MarkdownNode]
+    let context: MarkdownRenderContext
+    
+    var body: some View {
+        let segments = MarkdownInlineAttributes.segments(nodes, context: context)
+        if segments.count == 1, case .text(let text) = segments[0] {
+            text.fixedSize(horizontal: false, vertical: true)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                    switch segment {
+                    case .text(let text):
+                        text.fixedSize(horizontal: false, vertical: true)
+                    case .image(let alt, let url):
+                        MarkdownImageView(alt: alt, urlString: url, baseURL: context.baseURL)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Inline Markdown from a raw string (table cells and other inline-only contexts).
 struct InlineMarkdownText: View {
     let text: String
     let flavor: MarkdownFlavor
     var baseURL: URL? = nil
     
-    private enum Segment: Identifiable {
-        var id: String {
-            switch self {
-            case .text(let str): return "t_\(str.hashValue)"
-            case .image(let alt, let url): return "i_\(alt)_\(url)"
-            }
-        }
-        case text(String)
-        case image(alt: String, url: String)
-    }
-    
-    private var segments: [Segment] {
-        var result: [Segment] = []
-        let pattern = "!\\[(.*?)\\]\\((.*?)\\)"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return [.text(text)]
-        }
-        
-        let nsString = text as NSString
-        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
-        
-        if matches.isEmpty {
-            return [.text(text)]
-        }
-        
-        var lastIndex = 0
-        for match in matches {
-            let matchRange = match.range(at: 0)
-            if matchRange.location > lastIndex {
-                let sub = nsString.substring(with: NSRange(location: lastIndex, length: matchRange.location - lastIndex))
-                if !sub.isEmpty {
-                    result.append(.text(sub))
-                }
-            }
-            let alt = match.numberOfRanges > 1 ? nsString.substring(with: match.range(at: 1)) : ""
-            let url = match.numberOfRanges > 2 ? nsString.substring(with: match.range(at: 2)) : ""
-            result.append(.image(alt: alt, url: url))
-            lastIndex = matchRange.location + matchRange.length
-        }
-        
-        if lastIndex < nsString.length {
-            let sub = nsString.substring(with: NSRange(location: lastIndex, length: nsString.length - lastIndex))
-            if !sub.isEmpty {
-                result.append(.text(sub))
-            }
-        }
-        
-        return result
-    }
-    
-    private func attributedContent(for rawText: String) -> AttributedString {
-        let processedText = flavor == .slack ? MarkdownParser.convertSlackToGithub(rawText) : rawText
-        let formattedFootnotesText = MarkdownParser.formatFootnoteReferences(processedText)
-        let autolinkedText = MarkdownParser.autolinkBareURLs(formattedFootnotesText)
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace,
-            failurePolicy: .returnPartiallyParsedIfPossible
-        )
-        if var attributedString = try? AttributedString(markdown: autolinkedText, options: options) {
-            for run in attributedString.runs {
-                if let link = run.link {
-                    let linkStr = link.absoluteString
-                    if linkStr.hasPrefix("#fn-") || linkStr.hasPrefix("#fnref-") {
-                        attributedString[run.range].baselineOffset = 4
-                        attributedString[run.range].font = .system(size: 10, weight: .semibold)
-                        attributedString[run.range].foregroundColor = .accentColor
-                    } else {
-                        attributedString[run.range].underlineStyle = .single
-                        attributedString[run.range].foregroundColor = .accentColor
-                    }
-                }
-            }
-            return attributedString
-        } else {
-            return AttributedString(rawText)
-        }
-    }
-    
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(segments) { segment in
-                switch segment {
-                case .text(let str):
-                    Text(attributedContent(for: str))
-                        .fixedSize(horizontal: false, vertical: true)
-                case .image(let alt, let url):
-                    MarkdownImageView(alt: alt, urlString: url, baseURL: baseURL)
-                }
+        let document = MarkdownPreviewView.parse(text, flavor: flavor)
+        // Inline-only: use the inline content of every leaf block
+        var inlines: [MarkdownNode] = []
+        document.root.walk { node in
+            switch node.kind {
+            case .paragraph, .heading:
+                if !inlines.isEmpty { inlines.append(MarkdownNode(.softBreak, range: node.range)) }
+                inlines.append(contentsOf: node.children)
+            default:
+                break
             }
         }
+        return MarkdownInlineView(nodes: inlines, context: MarkdownRenderContext(document: document, baseURL: baseURL))
+    }
+}
+
+enum MarkdownInlineSegment {
+    case text(Text)
+    case image(alt: String, url: String)
+}
+
+/// Builds SwiftUI Text from inline AST nodes.
+enum MarkdownInlineAttributes {
+    private struct Style {
+        var bold = false
+        var italic = false
+        var mono = false
+        var strike = false
+        var link: URL? = nil
+        var superscript = false
+    }
+    
+    static func segments(_ nodes: [MarkdownNode], context: MarkdownRenderContext) -> [MarkdownInlineSegment] {
+        var segments: [MarkdownInlineSegment] = []
+        var current: Text? = nil
+        func flush() {
+            if let text = current {
+                segments.append(.text(text))
+                current = nil
+            }
+        }
+        func append(_ string: String, _ style: Style) {
+            guard !string.isEmpty else { return }
+            var attributed = AttributedString(string)
+            if let url = style.link {
+                attributed.link = url
+                attributed.underlineStyle = .single
+                attributed.foregroundColor = .accentColor
+            }
+            var run = Text(attributed)
+            if style.bold { run = run.bold() }
+            if style.italic { run = run.italic() }
+            if style.strike { run = run.strikethrough() }
+            if style.mono {
+                run = run.monospaced()
+                if style.link == nil { run = run.foregroundColor(Color(nsColor: .systemPurple)) }
+            }
+            if style.superscript {
+                run = run.font(.system(size: 10, weight: .semibold)).baselineOffset(4).foregroundColor(.accentColor)
+            }
+            current = current.map { $0 + run } ?? run
+        }
+        func visit(_ node: MarkdownNode, _ style: Style) {
+            var style = style
+            switch node.kind {
+            case .text:
+                append(node.literal, style)
+            case .softBreak:
+                append(" ", style)
+            case .hardBreak:
+                append("\n", style)
+            case .code:
+                style.mono = true
+                append(node.literal, style)
+            case .emphasis:
+                style.italic = true
+                node.children.forEach { visit($0, style) }
+            case .strong:
+                style.bold = true
+                node.children.forEach { visit($0, style) }
+            case .strikethrough:
+                style.strike = true
+                node.children.forEach { visit($0, style) }
+            case .link(let destination, _, _):
+                style.link = MarkdownEditorStyler.url(destination)
+                node.children.forEach { visit($0, style) }
+            case .image(let destination, _):
+                flush()
+                segments.append(.image(alt: node.plainText, url: destination))
+            case .htmlInline:
+                // Raw HTML tags are not shown; <br> becomes a line break
+                if node.literal.lowercased().hasPrefix("<br") { append("\n", style) }
+            case .footnoteReference(let label):
+                style.superscript = true
+                style.link = URL(string: "#fn-\(MarkdownSyntax.normalizeURI(label))")
+                append(context.footnoteNumber(label).map(String.init) ?? label, style)
+            default:
+                node.children.forEach { visit($0, style) }
+            }
+        }
+        for node in nodes { visit(node, Style()) }
+        flush()
+        if segments.isEmpty { segments.append(.text(Text(""))) }
+        return segments
     }
 }
 
