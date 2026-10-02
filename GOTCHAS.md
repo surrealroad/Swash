@@ -61,3 +61,15 @@
 ## 15. Xcode May Rewrite `project.pbxproj` When a New Source Folder Appears
 - **Issue**: The first `xcodebuild` after adding `Swash/Markdown/` rewrote the synchronised-group membership exceptions (dropping `Swash.entitlements`), an unrelated project-file change.
 - **Solution**: Check `git status` after builds and revert unintended `project.pbxproj` changes (`git checkout -- Swash.xcodeproj/project.pbxproj`). New files in synchronised folders need no project edits.
+
+## 16. Test Key Handling Through `doCommand(by:)`, Not the Responder Methods
+- **Issue**: Calling `textView.insertNewline(nil)`, `insertTab(nil)` or `deleteBackward(nil)` directly bypasses the `NSTextViewDelegate.textView(_:doCommandBy:)` hook, so Notion-style key handling (list continuation, indent, Backspace-unformat) appears not to work in tests.
+- **Solution**: Send commands with `textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))`. This is the path real key presses take via `interpretKeyEvents`. For shortcuts, send a synthesised `NSEvent.keyEvent` to `performKeyEquivalent(with:)`.
+
+## 17. Menus That Block Must Be Injectable for Headless Tests
+- **Issue**: `NSMenu.popUp(positioning:at:in:)` runs a modal tracking loop, so the "/" block menu and the code-language menu can't be exercised in the headless harness.
+- **Solution**: Presentation goes through replaceable static closures (`SwashTextView.Coordinator.blockMenuPresenter`, `languageMenuPresenter`). Tests substitute a closure that "chooses" an item. The insertion logic itself lives in `MarkdownEditingCommands` and is unit-tested.
+
+## 18. Backticks in Shell-Quoted Commit Messages
+- **Issue**: A commit message passed with `git commit -m "…"` that contains triple backticks is treated by zsh as command substitution, and the whole command line fails to parse ("unmatched").
+- **Solution**: Write the message to a file and use `git commit -F <file>`, or avoid backticks in `-m` messages.
