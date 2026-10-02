@@ -61,3 +61,7 @@
 ## 15. Xcode May Rewrite `project.pbxproj` When a New Source Folder Appears
 - **Issue**: The first `xcodebuild` after adding `Swash/Markdown/` rewrote the synchronised-group membership exceptions (dropping `Swash.entitlements`), an unrelated project-file change.
 - **Solution**: Check `git status` after builds and revert unintended `project.pbxproj` changes (`git checkout -- Swash.xcodeproj/project.pbxproj`). New files in synchronised folders need no project edits.
+
+## 16. CI Builds With an Older SDK Than Local Xcode
+- **Issue**: The release workflow builds on `macos-14` with `latest-stable` Xcode (macOS 15.2 SDK, Swift 6.0), while local builds use a much newer Xcode and SDK. AppKit signatures can differ: `NSTextBlock.drawBackground(withFrame:in:characterRange:layoutManager:)` takes `NSView` on the CI SDK but `NSView?` locally, so an override that compiles locally broke the v1.5.0 release on `main`.
+- **Solution**: Avoid overriding AppKit methods whose signatures have changed between SDKs, and prefer composition (here, `SwashLayoutManager` paints `IndentedTextBlock.fillColor`). The `PR Build` workflow builds every pull request on the release toolchain, so these failures show up before merging.
