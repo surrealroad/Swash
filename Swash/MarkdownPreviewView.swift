@@ -453,6 +453,8 @@ struct MarkdownImageView: View {
     let alt: String
     let urlString: String
     var baseURL: URL? = nil
+    /// Width from an HTML <img width="…"> attribute.
+    var maxWidth: CGFloat? = nil
     @ObservedObject private var folderAccessManager = FolderAccessManager.shared
     
     private var cleanedData: (url: String, title: String?) {
@@ -485,6 +487,7 @@ struct MarkdownImageView: View {
                     image
                         .resizable()
                         .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: maxWidth)
                         .cornerRadius(6)
                         .help(tooltip)
                 case .failure:
@@ -507,6 +510,7 @@ struct MarkdownImageView: View {
             Image(nsImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: maxWidth ?? nsImage.size.width)
                 .cornerRadius(6)
                 .help(tooltip)
                 .padding(.vertical, 6)
@@ -559,8 +563,8 @@ struct MarkdownInlineView: View {
                     switch segment {
                     case .text(let text):
                         text.fixedSize(horizontal: false, vertical: true)
-                    case .image(let alt, let url):
-                        MarkdownImageView(alt: alt, urlString: url, baseURL: context.baseURL)
+                    case .image(let alt, let url, let width):
+                        MarkdownImageView(alt: alt, urlString: url, baseURL: context.baseURL, maxWidth: width)
                     }
                 }
             }
@@ -593,7 +597,7 @@ struct InlineMarkdownText: View {
 
 enum MarkdownInlineSegment {
     case text(Text)
-    case image(alt: String, url: String)
+    case image(alt: String, url: String, width: CGFloat?)
 }
 
 /// Builds SwiftUI Text from inline AST nodes.
@@ -605,6 +609,26 @@ enum MarkdownInlineAttributes {
         var strike = false
         var link: URL? = nil
         var superscript = false
+        var lowered = false
+        var underline = false
+        var highlight = false
+        var keyboard = false
+        var small = false
+        
+        mutating func apply(_ html: InlineHTMLStyle) {
+            switch html {
+            case .keyboard: keyboard = true; mono = true
+            case .lowered: lowered = true
+            case .raised: superscript = true
+            case .highlight: highlight = true
+            case .underline: underline = true
+            case .strikethrough: strike = true
+            case .bold: bold = true
+            case .italic: italic = true
+            case .small: small = true
+            case .code: mono = true
+            }
+        }
     }
     
     static func segments(_ nodes: [MarkdownNode], context: MarkdownRenderContext) -> [MarkdownInlineSegment] {
@@ -624,18 +648,34 @@ enum MarkdownInlineAttributes {
                 attributed.underlineStyle = .single
                 attributed.foregroundColor = .accentColor
             }
+            if style.highlight { attributed.backgroundColor = Color.yellow.opacity(0.4) }
+            if style.keyboard { attributed.backgroundColor = Color.secondary.opacity(0.15) }
             var run = Text(attributed)
             if style.bold { run = run.bold() }
             if style.italic { run = run.italic() }
             if style.strike { run = run.strikethrough() }
+            if style.underline { run = run.underline() }
             if style.mono {
                 run = run.monospaced()
-                if style.link == nil { run = run.foregroundColor(Color(nsColor: .systemPurple)) }
+                if style.link == nil && !style.keyboard { run = run.foregroundColor(Color(nsColor: .systemPurple)) }
             }
+            if style.small { run = run.font(.callout) }
+            if style.lowered { run = run.font(.system(size: 10)).baselineOffset(-3) }
             if style.superscript {
-                run = run.font(.system(size: 10, weight: .semibold)).baselineOffset(4).foregroundColor(.accentColor)
+                // Footnote references (links) are accent-coloured; <sup> text keeps its colour
+                run = run.font(.system(size: 10, weight: .semibold)).baselineOffset(4)
+                if style.link != nil { run = run.foregroundColor(.accentColor) }
             }
             current = current.map { $0 + run } ?? run
+        }
+        /// Visits siblings, applying paired inline HTML tags (<kbd>…</kbd>) to the nodes between them.
+        func visitChildren(_ children: [MarkdownNode], _ style: Style) {
+            let pairing = MarkdownInlineHTML.pairing(of: children)
+            for (index, child) in children.enumerated() where !pairing.pairedTags.contains(index) {
+                var childStyle = style
+                for html in pairing.styles[index] ?? [] { childStyle.apply(html) }
+                visit(child, childStyle)
+            }
         }
         func visit(_ node: MarkdownNode, _ style: Style) {
             var style = style
@@ -651,31 +691,37 @@ enum MarkdownInlineAttributes {
                 append(node.literal, style)
             case .emphasis:
                 style.italic = true
-                node.children.forEach { visit($0, style) }
+                visitChildren(node.children, style)
             case .strong:
                 style.bold = true
-                node.children.forEach { visit($0, style) }
+                visitChildren(node.children, style)
             case .strikethrough:
                 style.strike = true
-                node.children.forEach { visit($0, style) }
+                visitChildren(node.children, style)
             case .link(let destination, _, _):
                 style.link = MarkdownEditorStyler.url(destination)
-                node.children.forEach { visit($0, style) }
+                visitChildren(node.children, style)
             case .image(let destination, _):
                 flush()
-                segments.append(.image(alt: node.plainText, url: destination))
+                segments.append(.image(alt: node.plainText, url: destination, width: nil))
             case .htmlInline:
-                // Raw HTML tags are not shown; <br> becomes a line break
-                if node.literal.lowercased().hasPrefix("<br") { append("\n", style) }
+                // Raw HTML tags are not shown; <br> becomes a line break and <img> an image
+                switch InlineHTMLTag(node.literal).kind {
+                case .lineBreak: append("\n", style)
+                case .image(let src, let alt, let width):
+                    flush()
+                    segments.append(.image(alt: alt, url: src, width: width.map { CGFloat($0) }))
+                default: break
+                }
             case .footnoteReference(let label):
                 style.superscript = true
                 style.link = URL(string: "#fn-\(MarkdownSyntax.normalizeURI(label))")
                 append(context.footnoteNumber(label).map(String.init) ?? label, style)
             default:
-                node.children.forEach { visit($0, style) }
+                visitChildren(node.children, style)
             }
         }
-        for node in nodes { visit(node, Style()) }
+        visitChildren(nodes, Style())
         flush()
         if segments.isEmpty { segments.append(.text(Text(""))) }
         return segments

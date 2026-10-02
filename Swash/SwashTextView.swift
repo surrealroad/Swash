@@ -1360,12 +1360,12 @@ struct SwashTextView: NSViewRepresentable {
             
             enum PendingAttachment {
                 case table(range: NSRange, source: String, headers: [String], alignments: [TableAlignment], rows: [[String]])
-                case image(range: NSRange, alt: String, urlString: String, rawMarkdown: String)
+                case image(range: NSRange, alt: String, urlString: String, rawMarkdown: String, width: CGFloat? = nil)
                 
                 var location: Int {
                     switch self {
                     case .table(let range, _, _, _, _): return range.location
-                    case .image(let range, _, _, _): return range.location
+                    case .image(let range, _, _, _, _): return range.location
                     }
                 }
             }
@@ -1381,8 +1381,8 @@ struct SwashTextView: NSViewRepresentable {
                     switch request.kind {
                     case .table(let source, let headers, let alignments, let rows):
                         pendingAttachments.append(.table(range: request.range, source: source, headers: headers, alignments: alignments, rows: rows))
-                    case .image(let alt, let urlString, let rawMarkdown):
-                        pendingAttachments.append(.image(range: request.range, alt: alt, urlString: urlString, rawMarkdown: rawMarkdown))
+                    case .image(let alt, let urlString, let rawMarkdown, let width):
+                        pendingAttachments.append(.image(range: request.range, alt: alt, urlString: urlString, rawMarkdown: rawMarkdown, width: width))
                     }
                 }
                 styledCodeRanges = styler.codeRanges.sorted { $0.location < $1.location }
@@ -1947,7 +1947,7 @@ struct SwashTextView: NSViewRepresentable {
                             textStorage.replaceCharacters(in: validRange, with: attrAttachment)
                         }
                     }
-                case .image(let range, let alt, let urlString, let rawMarkdown):
+                case .image(let range, let alt, let urlString, let rawMarkdown, let width):
                     let validRange = NSIntersectionRange(range, NSRange(location: 0, length: textStorage.length))
                     if validRange.length > 0 {
                         let cleaned = MarkdownParser.cleanImageURLAndTitle(urlString)
@@ -1955,7 +1955,7 @@ struct SwashTextView: NSViewRepresentable {
                         let resolved = MarkdownParser.resolveImage(urlString: cleaned.url, baseURL: parent.baseURL, windowURL: winURL)
                         let displayImage: NSImage
                         if let realImage = resolved {
-                            displayImage = MarkdownParser.scaleImageForEditor(realImage, maxWidth: 550)
+                            displayImage = MarkdownParser.scaleImageForEditor(realImage, maxWidth: min(550, width ?? 550))
                         } else {
                             displayImage = MarkdownParser.placeholderImage(alt: alt)
                         }

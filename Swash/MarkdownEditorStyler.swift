@@ -57,7 +57,7 @@ struct CodeBadgeInfo {
 struct EditorAttachmentRequest {
     enum Kind {
         case table(source: String, headers: [String], alignments: [TableAlignment], rows: [[String]])
-        case image(alt: String, urlString: String, rawMarkdown: String)
+        case image(alt: String, urlString: String, rawMarkdown: String, width: CGFloat?)
     }
     let range: NSRange
     let kind: Kind
@@ -75,8 +75,29 @@ final class MarkdownEditorStyler {
         var strike = false
         var link: URL? = nil
         var superscript = false
+        var subscriptText = false
+        var underline = false
+        var highlight = false
+        var keyboard = false
+        var smallText = false
+        
+        /// Applies an enclosing inline HTML tag (<kbd>, <sub>, <mark>…).
+        mutating func apply(_ html: InlineHTMLStyle) {
+            switch html {
+            case .keyboard: keyboard = true; mono = true
+            case .lowered: subscriptText = true
+            case .raised: superscript = true
+            case .highlight: highlight = true
+            case .underline: underline = true
+            case .strikethrough: strike = true; color = .secondaryLabelColor
+            case .bold: bold = true
+            case .italic: italic = true
+            case .small: smallText = true
+            case .code: mono = true; if link == nil { color = .systemPurple }
+            }
+        }
     }
-
+    
     private struct BlockContext {
         var indent: CGFloat = 0
         var listDepth = 0
@@ -141,10 +162,14 @@ final class MarkdownEditorStyler {
 
     private func font(for style: InlineStyle) -> NSFont {
         var font: NSFont
+        var size = style.size
+        if style.smallText { size *= 0.85 }
+        if style.subscriptText { size *= 0.75 }
+        if style.keyboard { size -= 1 }
         if style.mono {
-            font = NSFont.monospacedSystemFont(ofSize: max(1, style.size - 1), weight: style.bold ? .bold : .regular)
+            font = NSFont.monospacedSystemFont(ofSize: max(1, size - 1), weight: style.bold ? .bold : .regular)
         } else {
-            font = NSFont.systemFont(ofSize: style.size, weight: style.bold ? .bold : .regular)
+            font = NSFont.systemFont(ofSize: size, weight: style.bold ? .bold : .regular)
         }
         if style.italic {
             font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
@@ -171,6 +196,18 @@ final class MarkdownEditorStyler {
         }
         if style.superscript {
             storage.addAttribute(.baselineOffset, value: 4, range: r)
+        }
+        if style.subscriptText {
+            storage.addAttribute(.baselineOffset, value: -3, range: r)
+        }
+        if style.underline {
+            storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
+        }
+        if style.highlight {
+            storage.addAttribute(.backgroundColor, value: NSColor.systemYellow.withAlphaComponent(0.35), range: r)
+        }
+        if style.keyboard {
+            storage.addAttribute(.backgroundColor, value: NSColor.textColor.withAlphaComponent(0.08), range: r)
         }
     }
 
@@ -428,8 +465,17 @@ final class MarkdownEditorStyler {
     // MARK: - Inlines
 
     private func styleInlines(_ node: MarkdownNode, _ style: InlineStyle) {
-        for child in node.children {
-            styleInline(child, style)
+        let children = node.children
+        let pairing = MarkdownInlineHTML.pairing(of: children)
+        for (index, child) in children.enumerated() {
+            if pairing.pairedTags.contains(index) {
+                // Paired formatting tags are syntax, hidden like Markdown markers
+                hideMarker(child.range)
+                continue
+            }
+            var childStyle = style
+            for html in pairing.styles[index] ?? [] { childStyle.apply(html) }
+            styleInline(child, childStyle)
         }
     }
 
@@ -479,8 +525,13 @@ final class MarkdownEditorStyler {
         case .image(let destination, _):
             // Images inside tables are part of the table attachment
             if node.ancestors.contains(where: { if case .table = $0.kind { return true }; return false }) { return }
-            attachments.append(EditorAttachmentRequest(range: node.range, kind: .image(alt: node.plainText, urlString: destination, rawMarkdown: source(node.range))))
+            attachments.append(EditorAttachmentRequest(range: node.range, kind: .image(alt: node.plainText, urlString: destination, rawMarkdown: source(node.range), width: nil)))
         case .htmlInline:
+            if case .image(let src, let alt, let width) = InlineHTMLTag(node.literal).kind,
+               !node.ancestors.contains(where: { if case .table = $0.kind { return true }; return false }) {
+                attachments.append(EditorAttachmentRequest(range: node.range, kind: .image(alt: alt, urlString: src, rawMarkdown: source(node.range), width: width.map { CGFloat($0) })))
+                return
+            }
             var s = style
             s.color = .secondaryLabelColor
             apply(s, to: node.range)

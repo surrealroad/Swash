@@ -207,6 +207,8 @@ struct AuditRunner {
             "code-inline-double-backtick": "Use a `tick` here",
             "code-indented": "Para\n\nindented code **x**\nline2",
             "img-in-table": "[TABLE]\n\nAfter table paragraph",
+            // Phase 3: inline HTML (tags hidden, content styled)
+            "html-inline": "Press ⌘+B, H2O, x2, line<br>break, hi",
             // Phase 1: AST-driven styling
             "em-nested-italic-in-bold": "bold with italic inside",
             "em-nested-bold-in-italic": "italic with bold inside",
