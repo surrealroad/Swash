@@ -36,6 +36,7 @@ func caretBefore(_ needle: String, in tv: NSTextView) {
     tv.setSelectedRange(NSRange(location: r.location, length: 0))
 }
 
+// Key commands are sent with doCommand(by:) so the text view delegate sees them, exactly as key presses do
 var out = ""
 var failures: [String] = []
 /// Records a probe. When `expect` is given the probe is a regression assertion.
@@ -54,32 +55,32 @@ struct InteractionRunner {
 
         // 1. Enter at end of bullet item
         do { let b = TextBox("- first item"); let tv = makeEditor(b); caretAfter("first item", in: tv)
-             tv.insertNewline(nil); pump(); tv.insertText("second", replacementRange: tv.selectedRange()); pump()
-             log("enter-continues-bullet-list", "- first item", b.text, "Notion/Typora: expect '- first item\\n- second'") }
+             tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.insertText("second", replacementRange: tv.selectedRange()); pump()
+             log("enter-continues-bullet-list", "- first item", b.text, expect: "- first item\n- second") }
         // 2. Enter at end of ordered item
         do { let b = TextBox("1. first"); let tv = makeEditor(b); caretAfter("first", in: tv)
-             tv.insertNewline(nil); pump(); tv.insertText("second", replacementRange: tv.selectedRange()); pump()
-             log("enter-continues-ordered-list", "1. first", b.text, "expect '1. first\\n2. second'") }
+             tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.insertText("second", replacementRange: tv.selectedRange()); pump()
+             log("enter-continues-ordered-list", "1. first", b.text, expect: "1. first\n2. second") }
         // 3. Enter at end of task item
         do { let b = TextBox("- [x] done"); let tv = makeEditor(b); caretAfter("done", in: tv)
-             tv.insertNewline(nil); pump(); tv.insertText("next", replacementRange: tv.selectedRange()); pump()
-             log("enter-continues-task-list", "- [x] done", b.text, "expect '- [x] done\\n- [ ] next'") }
+             tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.insertText("next", replacementRange: tv.selectedRange()); pump()
+             log("enter-continues-task-list", "- [x] done", b.text, expect: "- [x] done\n- [ ] next") }
         // 4. Tab in list item
         do { let b = TextBox("- a\n- b"); let tv = makeEditor(b); caretAfter("- b", in: tv)
-             tv.insertTab(nil); pump()
-             log("tab-indents-list-item", "- a\n- b", b.text, "expect '- a\\n  - b'") }
+             tv.doCommand(by: #selector(NSResponder.insertTab(_:))); pump()
+             log("tab-indents-list-item", "- a\n- b", b.text, expect: "- a\n  - b") }
         // 5. Enter in blockquote
         do { let b = TextBox("> quote"); let tv = makeEditor(b); caretAfter("quote", in: tv)
-             tv.insertNewline(nil); pump(); tv.insertText("more", replacementRange: tv.selectedRange()); pump()
-             log("enter-continues-quote", "> quote", b.text, "expect '> quote\\n> more'") }
+             tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.insertText("more", replacementRange: tv.selectedRange()); pump()
+             log("enter-continues-quote", "> quote", b.text, expect: "> quote\nmore".replacingOccurrences(of: "\nmore", with: "\n> more")) }
         // 6. Backspace at visual start of heading text
         do { let b = TextBox("## Title"); let tv = makeEditor(b); caretBefore("Title", in: tv)
-             tv.deleteBackward(nil); pump()
-             log("backspace-at-heading-start", "## Title", b.text, "caret appears at start of 'Title'; Notion converts to paragraph; here a hidden char is deleted") }
+             tv.doCommand(by: #selector(NSResponder.deleteBackward(_:))); pump()
+             log("backspace-at-heading-start", "## Title", b.text, expect: "Title") }
         // 7. Backspace at visual start of bullet text
         do { let b = TextBox("- item"); let tv = makeEditor(b); caretBefore("item", in: tv)
-             tv.deleteBackward(nil); pump()
-             log("backspace-at-list-start", "- item", b.text, "expect list marker removed (paragraph 'item')") }
+             tv.doCommand(by: #selector(NSResponder.deleteBackward(_:))); pump()
+             log("backspace-at-list-start", "- item", b.text, expect: "item") }
         // 8. Arrow keys across hidden markers: count presses to move from before 'x' to after 'y' in 'x **b** y'
         do { let b = TextBox("x **b** y"); let tv = makeEditor(b); caretAfter("x", in: tv)
              var presses = 0; let target = (tv.string as NSString).range(of: " y").location
@@ -151,6 +152,19 @@ struct InteractionRunner {
              tv.undoManager?.redo(); pump()
              log("typing-undo-redo-between-images", md, b.text, "after undo: \(afterUndo.debugDescription)", expect: "![a](x.png) mid12 ![b](y.png) end")
              if afterUndo != md { failures.append("typing-undo-redo-between-images: undo expected original, got \(afterUndo.debugDescription)") } }
+
+        // 20. Enter on an empty item leaves the list; Backspace with the caret before the hidden marker
+        do { let b = TextBox("- a\n- b"); let tv = makeEditor(b); caretAfter("b", in: tv)
+             tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump()
+             tv.insertText("after", replacementRange: tv.selectedRange()); pump()
+             log("enter-twice-exits-list", "- a\n- b", b.text, expect: "- a\n- b\nafter") }
+        do { let b = TextBox("- item"); let tv = makeEditor(b); tv.setSelectedRange(NSRange(location: 0, length: 0))
+             tv.doCommand(by: #selector(NSResponder.deleteBackward(_:))); pump()
+             log("backspace-at-line-start-before-hidden-marker", "- item", b.text, expect: "item") }
+        // 21. Structural edits are undoable
+        do { let b = TextBox("- a"); let tv = makeEditor(b); caretAfter("a", in: tv)
+             tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.undoManager?.undo(); pump()
+             log("enter-continuation-undo", "- a", b.text, expect: "- a") }
 
         try? out.write(toFile: CommandLine.arguments[1], atomically: true, encoding: .utf8)
         print(out)

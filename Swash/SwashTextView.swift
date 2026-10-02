@@ -912,25 +912,41 @@ struct SwashTextView: NSViewRepresentable {
             return attrs
         }
         
-        // Intercept key commands for cell editing navigation
+        // Key commands: table-cell navigation, then Notion-style structural editing
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 if let onCommit = parent.onCommit {
                     onCommit()
                     return true
                 }
+                return applyStructuralEdit(in: textView, actionName: "New Line") { MarkdownEditingCommands.newline(text: $0, selection: $1) }
             } else if commandSelector == #selector(NSResponder.insertTab(_:)) {
                 if let onNextCell = parent.onNextCell {
                     onNextCell()
                     return true
                 }
+                return applyStructuralEdit(in: textView, actionName: "Indent") { MarkdownEditingCommands.indent(text: $0, selection: $1) }
             } else if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
                 if let onPrevCell = parent.onPrevCell {
                     onPrevCell()
                     return true
                 }
+                return applyStructuralEdit(in: textView, actionName: "Outdent") { MarkdownEditingCommands.outdent(text: $0, selection: $1) }
+            } else if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
+                let hidden = parent.isStyled
+                return applyStructuralEdit(in: textView, actionName: "Delete") { MarkdownEditingCommands.backspace(text: $0, selection: $1, markersHidden: hidden) }
             }
             return false
+        }
+        
+        /// Runs a structural editing command on the raw Markdown; returns false to fall back to the default key behaviour.
+        private func applyStructuralEdit(in textView: NSTextView, actionName: String, _ command: (String, NSRange) -> MarkdownEdit?) -> Bool {
+            guard parent.onCommit == nil, let storage = textView.textStorage else { return false }
+            let raw = parent.isStyled ? buildRawMarkdown(from: storage) : textView.string
+            let rawSelection = rawRange(forStorage: textView.selectedRange(), in: textView)
+            guard let edit = command(raw, rawSelection) else { return false }
+            applyEdit(in: textView, newRawText: edit.text, rawSelection: edit.selection, actionName: actionName)
+            return true
         }
         
         // Disable spellcheck inside code blocks
