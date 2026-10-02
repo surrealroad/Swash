@@ -80,7 +80,7 @@ struct ContentView: View {
     @State private var previousSingleWidth: CGFloat = 800
     @State private var previousSplitWidth: CGFloat = 1200
     @State private var previousViewMode: ViewMode = .preview
-    @State private var scrollOriginY: CGFloat = 0
+    @State private var scrollSync = ScrollSync()
 
     @ObservedObject private var folderAccessManager = FolderAccessManager.shared
     @State private var editor = SwashEditorController()
@@ -112,7 +112,7 @@ struct ContentView: View {
                         text: $document.text,
                         selectedRange: $selectedRange,
                         selectionRect: $selectionRect,
-                        scrollOriginY: $scrollOriginY,
+                        scrollSync: scrollSync,
                         isStyled: true,
                         flavor: document.flavor,
                         baseURL: effectiveBaseURL,
@@ -126,7 +126,7 @@ struct ContentView: View {
                         text: $document.text,
                         selectedRange: $selectedRange,
                         selectionRect: $selectionRect,
-                        scrollOriginY: $scrollOriginY,
+                        scrollSync: scrollSync,
                         isStyled: false,
                         flavor: document.flavor,
                         baseURL: effectiveBaseURL,
@@ -141,7 +141,7 @@ struct ContentView: View {
                             text: $document.text,
                             selectedRange: $selectedRange,
                             selectionRect: $selectionRect,
-                            scrollOriginY: $scrollOriginY,
+                            scrollSync: scrollSync,
                             isStyled: false,
                             flavor: document.flavor,
                             baseURL: effectiveBaseURL,
@@ -151,7 +151,7 @@ struct ContentView: View {
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)
                         
-                        MarkdownPreviewView(text: document.text, flavor: document.flavor, baseURL: effectiveBaseURL, scrollOriginY: $scrollOriginY)
+                        MarkdownPreviewView(text: document.text, flavor: document.flavor, baseURL: effectiveBaseURL, scrollSync: scrollSync)
                             .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

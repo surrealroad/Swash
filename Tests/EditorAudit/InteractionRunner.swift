@@ -14,7 +14,7 @@ var windows: [NSWindow] = []
 func makeEditor(_ box: TextBox) -> NSTextView {
     let binding = Binding<String>(get: { box.text }, set: { box.text = $0 })
     let editor = SwashTextView(text: binding, selectedRange: .constant(nil), selectionRect: .constant(nil),
-                               scrollOriginY: .constant(0), isStyled: true, flavor: .github)
+                               isStyled: true, flavor: .github)
     let host = NSHostingView(rootView: editor.frame(width: 600, height: 600))
     host.frame = NSRect(x: 0, y: 0, width: 600, height: 600)
     let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -324,6 +324,25 @@ struct InteractionRunner {
         do { let b = TextBox("- a"); let tv = makeEditor(b); caretAfter("a", in: tv)
              tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.undoManager?.undo(); pump()
              log("enter-continuation-undo", "- a", b.text, expect: "- a") }
+
+        // 22. Split view: scrolling one pane scrolls the other directly, and a pane created later
+        //     (a view-mode switch) starts at the shared position
+        do { let sync = ScrollSync()
+             func pane() -> NSScrollView {
+                 let sv = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+                 sv.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 5000))
+                 sv.contentView.postsBoundsChangedNotifications = true
+                 NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: sv.contentView, queue: nil) { _ in
+                     sync.scrollViewDidScroll(sv)
+                 }
+                 sync.register(sv); return sv
+             }
+             let editorPane = pane(), previewPane = pane(); pump()
+             editorPane.contentView.scroll(to: NSPoint(x: 0, y: 420)); editorPane.reflectScrolledClipView(editorPane.contentView)
+             let followed = previewPane.contentView.bounds.origin.y
+             let laterPane = pane(); pump()
+             log("split-scroll-sync", "scroll editor to 420", "preview=\(Int(followed)) newPane=\(Int(laterPane.contentView.bounds.origin.y))",
+                 expect: "preview=420 newPane=420") }
 
         try? out.write(toFile: CommandLine.arguments[1], atomically: true, encoding: .utf8)
         print(out)
