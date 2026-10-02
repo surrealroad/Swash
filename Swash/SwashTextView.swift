@@ -100,6 +100,12 @@ final class SwashEditorController {
         return formatting
     }
 
+    /// The live editor selection in raw-markdown offsets (the published binding omits plain carets).
+    var currentRawSelection: NSRange? {
+        guard let textView = textView, let coordinator = coordinator else { return nil }
+        return coordinator.rawRange(forStorage: textView.selectedRange(), in: textView)
+    }
+    
     /// Applies `newText` as a minimal edit to the live editor. Returns false when no editor is attached,
     /// in which case the caller should assign the document text directly.
     @discardableResult
@@ -152,6 +158,16 @@ final class SwashLayoutManager: NSLayoutManager {
 class SwashNSTextView: NSTextView {
     var isStyled: Bool = true
     var flavor: MarkdownFlavor = .github
+    /// Formatting shortcuts (⌘B, ⌘I, …), handled here so they take precedence over menu key equivalents.
+    var onFormatCommand: ((FormatCommand) -> Void)?
+    
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, let handler = onFormatCommand, let command = FormatCommand.command(for: event) {
+            handler(command)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
     
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -406,6 +422,7 @@ struct SwashTextView: NSViewRepresentable {
     var onNextCell: (() -> Void)? = nil
     var onPrevCell: (() -> Void)? = nil
     var controller: SwashEditorController? = nil
+    var onFormatCommand: ((FormatCommand) -> Void)? = nil
     
     init(
         text: Binding<String>,
@@ -418,7 +435,8 @@ struct SwashTextView: NSViewRepresentable {
         onCommit: (() -> Void)? = nil,
         onNextCell: (() -> Void)? = nil,
         onPrevCell: (() -> Void)? = nil,
-        controller: SwashEditorController? = nil
+        controller: SwashEditorController? = nil,
+        onFormatCommand: ((FormatCommand) -> Void)? = nil
     ) {
         self._text = text
         self._selectedRange = selectedRange
@@ -431,6 +449,7 @@ struct SwashTextView: NSViewRepresentable {
         self.onNextCell = onNextCell
         self.onPrevCell = onPrevCell
         self.controller = controller
+        self.onFormatCommand = onFormatCommand
     }
     
     func makeNSView(context: Context) -> NSScrollView {
@@ -501,6 +520,7 @@ struct SwashTextView: NSViewRepresentable {
         guard let textView = nsView.documentView as? SwashNSTextView else { return }
         textView.isStyled = isStyled
         textView.flavor = flavor
+        textView.onFormatCommand = onFormatCommand
         
         context.coordinator.isUpdatingFromSwiftUI = true
         context.coordinator.parent = self

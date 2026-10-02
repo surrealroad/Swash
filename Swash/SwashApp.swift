@@ -89,6 +89,7 @@ struct SwashApp: App {
                 }
                 .disabled(!sparkleUpdater.canCheckForUpdates)
             }
+            FormatMenuCommands()
             CommandGroup(after: .saveItem) {
                 Button("Grant Folder Access…") {
                     if let keyWindow = NSApp.keyWindow {

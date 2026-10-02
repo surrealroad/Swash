@@ -32,7 +32,7 @@ func snapshot(_ win: NSWindow, _ url: URL) {
 var out = ""
 let outDir = URL(fileURLWithPath: CommandLine.arguments[1])
 
-struct Case { let id: String; let md: String; let select: String; let press: String?; var arg: String? = nil; var expect: String? = nil; var expectUndo: String? = nil }
+struct Case { let id: String; let md: String; let select: String; let press: String?; var arg: String? = nil; var expect: String? = nil; var expectUndo: String? = nil; var caret = false }
 var failures: [String] = []
 
 let cases: [Case] = [
@@ -89,6 +89,19 @@ let cases: [Case] = [
     Case(id: "ctx-heading-in-quote", md: "> ## Heading", select: "Heading", press: nil),
     Case(id: "ctx-alert-body", md: "> [!TIP]\n> tip body", select: "body", press: nil),
     Case(id: "heading-in-list-item", md: "- list item", select: "list", press: "H", arg: "2", expect: "## list item"),
+    // Keyboard shortcuts (key events sent to the editor like real key presses)
+    Case(id: "key-bold", md: "Plain beta gamma.", select: "beta", press: "KEY", arg: "b:11:cmd", expect: "Plain **beta** gamma."),
+    Case(id: "key-italic-off", md: "an *emph* word", select: "emph", press: "KEY", arg: "i:34:cmd", expect: "an emph word"),
+    Case(id: "key-code", md: "call foo now", select: "foo", press: "KEY", arg: "e:14:cmd", expect: "call `foo` now"),
+    Case(id: "key-strike", md: "remove this", select: "this", press: "KEY", arg: "x:7:cmd+shift", expect: "remove ~~this~~"),
+    Case(id: "key-heading-caret", md: "Title line", select: "Title", press: "KEY", arg: "1:18:cmd+opt", expect: "# Title line", caret: true),
+    Case(id: "key-paragraph", md: "## Heading", select: "Heading", press: "KEY", arg: "0:29:cmd+opt", expect: "Heading", caret: true),
+    Case(id: "key-bullet-caret", md: "a line", select: "line", press: "KEY", arg: "*:28:cmd+shift", expect: "- a line", caret: true),
+    Case(id: "key-numbered", md: "a line", select: "line", press: "KEY", arg: "&:26:cmd+shift", expect: "1. a line", caret: true),
+    Case(id: "key-task", md: "a line", select: "line", press: "KEY", arg: "(:25:cmd+shift", expect: "- [ ] a line", caret: true),
+    Case(id: "key-quote", md: "a line", select: "line", press: "KEY", arg: ">:47:cmd+shift", expect: "> a line", caret: true),
+    Case(id: "key-code-block", md: "let x = 1", select: "let x = 1", press: "KEY", arg: "c:8:cmd+opt", expect: "```\nlet x = 1\n```"),
+    Case(id: "key-plain-copy-untouched", md: "keep me", select: "keep", press: "KEY", arg: "c:8:cmd", expect: "keep me"),
     Case(id: "strike-plain", md: "remove this text", select: "this", press: "strikethrough", expect: "remove ~~this~~ text"),
 ]
 
@@ -108,7 +121,7 @@ struct BubbleRunner {
             guard let tv = findTextView(in: host) else { out += "## \(c.id)\nno text view\n\n"; continue }
             win.makeFirstResponder(tv)
             let r = (tv.string as NSString).range(of: c.select)
-            TestHooks.state = "NO MENU"; TestHooks.onAction = nil; tv.setSelectedRange(r)
+            TestHooks.state = "NO MENU"; TestHooks.onAction = nil; tv.setSelectedRange(c.caret ? NSRange(location: r.location, length: 0) : r)
             NotificationCenter.default.post(name: NSTextView.didChangeSelectionNotification, object: tv)
             pump(0.5)
             snapshot(win, outDir.appendingPathComponent("\(c.id)-menu.png"))
@@ -121,7 +134,18 @@ struct BubbleRunner {
             }
             if let press = c.press {
                 let actions: [String: FormatAction] = ["bold": .bold, "italic": .italic, "code": .code, "strikethrough": .strikethrough, "heading": .heading, "quote": .quote, "bulletList": .bulletList, "numberedList": .numberedList, "table": .table]
-                if press == "H" { TestHooks.onHeading?(Int(c.arg!)!) }
+                if press == "KEY" {
+                    // "chars:keyCode:modifiers"
+                    let parts = c.arg!.components(separatedBy: ":")
+                    var flags: NSEvent.ModifierFlags = []
+                    if parts[2].contains("cmd") { flags.insert(.command) }
+                    if parts[2].contains("shift") { flags.insert(.shift) }
+                    if parts[2].contains("opt") { flags.insert(.option) }
+                    let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                                                 windowNumber: win.windowNumber, context: nil, characters: parts[0],
+                                                 charactersIgnoringModifiers: parts[0], isARepeat: false, keyCode: UInt16(parts[1])!)!
+                    _ = tv.performKeyEquivalent(with: event)
+                } else if press == "H" { TestHooks.onHeading?(Int(c.arg!)!) }
                 else if press == "CODE" { TestHooks.onCode?(CodeFormat.allCases.first { $0.languageSignifier == c.arg } ?? .inline) }
                 else if press == "LINK" { TestHooks.onLink?(c.arg!) }
                 else if let a = actions[press] { TestHooks.onAction?(a) }

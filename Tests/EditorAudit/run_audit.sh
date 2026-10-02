@@ -39,7 +39,7 @@ enum TestHooks {
 '''
 open(sys.argv[1], "w").write(s)
 PY
-  swiftc -O -target arm64-apple-macos15.0 -sdk "$SDK" $CORE "$OUT/BubbleMenuView.hooked.swift" Swash/SwashDocument.swift Swash/ContentView.swift Tests/EditorAudit/BubbleRunner.swift -o "$OUT/bubble"
+  swiftc -O -target arm64-apple-macos15.0 -sdk "$SDK" $CORE "$OUT/BubbleMenuView.hooked.swift" Swash/SwashDocument.swift Swash/ContentView.swift Swash/FormatCommands.swift Tests/EditorAudit/BubbleRunner.swift -o "$OUT/bubble"
   "$OUT/bubble" "$OUT/bubble-out" | sed -n "/^BUBBLE/,\$p"; echo "Bubble menu report: $OUT/bubble-out/bubble.md"
 fi
 if [[ $what == perf || $what == all ]]; then
