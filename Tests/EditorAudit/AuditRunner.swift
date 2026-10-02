@@ -184,6 +184,8 @@ let probes: [Probe] = [
     Probe(id: "html-block-details", md: "<details>\n<summary>More</summary>\n\nHidden **content**\n\n</details>"),
     Probe(id: "html-block-image", md: "<p align=\"center\">\n  <img src=\"missing.png\" alt=\"Screenshot\" width=\"200\">\n</p>\n\nAfter"),
     Probe(id: "html-block-converted", md: "<div>\n<b>Bold</b> and <a href=\"https://x.com\">link</a>\n</div>"),
+    Probe(id: "code-long-first-line", md: "```swift\nlet aVeryLongVariableName = someFunction(withArgument: 1, andAnother: 2, andYetAnother: 3)\n```"),
+    Probe(id: "alert-tip-icon", md: "> [!TIP]\n> Helpful advice."),
     Probe(id: "html-comment", md: "Visible <!-- hidden comment --> text"),
     Probe(id: "math", md: "Inline $E=mc^2$ and block:\n\n$$\n\\int_0^1 x dx\n$$"),
     Probe(id: "mermaid", md: "```mermaid\ngraph TD; A-->B\n```"),

@@ -174,6 +174,16 @@ final class SwashLayoutManager: NSLayoutManager {
             (badge.title as NSString).draw(at: NSPoint(x: rect.minX + 2, y: rect.minY + 1), withAttributes: CodeBadgeInfo.attributes)
         }
         
+        textStorage.enumerateAttribute(.alertIcon, in: charRange, options: []) { value, range, _ in
+            guard let icon = value as? AlertIconInfo, let image = icon.image else { return }
+            let glyph = glyphIndexForCharacter(at: range.location)
+            let lineRect = lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let titleX = lineRect.origin.x + location(forGlyphAt: glyph).x
+            let size = image.size
+            let rect = NSRect(x: origin.x + titleX - size.width - 5, y: origin.y + lineRect.midY - size.height / 2, width: size.width, height: size.height)
+            image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+        
         textStorage.enumerateAttribute(.listMarker, in: charRange, options: []) { value, range, _ in
             if let markerInfo = value as? ListMarkerInfo {
                 let glyphRange = glyphRange(forCharacterRange: range, actualCharacterRange: nil)

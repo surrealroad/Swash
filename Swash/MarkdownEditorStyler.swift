@@ -34,6 +34,28 @@ final class IndentedTextBlock: NSTextBlock {
 extension NSAttributedString.Key {
     /// Marks the first character of a fenced code block; the layout manager draws its language badge.
     static let codeBadge = NSAttributedString.Key("SwashCodeBadgeKey")
+    /// Marks the first character of an alert title; the layout manager draws the alert's icon before it.
+    static let alertIcon = NSAttributedString.Key("SwashAlertIconKey")
+}
+
+struct AlertIconInfo {
+    let type: AlertType
+    let color: NSColor
+    
+    var symbolName: String {
+        switch type {
+        case .note: return "info.circle.fill"
+        case .tip: return "lightbulb.fill"
+        case .important: return "exclamationmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .caution: return "octagon.fill"
+        }
+    }
+    
+    var image: NSImage? {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 12, weight: .bold).applying(.init(paletteColors: [color]))
+        return NSImage(systemSymbolName: symbolName, accessibilityDescription: type.title)?.withSymbolConfiguration(configuration)
+    }
 }
 
 struct CodeBadgeInfo {
@@ -45,6 +67,8 @@ struct CodeBadgeInfo {
         .foregroundColor: NSColor.tertiaryLabelColor,
         .kern: 0.6,
     ]
+    
+    var width: CGFloat { (title as NSString).size(withAttributes: Self.attributes).width + 4 }
     
     /// Badge rect in text-container coordinates for the line fragment holding the block's first line.
     func rect(in lineRect: NSRect) -> NSRect {
@@ -319,10 +343,16 @@ final class MarkdownEditorStyler {
             apply(inner.inline, to: node.range)
             // Quote markers, and the alert's [!TYPE] marker shown as a coloured title
             for marker in node.markers {
-                if case .alert = node.kind, source(marker).hasPrefix("[!") {
+                if case .alert(let type) = node.kind, source(marker).hasPrefix("[!") {
                     apply(InlineStyle(size: 13, bold: true, color: color), to: marker)
                     hideMarker(NSRange(location: marker.location, length: 2))
                     hideMarker(NSRange(location: marker.location + marker.length - 1, length: 1))
+                    // Icon before the title, as in the Preview: indent the title line to make room
+                    storage.addAttribute(.alertIcon, value: AlertIconInfo(type: type, color: color), range: NSRange(location: marker.location + 2, length: 1))
+                    var titleContext = inner
+                    titleContext.indent = 20
+                    let titleLine = valid(text.paragraphRange(for: NSRange(location: marker.location, length: 0)))
+                    storage.addAttribute(.paragraphStyle, value: paragraphStyle(titleContext), range: titleLine)
                 } else {
                     hideMarker(marker)
                 }
@@ -399,7 +429,14 @@ final class MarkdownEditorStyler {
                     let blockEnd = node.markers.count > 1 ? node.markers[1].location : NSMaxRange(node.range)
                     if firstContent < blockEnd, firstContent < text.length {
                         let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init)
-                        storage.addAttribute(.codeBadge, value: CodeBadgeInfo(language: language), range: NSRange(location: firstContent, length: 1))
+                        let badge = CodeBadgeInfo(language: language)
+                        storage.addAttribute(.codeBadge, value: badge, range: NSRange(location: firstContent, length: 1))
+                        // Keep the first line's text clear of the badge
+                        let firstLine = valid(text.paragraphRange(for: NSRange(location: firstContent, length: 0)))
+                        if let style = (storage.attribute(.paragraphStyle, at: firstContent, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+                            style.tailIndent = -(badge.width + 16)
+                            storage.addAttribute(.paragraphStyle, value: style, range: firstLine)
+                        }
                     }
                 }
             } else {

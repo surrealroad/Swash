@@ -15,3 +15,5 @@ Rendering parity and extensions:
   - Other HTML blocks are converted to Markdown and rendered.
   - Bare wrapper tags and HTML comments are no longer shown as raw text.
 - **Math**: `$…$` inline math and `$$` display-math blocks are recognised, so formulas are no longer mangled by Markdown formatting. A `$` before a digit ("$5 and $10") stays plain text. Edit Text shows the TeX source in a math style with a MATH badge on display blocks, and the Preview shows a readable Unicode rendering (Greek letters, sub- and superscripts, fractions, roots, operators and arrows).
+- **Alerts in Edit Text** show their icon beside the title, as in the Preview.
+- **Code block badges** no longer overlap long first lines of code.
