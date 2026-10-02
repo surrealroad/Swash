@@ -85,7 +85,7 @@ struct InteractionRunner {
         do { let b = TextBox("x **b** y"); let tv = makeEditor(b); caretAfter("x", in: tv)
              var presses = 0; let target = (tv.string as NSString).range(of: " y").location
              while tv.selectedRange().location < target && presses < 20 { tv.moveRight(nil); presses += 1 }
-             log("arrow-keys-hidden-markers", "x **b** y", b.text, "visible chars between 'x' and ' y' = 3 (' b ' minus) ; moveRight presses needed = \(presses) (each hidden '*' costs an invisible keypress)") }
+             log("arrow-keys-hidden-markers", "x **b** y", "presses=\(presses)", "one press per visible character", expect: "presses=3") }
         // 9. Typing right after a bold run: does new text inherit bold / land inside markers?
         do { let b = TextBox("**bold** tail"); let tv = makeEditor(b); caretAfter("bold", in: tv)
              tv.insertText("X", replacementRange: tv.selectedRange()); pump()
@@ -153,6 +153,19 @@ struct InteractionRunner {
              log("typing-undo-redo-between-images", md, b.text, "after undo: \(afterUndo.debugDescription)", expect: "![a](x.png) mid12 ![b](y.png) end")
              if afterUndo != md { failures.append("typing-undo-redo-between-images: undo expected original, got \(afterUndo.debugDescription)") } }
 
+        // 22. Arrow keys back across hidden markers, and a click at line start lands on the content
+        do { let b = TextBox("x **b** y"); let tv = makeEditor(b); caretAfter("y", in: tv)
+             var presses = 0; let target = (tv.string as NSString).range(of: "x").location + 1
+             while tv.selectedRange().location > target && presses < 20 { tv.doCommand(by: #selector(NSResponder.moveLeft(_:))); presses += 1 }
+             log("arrow-left-hidden-markers", "x **b** y", "presses=\(presses)", expect: "presses=4") }
+        do { let b = TextBox("## Title"); let tv = makeEditor(b); tv.setSelectedRange(NSRange(location: 0, length: 0)); pump()
+             tv.insertText("New ", replacementRange: tv.selectedRange()); pump()
+             log("click-line-start-types-into-heading", "## Title", b.text, expect: "## New Title") }
+        do { let b = TextBox("```\ncode\n```\nafter"); let tv = makeEditor(b); caretAfter("code", in: tv)
+             tv.doCommand(by: #selector(NSResponder.moveRight(_:))); pump()
+             tv.insertText("X", replacementRange: tv.selectedRange()); pump()
+             log("arrow-over-collapsed-fence-line", "```\ncode\n```\nafter", b.text, expect: "```\ncode\n```\nXafter") }
+        
         // 20. Enter on an empty item leaves the list; Backspace with the caret before the hidden marker
         do { let b = TextBox("- a\n- b"); let tv = makeEditor(b); caretAfter("b", in: tv)
              tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump()

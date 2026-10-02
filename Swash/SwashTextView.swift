@@ -900,6 +900,61 @@ struct SwashTextView: NSViewRepresentable {
             }
         }
         
+        // MARK: Caret atomicity
+        
+        /// True when the character at `index` is a hidden syntax marker (collapsed font or clear colour).
+        private func isHiddenCharacter(_ index: Int, in storage: NSTextStorage) -> Bool {
+            guard index >= 0, index < storage.length else { return false }
+            if storage.attribute(.attachment, at: index, effectiveRange: nil) != nil { return false }
+            if let font = storage.attribute(.font, at: index, effectiveRange: nil) as? NSFont, font.pointSize < 1 { return true }
+            if let color = storage.attribute(.foregroundColor, at: index, effectiveRange: nil) as? NSColor, color == .clear { return true }
+            return false
+        }
+        
+        /// Keeps the caret from stopping on hidden markers: arrow steps skip a hidden run plus one visible
+        /// character, and a caret placed inside (or at the start of a line's) hidden prefix moves to the content.
+        func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRange oldRange: NSRange, toCharacterRange newRange: NSRange) -> NSRange {
+            guard parent.isStyled, !isHighlighting, !isUpdatingFromSwiftUI, newRange.length == 0, oldRange.length == 0,
+                  let storage = textView.textStorage else { return newRange }
+            let length = storage.length
+            let ns = storage.string as NSString
+            let old = oldRange.location
+            let proposed = newRange.location
+            
+            /// Moves past hidden characters that start a line or follow other hidden characters
+            /// (collapsed fence lines, block prefixes), so the caret rests on visible content.
+            func snapForward(_ position: Int) -> Int {
+                var i = position
+                while i < length && isHiddenCharacter(i, in: storage) &&
+                      (i == 0 || ns.character(at: i - 1) == 0x0A || isHiddenCharacter(i - 1, in: storage)) {
+                    i += 1
+                }
+                return i
+            }
+            
+            if proposed == old + 1 {
+                var i = old
+                if isHiddenCharacter(old, in: storage) {
+                    // Step over the hidden run and then one visible character
+                    while i < length && isHiddenCharacter(i, in: storage) { i += 1 }
+                    if i < length { i += 1 }
+                } else {
+                    i = proposed
+                }
+                return NSRange(location: snapForward(min(i, length)), length: 0)
+            }
+            if proposed == old - 1, old > 0, isHiddenCharacter(old - 1, in: storage) {
+                var i = old
+                while i > 0 && isHiddenCharacter(i - 1, in: storage) { i -= 1 }
+                if i > 0 { i -= 1 }
+                return NSRange(location: max(0, i), length: 0)
+            }
+            if proposed != old - 1 {
+                return NSRange(location: snapForward(proposed), length: 0)
+            }
+            return newRange
+        }
+        
         // Intercept typing attributes inheritance so typing next to or inside hidden tags resets to normal size/color
         func textView(_ textView: NSTextView, shouldChangeTypingAttributes oldTypingAttributes: [String : Any] = [:], toAttributes newTypingAttributes: [NSAttributedString.Key : Any] = [:]) -> [NSAttributedString.Key : Any] {
             var attrs = newTypingAttributes
