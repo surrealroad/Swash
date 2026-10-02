@@ -425,6 +425,15 @@ struct MarkdownBlockView: View {
                 }
             }
             
+        case .codeBlock(_, let info) where info.lowercased() == "math":
+            // $$ display math (or ```math): a readable Unicode rendering, centred
+            Text(MarkdownMath.unicode(node.literal.replacingOccurrences(of: "\n", with: " ")))
+                .font(.system(size: 17, design: .serif))
+                .italic()
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 8)
+            
         case .codeBlock(_, let info):
             let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init)
             CodeBlockView(code: node.literal.hasSuffix("\n") ? String(node.literal.dropLast()) : node.literal, language: language)
@@ -778,6 +787,7 @@ enum MarkdownInlineAttributes {
         var link: URL? = nil
         var superscript = false
         var lowered = false
+        var math = false
         var underline = false
         var highlight = false
         var keyboard = false
@@ -823,6 +833,7 @@ enum MarkdownInlineAttributes {
             if style.italic { run = run.italic() }
             if style.strike { run = run.strikethrough() }
             if style.underline { run = run.underline() }
+            if style.math { run = run.fontDesign(.serif).italic() }
             if style.mono {
                 run = run.monospaced()
                 if style.link == nil && !style.keyboard { run = run.foregroundColor(Color(nsColor: .systemPurple)) }
@@ -881,6 +892,9 @@ enum MarkdownInlineAttributes {
                     segments.append(.image(alt: alt, url: src, width: width.map { CGFloat($0) }))
                 default: break
                 }
+            case .math:
+                style.math = true
+                append(MarkdownMath.unicode(node.literal), style)
             case .footnoteReference(let label):
                 style.superscript = true
                 style.link = URL(string: "#fn-\(MarkdownSyntax.normalizeURI(label))")

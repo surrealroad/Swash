@@ -61,6 +61,8 @@ final class MarkdownInlineParser {
     private var brackets: Bracket?
     /// Per text node: source offset of each UTF-16 unit of its literal (used to split text for autolinks).
     private var textMaps: [ObjectIdentifier: (node: MarkdownNode, map: [Int])] = [:]
+    /// No math closer exists at or after this subject position (keeps unmatched `$` runs linear).
+    private var noMathCloserFrom = Int.max
     
     private func textMap(_ node: MarkdownNode) -> [Int]? { textMaps[ObjectIdentifier(node)]?.map }
     private func setTextMap(_ node: MarkdownNode, _ map: [Int]) { textMaps[ObjectIdentifier(node)] = (node, map) }
@@ -125,6 +127,7 @@ final class MarkdownInlineParser {
         pos = 0
         delimiters = nil
         brackets = nil
+        noMathCloserFrom = Int.max
         textMaps.removeAll(keepingCapacity: true)
         while parseInline(block) {}
         processEmphasis(stackBottom: nil)
@@ -210,6 +213,7 @@ final class MarkdownInlineParser {
         case 0x5D: handled = parseCloseBracket(block)
         case 0x3C: handled = parseAutolink(block) || parseHTMLTag(block)
         case 0x26: handled = parseEntity(block)
+        case 0x24 where options.contains(.math): handled = parseMath(block)
         default: handled = parseString(block)
         }
         if !handled {
@@ -223,6 +227,7 @@ final class MarkdownInlineParser {
         switch c {
         case 0x0A, 0x60, 0x5B, 0x5D, 0x5C, 0x21, 0x3C, 0x26, 0x2A, 0x5F: return true
         case 0x7E: return options.contains(.strikethrough)
+        case 0x24: return options.contains(.math)
         default: return false
         }
     }
@@ -353,6 +358,36 @@ final class MarkdownInlineParser {
         node.markers = [node.range]
         block.appendChild(node)
         return true
+    }
+
+    // MARK: - Math
+
+    /// Inline math `$…$`: the opener must be followed by a non-space, the closer preceded by a
+    /// non-space and not followed by a digit (so "$5 and $10" stays text). `$$` runs are left alone.
+    private func parseMath(_ block: MarkdownNode) -> Bool {
+        let start = pos
+        guard peek(1) != 0x24, let first = peek(1), first != 0x20, first != 0x09, first != 0x0A,
+              start + 1 < noMathCloserFrom else { return false }
+        var i = start + 1
+        while i < subject.count {
+            let c = subject[i]
+            if c == 0x5C { i += 2; continue }
+            if c == 0x24 {
+                let before = subject[i - 1]
+                let after = i + 1 < subject.count ? subject[i + 1] : 0
+                if i > start + 1, before != 0x20, before != 0x09, before != 0x0A, !(after >= 0x30 && after <= 0x39), after != 0x24 {
+                    let node = MarkdownNode(.math, range: sourceRange(start, i + 1))
+                    node.literal = string(start + 1, i)
+                    node.markers = [sourceRange(start, start + 1), sourceRange(i, i + 1)]
+                    block.appendChild(node)
+                    pos = i + 1
+                    return true
+                }
+            }
+            i += 1
+        }
+        noMathCloserFrom = start + 1
+        return false
     }
 
     // MARK: - Emphasis delimiters

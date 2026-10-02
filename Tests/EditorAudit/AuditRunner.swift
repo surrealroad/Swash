@@ -211,6 +211,7 @@ struct AuditRunner {
             "img-in-table": "[TABLE]\n\nAfter table paragraph",
             // Phase 3: inline HTML (tags hidden, content styled)
             "html-inline": "Press ⌘+B, H2O, x2, line<br>break, hi",
+            "math": "Inline $E=mc^2$ and block:\n\n\\int_0^1 x dx\n",
             // Phase 1: AST-driven styling
             "em-nested-italic-in-bold": "bold with italic inside",
             "em-nested-bold-in-italic": "italic with bold inside",

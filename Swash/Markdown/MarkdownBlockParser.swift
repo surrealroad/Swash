@@ -51,6 +51,7 @@ final class MarkdownBlockParser {
         var setext = false
         var alignments: [TableAlignment] = []
         var columnCount = 0
+        var isMath = false
     }
 
     let source: String
@@ -385,7 +386,7 @@ final class MarkdownBlockParser {
 
     private func maybeSpecial(_ c: UInt16) -> Bool {
         switch c {
-        case 0x23, 0x60, 0x7E, 0x2A, 0x2B, 0x5F, 0x3D, 0x3C, 0x3E, 0x2D, 0x7C, 0x3A, 0x5B: return true // # ` ~ * + _ = < > - | : [
+        case 0x23, 0x60, 0x7E, 0x2A, 0x2B, 0x5F, 0x3D, 0x3C, 0x3E, 0x2D, 0x7C, 0x3A, 0x5B, 0x24: return true // # ` ~ * + _ = < > - | : [ $
         case 0x30...0x39: return true
         default: return false
         }
@@ -537,11 +538,19 @@ final class MarkdownBlockParser {
     }
 
     private func startFencedCode() -> Int {
-        guard !indented, let c = peek(nextNonspace), c == 0x60 || c == 0x7E else { return 0 }
+        guard !indented, let c = peek(nextNonspace), c == 0x60 || c == 0x7E || (c == 0x24 && options.contains(.math)) else { return 0 }
         var j = nextNonspace
         while peek(j) == c { j += 1 }
         let fenceLength = j - nextNonspace
-        guard fenceLength >= 3 else { return 0 }
+        if c == 0x24 {
+            // $$ display math: the fence must be alone on its line
+            guard fenceLength == 2 else { return 0 }
+            var k = j
+            while isSpaceOrTab(peek(k)) { k += 1 }
+            guard peek(k) == nil else { return 0 }
+        } else {
+            guard fenceLength >= 3 else { return 0 }
+        }
         if c == 0x60 {
             var k = j
             while let ch = peek(k) {
@@ -557,6 +566,7 @@ final class MarkdownBlockParser {
         s.fenceLength = fenceLength
         s.fenceChar = c
         s.fenceOffset = indent
+        s.isMath = c == 0x24
         code.markers.append(NSRange(location: lineStart + markerStart, length: lineLength - markerStart))
         advanceNextNonspace()
         advanceOffset(fenceLength, columns: false)
@@ -906,7 +916,7 @@ final class MarkdownBlockParser {
                 // First line is the info string
                 let newline = content.chars.firstIndex(of: 0x0A) ?? content.chars.count
                 let infoRaw = String(utf16CodeUnits: Array(content.chars[0..<newline]), count: newline)
-                let info = MarkdownSyntax.unescape(infoRaw.trimmingCharacters(in: .whitespaces))
+                let info = s.isMath ? "math" : MarkdownSyntax.unescape(infoRaw.trimmingCharacters(in: .whitespaces))
                 let restStart = min(newline + 1, content.chars.count)
                 content = MarkdownInlineSource(chars: Array(content.chars[restStart...]), map: Array(content.map[restStart...]))
                 block.kind = .codeBlock(fenced: true, info: info)

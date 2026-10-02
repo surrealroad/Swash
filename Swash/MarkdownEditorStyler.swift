@@ -406,7 +406,7 @@ final class MarkdownEditorStyler {
                 hideContinuationIndent(in: node.range, maxColumns: 4, includeFirstLine: true)
             }
             let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map { String($0).lowercased() }
-            highlightCode(in: node, language: language)
+            if language != "math" { highlightCode(in: node, language: language) }
             codeRanges.append(node.range)
 
         case .htmlBlock:
@@ -535,6 +535,14 @@ final class MarkdownEditorStyler {
             var s = style
             s.color = .secondaryLabelColor
             apply(s, to: node.range)
+            codeRanges.append(node.range)
+        case .math:
+            // TeX source in a distinct style; the $ delimiters stay visible but dim
+            var s = style
+            s.mono = true
+            s.color = .systemTeal
+            apply(s, to: node.range)
+            for marker in node.markers { apply(InlineStyle(size: style.size, mono: true, color: .tertiaryLabelColor), to: marker) }
             codeRanges.append(node.range)
         case .footnoteReference:
             var s = style

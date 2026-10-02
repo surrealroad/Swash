@@ -78,11 +78,12 @@ final class MarkdownNode {
         case image(destination: String, title: String?)
         case htmlInline
         case footnoteReference(label: String)
+        case math   // inline $…$ (literal = TeX source); display math is a codeBlock with info "math"
 
         var isBlock: Bool {
             switch self {
             case .text, .softBreak, .hardBreak, .code, .emphasis, .strong, .strikethrough,
-                 .link, .image, .htmlInline, .footnoteReference:
+                 .link, .image, .htmlInline, .footnoteReference, .math:
                 return false
             default:
                 return true
@@ -184,7 +185,7 @@ final class MarkdownNode {
         var out = ""
         walk { node in
             switch node.kind {
-            case .text, .code, .htmlInline: out += node.literal
+            case .text, .code, .htmlInline, .math: out += node.literal
             case .softBreak, .hardBreak: out += "\n"
             default: break
             }
@@ -242,8 +243,9 @@ struct MarkdownParseOptions: OptionSet {
     static let footnotes = MarkdownParseOptions(rawValue: 1 << 4)
     static let alerts = MarkdownParseOptions(rawValue: 1 << 5)
     static let frontMatter = MarkdownParseOptions(rawValue: 1 << 6)
+    static let math = MarkdownParseOptions(rawValue: 1 << 7)
 
     static let commonMark: MarkdownParseOptions = []
     static let gfm: MarkdownParseOptions = [.tables, .strikethrough, .taskLists, .extendedAutolinks, .footnotes]
-    static let swash: MarkdownParseOptions = [.gfm, .alerts, .frontMatter]
+    static let swash: MarkdownParseOptions = [.gfm, .alerts, .frontMatter, .math]
 }
