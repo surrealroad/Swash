@@ -5,7 +5,7 @@ set -eo pipefail
 cd "$(dirname "$0")/../.."
 OUT="build/editor-audit"; mkdir -p "$OUT"
 SDK="$(xcrun --show-sdk-path --sdk macosx)"
-CORE="Swash/Markdown/*.swift Swash/RichContentRenderer.swift Swash/MarkdownEditorStyler.swift Swash/FormatCommands.swift Swash/MarkdownFlavor.swift Swash/FolderAccessManager.swift Swash/MarkdownParser.swift Swash/MarkdownPreviewView.swift Swash/DetectedLink.swift Swash/InteractiveTableView.swift Swash/SwashTextView.swift"
+CORE="Swash/Markdown/*.swift Swash/PlatformTypes.swift Swash/RichContentRenderer.swift Swash/MarkdownEditorStyler.swift Swash/FormatCommands.swift Swash/MarkdownFlavor.swift Swash/FolderAccessManager.swift Swash/MarkdownParser.swift Swash/MarkdownPreviewView.swift Swash/DetectedLink.swift Swash/InteractiveTableView.swift Swash/SwashTextView.swift"
 what="${1:-all}"
 
 if [[ $what == render || $what == all ]]; then
@@ -39,7 +39,7 @@ enum TestHooks {
 '''
 open(sys.argv[1], "w").write(s)
 PY
-  swiftc -O -target arm64-apple-macos15.0 -sdk "$SDK" $CORE "$OUT/BubbleMenuView.hooked.swift" Swash/SwashDocument.swift Swash/ContentView.swift Tests/EditorAudit/BubbleRunner.swift -o "$OUT/bubble"
+  swiftc -O -target arm64-apple-macos15.0 -sdk "$SDK" $CORE "$OUT/BubbleMenuView.hooked.swift" Swash/SwashDocument.swift Swash/ViewMode.swift Swash/ContentView.swift Tests/EditorAudit/BubbleRunner.swift -o "$OUT/bubble"
   "$OUT/bubble" "$OUT/bubble-out" | sed -n "/^BUBBLE/,\$p"; echo "Bubble menu report: $OUT/bubble-out/bubble.md"
 fi
 if [[ $what == perf || $what == all ]]; then

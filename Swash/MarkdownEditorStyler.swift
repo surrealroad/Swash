@@ -8,6 +8,7 @@
 //  attachment requests for tables and images.
 //
 
+#if os(macOS)
 import AppKit
 
 /// An NSTextBlock whose background starts at its left margin, so blocks nested in list items are
@@ -754,7 +755,7 @@ final class MarkdownEditorStyler {
     }
 
     static func url(_ destination: String) -> URL? {
-        URL(string: destination) ?? URL(string: MarkdownSyntax.normalizeURI(destination))
+        MarkdownSyntax.url(destination)
     }
 }
 
@@ -804,3 +805,4 @@ enum MarkdownCodeHighlighter {
         for m in numberRegex.matches(in: line, options: [], range: lineRange) { color(m.range, .systemOrange) }
     }
 }
+#endif

@@ -5,6 +5,7 @@
 //  Created by Jack James on 13/07/2026.
 //
 
+#if os(macOS)
 import SwiftUI
 import AppKit
 
@@ -108,3 +109,4 @@ struct SwashApp: App {
         }
     }
 }
+#endif

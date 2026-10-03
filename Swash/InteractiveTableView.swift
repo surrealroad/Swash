@@ -6,7 +6,9 @@
 //
 
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 
 extension Notification.Name {
     static let applyCellFormatting = Notification.Name("applyCellFormatting")
@@ -148,7 +150,9 @@ struct InteractiveTableView: View {
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundColor(.secondary)
                         }
+                        #if os(macOS)
                         .menuStyle(.borderlessButton)
+                        #endif
                         .menuIndicator(.hidden)
                         .frame(width: 14)
                     }
@@ -388,6 +392,7 @@ struct CellTextField: View {
     var onPrevCell: () -> Void
 
     var body: some View {
+        #if os(macOS)
         CellTextView(
             text: $text,
             flavor: flavor,
@@ -396,8 +401,17 @@ struct CellTextField: View {
             onPrevCell: onPrevCell
         )
         .frame(minHeight: 20)
+        #else
+        // Plain field until the UIKit cell editor (live inline styling, Tab navigation) lands
+        TextField("", text: $text)
+            .textFieldStyle(.plain)
+            .onSubmit(onCommit)
+            .frame(minHeight: 20)
+        #endif
     }
 }
+
+#if os(macOS)
 
 // MARK: - CellTextView with Live Inline Markdown Formatting
 struct CellTextView: NSViewRepresentable {
@@ -902,4 +916,4 @@ final class TableTextAttachment: NSTextAttachment {
         fatalError("init(coder:) has not been implemented")
     }
 }
-
+#endif

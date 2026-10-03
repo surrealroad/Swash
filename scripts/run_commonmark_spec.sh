@@ -20,3 +20,16 @@ swiftc -O \
   -o "$BIN"
 
 "$BIN" Tests/CommonMarkSpec/fixtures "$@"
+
+# HTMLToMarkdown runs on HTMLLiteDOM where Foundation's XMLDocument is missing (iOS). Build the
+# checks again with that parser forced on, so both paths stay in step.
+swiftc -O -D SWASH_HTML_LITE -module-name main \
+  -target arm64-apple-macos14.0 \
+  -sdk "$(xcrun --show-sdk-path --sdk macosx)" \
+  Swash/Markdown/*.swift \
+  Tests/CommonMarkSpec/SpecRunner.swift \
+  Tests/CommonMarkSpec/ParserChecks.swift \
+  -o "$BUILD_DIR/commonmark-spec-runner-lite"
+
+echo "--- HTML conversion with HTMLLiteDOM ---"
+"$BUILD_DIR/commonmark-spec-runner-lite" Tests/CommonMarkSpec/fixtures "$@" | grep -E "HTML paste conversion|❌ html"
