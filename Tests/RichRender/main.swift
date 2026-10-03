@@ -125,7 +125,7 @@ func run() async {
     let box = TextBox(source)
     let binding = Binding<String>(get: { box.text }, set: { box.text = $0 })
     let editor = SwashTextView(text: binding, selectedRange: .constant(nil), selectionRect: .constant(nil),
-                               scrollOriginY: .constant(0), isStyled: true, flavor: .github)
+                               isStyled: true, flavor: .github)
     let host = NSHostingView(rootView: editor.frame(width: 600, height: 700))
     host.frame = NSRect(x: 0, y: 0, width: 600, height: 700)
     let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)

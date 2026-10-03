@@ -72,7 +72,7 @@ func visibleRender(_ storage: NSTextStorage) -> (visible: String, runs: [String]
 func makeEditor(_ box: TextBox, width: CGFloat = 600, flavor: MarkdownFlavor = .github) -> (NSHostingView<AnyView>, NSTextView?) {
     let binding = Binding<String>(get: { box.text }, set: { box.text = $0 })
     let editor = SwashTextView(text: binding, selectedRange: .constant(nil), selectionRect: .constant(nil),
-                               scrollOriginY: .constant(0), isStyled: true, flavor: flavor)
+                               isStyled: true, flavor: flavor)
     let host = NSHostingView(rootView: AnyView(editor.frame(width: width, height: 900)))
     host.frame = NSRect(x: 0, y: 0, width: width, height: 900)
     let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -97,7 +97,7 @@ func sideBySide(_ md: String, to url: URL) {
         VStack(alignment: .leading, spacing: 0) {
             Text("EDIT TEXT (WYSIWYG)").font(.caption.bold()).padding(4)
             SwashTextView(text: binding, selectedRange: .constant(nil), selectionRect: .constant(nil),
-                          scrollOriginY: .constant(0), isStyled: true, flavor: .github)
+                          isStyled: true, flavor: .github)
         }.frame(width: 420, height: 380)
         Divider()
         VStack(alignment: .leading, spacing: 0) {

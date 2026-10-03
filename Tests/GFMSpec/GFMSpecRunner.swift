@@ -355,7 +355,6 @@ struct GFMSpecRunner {
                 text: .constant(testCase.markdown),
                 selectedRange: .constant(nil),
                 selectionRect: .constant(nil),
-                scrollOriginY: .constant(0),
                 isStyled: true,
                 flavor: .github
             )
@@ -438,7 +437,6 @@ struct GFMSpecRunner {
                 text: .constant(testCase.markdown),
                 selectedRange: .constant(nil),
                 selectionRect: .constant(nil),
-                scrollOriginY: .constant(0),
                 isStyled: true,
                 flavor: .github
             )
@@ -492,7 +490,6 @@ struct GFMSpecRunner {
                 text: .constant(testCase.markdown),
                 selectedRange: .constant(nil),
                 selectionRect: .constant(nil),
-                scrollOriginY: .constant(0),
                 isStyled: true,
                 flavor: .github
             )
@@ -563,7 +560,6 @@ struct GFMSpecRunner {
                 text: .constant(testCase.markdown),
                 selectedRange: .constant(nil),
                 selectionRect: .constant(nil),
-                scrollOriginY: .constant(0),
                 isStyled: true,
                 flavor: .github
             )
@@ -631,7 +627,6 @@ struct GFMSpecRunner {
                 text: .constant(testCase.markdown),
                 selectedRange: .constant(nil),
                 selectionRect: .constant(nil),
-                scrollOriginY: .constant(0),
                 isStyled: true,
                 flavor: .github
             )
@@ -706,7 +701,6 @@ struct GFMSpecRunner {
                 text: .constant(testCase.markdown),
                 selectedRange: .constant(nil),
                 selectionRect: .constant(nil),
-                scrollOriginY: .constant(0),
                 isStyled: true,
                 flavor: .github
             )
@@ -755,7 +749,6 @@ struct GFMSpecRunner {
                 text: .constant(testCase.markdown),
                 selectedRange: .constant(nil),
                 selectionRect: .constant(nil),
-                scrollOriginY: .constant(0),
                 isStyled: true,
                 flavor: .github
             )
@@ -809,7 +802,6 @@ struct GFMSpecRunner {
                 text: .constant(testCase.markdown),
                 selectedRange: .constant(nil),
                 selectionRect: .constant(nil),
-                scrollOriginY: .constant(0),
                 isStyled: true,
                 flavor: .github
             )
@@ -859,7 +851,6 @@ struct GFMSpecRunner {
                 text: .constant(testCase.markdown),
                 selectedRange: .constant(nil),
                 selectionRect: .constant(nil),
-                scrollOriginY: .constant(0),
                 isStyled: true,
                 flavor: .github,
                 baseURL: baseScriptsURL

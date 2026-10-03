@@ -8,8 +8,50 @@
 import SwiftUI
 import AppKit
 
+/// Keeps the editor and preview scroll positions in step by scrolling the clip views directly.
+/// Scroll positions never pass through SwiftUI state, so scrolling doesn't re-evaluate
+/// `ContentView` (which would re-parse and re-measure the whole preview on every frame).
+/// Held in `@State` like `SwashEditorController`; the stored origin restores the position
+/// when the view mode changes.
+final class ScrollSync {
+    private(set) var originY: CGFloat = 0
+    private let scrollViews = NSHashTable<NSScrollView>.weakObjects()
+    private var isSyncing = false
+
+    /// Adds a scroll view and moves it to the shared position once it has laid out.
+    func register(_ scrollView: NSScrollView) {
+        scrollViews.add(scrollView)
+        DispatchQueue.main.async { [weak self, weak scrollView] in
+            guard let self = self, let scrollView = scrollView else { return }
+            self.isSyncing = true
+            ScrollSync.scroll(scrollView, toY: self.originY)
+            self.isSyncing = false
+        }
+    }
+
+    /// Call from a scroll view's bounds-change observer; scrolls every other registered view.
+    func scrollViewDidScroll(_ scrollView: NSScrollView) {
+        guard !isSyncing else { return }
+        let y = scrollView.contentView.bounds.origin.y
+        guard abs(y - originY) > 0.5 else { return }
+        originY = y
+        isSyncing = true
+        for other in scrollViews.allObjects where other !== scrollView {
+            ScrollSync.scroll(other, toY: y)
+        }
+        isSyncing = false
+    }
+
+    private static func scroll(_ scrollView: NSScrollView, toY y: CGFloat) {
+        let clipView = scrollView.contentView
+        guard abs(clipView.bounds.origin.y - y) > 0.5 else { return }
+        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: y))
+        scrollView.reflectScrolledClipView(clipView)
+    }
+}
+
 struct PreviewScrollView<Content: View>: NSViewRepresentable {
-    @Binding var scrollOriginY: CGFloat
+    var scrollSync: ScrollSync?
     @ViewBuilder let content: () -> Content
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -30,20 +72,13 @@ struct PreviewScrollView<Content: View>: NSViewRepresentable {
             name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView
         )
-
-        DispatchQueue.main.async { [weak scrollView] in
-            guard let scrollView = scrollView else { return }
-            let clipView = scrollView.contentView
-            let targetPoint = NSPoint(x: clipView.bounds.origin.x, y: context.coordinator.parent.scrollOriginY)
-            clipView.scroll(to: targetPoint)
-            scrollView.reflectScrolledClipView(clipView)
-        }
+        scrollSync?.register(scrollView)
 
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-        context.coordinator.parent = self
+        context.coordinator.scrollSync = scrollSync
         if let hostingView = nsView.documentView as? NSHostingView<Content> {
             hostingView.rootView = content()
             let currentWidth = nsView.contentSize.width
@@ -55,41 +90,22 @@ struct PreviewScrollView<Content: View>: NSViewRepresentable {
                 hostingView.frame = NSRect(x: 0, y: 0, width: currentWidth, height: max(targetHeight, nsView.contentSize.height))
             }
         }
-
-        let clipView = nsView.contentView
-        if abs(clipView.bounds.origin.y - scrollOriginY) > 1.0 {
-            context.coordinator.isProgrammaticScroll = true
-            let targetPoint = NSPoint(x: clipView.bounds.origin.x, y: scrollOriginY)
-            clipView.scroll(to: targetPoint)
-            nsView.reflectScrolledClipView(clipView)
-            DispatchQueue.main.async {
-                context.coordinator.isProgrammaticScroll = false
-            }
-        }
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(self)
+        Coordinator(scrollSync: scrollSync)
     }
 
     class Coordinator: NSObject {
-        var parent: PreviewScrollView
-        var isProgrammaticScroll = false
+        var scrollSync: ScrollSync?
 
-        init(_ parent: PreviewScrollView) {
-            self.parent = parent
+        init(scrollSync: ScrollSync?) {
+            self.scrollSync = scrollSync
         }
 
         @objc func scrollViewDidScroll(_ notification: Notification) {
-            guard !isProgrammaticScroll else { return }
-            if let clipView = notification.object as? NSClipView {
-                let y = clipView.bounds.origin.y
-                if abs(parent.scrollOriginY - y) > 0.5 {
-                    DispatchQueue.main.async {
-                        self.parent.scrollOriginY = y
-                    }
-                }
-            }
+            guard let scrollView = (notification.object as? NSClipView)?.superview as? NSScrollView else { return }
+            scrollSync?.scrollViewDidScroll(scrollView)
         }
     }
 }
@@ -98,17 +114,20 @@ struct MarkdownPreviewView: View {
     let text: String
     let flavor: MarkdownFlavor
     let baseURL: URL?
-    @Binding var scrollOriginY: CGFloat
+    var scrollSync: ScrollSync? = nil
+    /// Reuses the last parse while the text is unchanged; the view is re-evaluated whenever
+    /// `ContentView` updates (selection changes, banners), not only when the text changes.
+    @State private var parseCache = ParseCache()
     
-    init(text: String, flavor: MarkdownFlavor, baseURL: URL? = nil, scrollOriginY: Binding<CGFloat> = .constant(0)) {
+    init(text: String, flavor: MarkdownFlavor, baseURL: URL? = nil, scrollSync: ScrollSync? = nil) {
         self.text = text
         self.flavor = flavor
         self.baseURL = baseURL
-        self._scrollOriginY = scrollOriginY
+        self.scrollSync = scrollSync
     }
     
     var body: some View {
-        let document = MarkdownPreviewView.parse(text, flavor: flavor)
+        let document = parseCache.document(for: text, flavor: flavor)
         let blocks = document.root.children.filter {
             switch $0.kind {
             case .footnoteDefinition, .linkReferenceDefinition: return false
@@ -117,7 +136,7 @@ struct MarkdownPreviewView: View {
         }
         let context = MarkdownRenderContext(document: document, baseURL: baseURL)
         
-        PreviewScrollView(scrollOriginY: $scrollOriginY) {
+        PreviewScrollView(scrollSync: scrollSync) {
             VStack(alignment: .leading, spacing: 14) {
                 if blocks.isEmpty {
                     Text("Nothing to preview yet. Start typing on the left!")
@@ -144,6 +163,21 @@ struct MarkdownPreviewView: View {
     static func parse(_ text: String, flavor: MarkdownFlavor) -> MarkdownDocument {
         let source = flavor == .slack ? MarkdownParser.convertSlackToGithub(text) : text
         return MarkdownDocument.parse(source)
+    }
+    
+    final class ParseCache {
+        private var key: (text: String, flavor: MarkdownFlavor)? = nil
+        private var cached: MarkdownDocument? = nil
+        
+        func document(for text: String, flavor: MarkdownFlavor) -> MarkdownDocument {
+            if let key = key, let cached = cached, key.flavor == flavor, key.text == text {
+                return cached
+            }
+            let document = MarkdownPreviewView.parse(text, flavor: flavor)
+            key = (text, flavor)
+            cached = document
+            return document
+        }
     }
 }
 
