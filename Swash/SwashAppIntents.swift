@@ -40,10 +40,10 @@ struct CreateDocumentIntent: AppIntent {
         try content.write(to: fileURL, atomically: true, encoding: .utf8)
         NSDocumentController.shared.openDocument(withContentsOf: fileURL, display: true) { _, _, _ in }
         #else
-        // iOS has no programmatic document controller: save into the app's Documents folder,
-        // which the document browser lists (opening it directly is planned work)
-        let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        try content.write(to: documents.appendingPathComponent(fileName), atomically: true, encoding: .utf8)
+        // Saved to Documents (On My iPhone › Swash) and opened in the document browser
+        _ = fileName
+        let fileURL = try DocumentOpener.createDocument(title: title, text: content)
+        DocumentOpener.open(fileURL)
         #endif
         
         return .result()
