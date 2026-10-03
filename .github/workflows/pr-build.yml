@@ -14,7 +14,7 @@ concurrency:
 jobs:
   build:
     name: Build macOS App
-    runs-on: macos-14
+    runs-on: macos-26
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
