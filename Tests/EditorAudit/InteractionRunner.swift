@@ -344,6 +344,36 @@ struct InteractionRunner {
              log("split-scroll-sync", "scroll editor to 420", "preview=\(Int(followed)) newPane=\(Int(laterPane.contentView.bounds.origin.y))",
                  expect: "preview=420 newPane=420") }
 
+        // 23. Preview: a vertical gesture that starts over a table or code block scrolls the preview,
+        //     a horizontal one stays with the nested view, and mouse wheels are routed per event
+        do { let filler = (1...30).map { "Paragraph \($0) of filler text." }.joined(separator: "\n\n")
+             let md = filler + "\n\n```swift\nlet x = 1\n```\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n" + filler
+             let host = NSHostingView(rootView: MarkdownPreviewView(text: md, flavor: .github).frame(width: 500, height: 600))
+             host.frame = NSRect(x: 0, y: 0, width: 500, height: 600)
+             let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+             win.contentView = host; windows.append(win); pump(0.3)
+             func allScrollViews(in v: NSView) -> [NSScrollView] { ((v as? NSScrollView).map { [$0] } ?? []) + v.subviews.flatMap(allScrollViews) }
+             let all = allScrollViews(in: host)
+             let outer = all.max { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }!
+             let nested = all.filter { $0 !== outer && $0.isDescendant(of: outer) }
+             // Bring the first nested view on screen and aim at its centre
+             if let first = nested.first, let doc = outer.documentView {
+                 let r = first.convert(first.bounds, to: doc)
+                 outer.contentView.scroll(to: NSPoint(x: 0, y: max(0, r.midY - 300))); outer.reflectScrolledClipView(outer.contentView); pump()
+             }
+             let router = NestedScrollRouter(scrollView: outer)
+             let overNested = nested.first.map { $0.convert(NSPoint(x: $0.bounds.midX, y: $0.bounds.midY), to: nil) } ?? .zero
+             let overText = outer.convert(NSPoint(x: 250, y: outer.contentView.bounds.minY + 5), to: nil)
+             let v = (dx: CGFloat(0), dy: CGFloat(-6)), h = (dx: CGFloat(-6), dy: CGFloat(1))
+             func f(_ p: NSEvent.Phase, _ m: NSEvent.Phase = [], _ d: (dx: CGFloat, dy: CGFloat), _ at: NSPoint) -> String {
+                 router.shouldForward(phase: p, momentumPhase: m, deltaX: d.dx, deltaY: d.dy, pointInWindow: at) ? "Y" : "n"
+             }
+             let gesture = [f(.began, [], v, overNested), f(.changed, [], h, overText), f([], .changed, v, overText), f([], .ended, v, overText), f([], .changed, v, overText)].joined()
+             let horizontal = [f(.began, [], h, overNested), f(.changed, [], v, overNested)].joined()
+             let wheel = [f([], [], v, overNested), f([], [], h, overNested), f([], [], v, overText)].joined()
+             log("preview-nested-scroll-routing", "\(nested.count) nested scroll views", "gesture=\(gesture) horizontal=\(horizontal) wheel=\(wheel)",
+                 expect: "gesture=YYYYn horizontal=nn wheel=Ynn") }
+
         try? out.write(toFile: CommandLine.arguments[1], atomically: true, encoding: .utf8)
         print(out)
         print(failures.isEmpty ? "INTERACTION: all expectations passed" : "INTERACTION FAILURES:\n" + failures.joined(separator: "\n"))

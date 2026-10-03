@@ -89,3 +89,7 @@
 ## 22. Scroll Positions Must Not Go Through SwiftUI State
 - **Issue**: Split view synced the two panes through an `@State` scroll offset in `ContentView`. Every scroll tick re-evaluated `ContentView`, which re-parsed the whole preview, rebuilt its view tree and re-measured it with `fittingSize`, so scrolling stuttered on longer documents.
 - **Solution**: `ScrollSync` (in `MarkdownPreviewView.swift`) scrolls the other pane's clip view directly and stores the offset in a plain class held in `@State`, so the mode-switch position is kept without invalidating views. Don't publish per-frame values (scroll offsets, unchanged selection rects) to SwiftUI state. `MarkdownPreviewView` also caches its parse by text and flavor.
+
+## 23. Nested Horizontal Scroll Views Latch Vertical Gestures
+- **Issue**: AppKit sends a whole trackpad scroll gesture, momentum included, to the scroll view under the pointer when it begins. In the preview, tables and code blocks sit in SwiftUI `ScrollView(.horizontal)` views (backed by `NSScrollView`), so a vertical swipe that began over one stalled there.
+- **Solution**: `NestedScrollRouter` (in `MarkdownPreviewView.swift`) is a local `.scrollWheel` monitor. It decides at each gesture's `.began` (or per event for mouse wheels) and sends mostly-vertical gestures that start over a nested scroll view to the preview's `NSScrollView`. The decision lives in `shouldForward(...)` so the interaction harness can test it without a real event stream.
