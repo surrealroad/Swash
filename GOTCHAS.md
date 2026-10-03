@@ -113,3 +113,15 @@
 ## 28. SwiftUI Text in Horizontal Scroll Views Under UIKit Hosting
 - **Issue**: In the iOS preview (a `UIHostingController` sized by intrinsic content size inside a `UIScrollView`), a multi-line `Text` inside `ScrollView(.horizontal)` was squeezed to one line with an ellipsis.
 - **Solution**: Give such text `.fixedSize()` (code blocks), or `.fixedSize(horizontal: false, vertical: true)` where it should wrap.
+
+## 29. Don't Make a UITextView Subclass Its Own Gesture Delegate
+- **Issue**: `StyledUITextView` implemented `gestureRecognizer(_:shouldReceive:)` to limit its task-checkbox tap to checkboxes. A scroll view is already the delegate of its own pan and text-interaction recognizers, so the override filtered those too. The editor stopped scrolling, with no error and no `scrollViewDidScroll` calls.
+- **Solution**: Give extra recognizers on a text or scroll view a separate delegate object (`TaskTapFilter`). Never implement `UIGestureRecognizerDelegate` methods on the scroll view subclass itself.
+
+## 30. UITextView in UIViewRepresentable Must Fill the Proposed Size
+- **Issue**: SwiftUI can size a representable `UITextView` to its fitting size, which is the whole text height, so the view grows instead of scrolling.
+- **Solution**: Both iOS editors implement `sizeThatFits(_:uiView:context:)` and return the proposed width and height.
+
+## 31. Edit Text Blocks on iOS: Decorations Instead of NSTextBlock
+- **Issue**: iOS has no `NSTextBlock`, which the styler uses on macOS for quotes, alerts, code blocks and rules.
+- **Solution**: On iOS, `MarkdownEditorStyler.pushBox`/`pushRule` add a `BlockDecoration` (outermost first) to the context instead. `setParagraphStyle(_ context:…)` sets the paragraph indents for the box's border and padding and writes `.blockDecorations` over the paragraphs. `padBoxes()` turns top and bottom padding into paragraph spacing, and `StyledLayoutManager` paints each box over its paragraphs' line fragments. Always set paragraph styles through `setParagraphStyle(context:…)`. When adjusting a paragraph style later, adjust the indents (`tailIndent -= …`) rather than replacing them, or the box insets are lost on iOS. macOS keeps its `NSTextBlock` path unchanged; check it with `Tests/EditorAudit/run_audit.sh`.

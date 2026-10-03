@@ -16,7 +16,7 @@ struct IOSContentView: View {
 
     @SceneStorage("viewMode") private var viewMode: ViewMode = .preview
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var editor = SourceEditorController()
+    @State private var editor = IOSEditorController()
     @State private var scrollSync = ScrollSync()
     @State private var showingSettings = false
     @State private var linkPrompt: LinkPrompt?
@@ -79,7 +79,13 @@ struct IOSContentView: View {
         case .edit:
             sourceEditor
         case .preview:
-            preview
+            if usesStyledEditor {
+                StyledTextView(text: $document.text, controller: editor, flavor: document.flavor, baseURL: fileURL)
+                    .ignoresSafeArea(.container, edges: .bottom)
+                    .id(folderAccessManager.accessGrantedTrigger)
+            } else {
+                preview
+            }
         case .split:
             HStack(spacing: 0) {
                 sourceEditor
@@ -198,9 +204,15 @@ struct IOSContentView: View {
 
     // MARK: - Formatting
 
-    /// Formatting edits the source, so it needs the source editor on screen.
+    /// Formatted mode edits in place (Edit Text) for CommonMark and GFM; Slack mrkdwn, which the
+    /// AST styler does not handle, shows the read-only preview there.
+    private var usesStyledEditor: Bool {
+        document.flavor != .slack
+    }
+
+    /// Formatting needs an editor on screen, and isn't offered for Slack mrkdwn.
     private var canFormat: Bool {
-        effectiveMode != .preview && document.flavor != .slack
+        document.flavor != .slack
     }
 
     private func handleFormatCommand(_ command: FormatCommand) {

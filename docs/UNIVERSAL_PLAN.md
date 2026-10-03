@@ -69,18 +69,25 @@ Status: **in progress** on the `feat/universal-ios` branch. The phase checklists
 - [x] Flavour picker, share sheet, settings sheet.
 - [x] iOS simulator build in `pr-build.yml`.
 
-**Phase 2 notes.** On iOS, Formatted mode is currently the read-only preview; the Mac's editable "Edit Text" mode arrives in phase 3. Until then, formatting edits the Source view. The formatting bar is hidden for Slack mrkdwn, whose delimiters the AST engine doesn't write yet. Preview table cells use a plain `TextField` when edited (they are read-only in the preview).
+**Phase 2 notes.** The formatting bar is hidden for Slack mrkdwn, whose delimiters the AST engine doesn't write yet. Preview table cells use a plain `TextField` when edited (they are read-only in the preview).
 
 ### 3. Styled editor ("Edit Text") on UIKit
-- [ ] Turn `MarkdownEditorStyler` into a cross-platform type: replace `NSTextBlock` with a paragraph attribute that the layout manager paints (it already paints the block backgrounds, GOTCHAS #19); use font descriptors in place of `NSFontManager`.
-- [ ] `SwashUITextView`: a `UITextView` on TextKit 1 with `SwashLayoutManager` ported, hidden delimiters and attachments for images, math and tables.
-- [ ] Port `AttachmentOffsetMap` and the raw/storage offset bridging unchanged (shared code).
-- [ ] Incremental restyling, with the iOS harness comparing incremental and full restyles.
+- [x] Make `MarkdownEditorStyler` cross-platform. macOS keeps its `NSTextBlock`s unchanged. On iOS, quotes, alerts, code blocks and rules carry a `BlockDecoration` paragraph attribute that `StyledLayoutManager` paints (GOTCHAS #31). Italics use font descriptors on iOS.
+- [x] `StyledUITextView`: a `UITextView` on TextKit 1 with hidden delimiters, list markers, task checkboxes (tap to toggle), code badges, alert icons, rendered math and Mermaid, and attachments for images and interactive tables.
+- [x] `AttachmentOffsetMap` and the raw/storage offset bridging, shared in `EditorSupport.swift`.
+- [x] Incremental restyling, ported from the macOS coordinator.
+- [ ] iOS harness comparing incremental and full restyles (with the simulator tests in phase 6).
+
+**Phase 3 notes.** Formatted mode on iOS is now the Edit Text editor, except for Slack mrkdwn, which still shows the read-only preview (the Mac styles Slack with a separate legacy path). Text is drawn at 17/14 of the Mac sizes (`MarkdownEditorStyler.fontScale`). Known gaps:
+- UIKit has no per-range spell-check hook, so code isn't excluded from spell-checking on iOS.
+- Links in the editor are edited, not followed.
+- Undo across collapsed tables and images still needs testing on a device with a hardware keyboard.
 
 ### 4. Editing interactions
-- [ ] List continuation, indent/outdent, Backspace-unformat (in `UITextViewDelegate` and through key commands).
-- [ ] Formatting bar above the keyboard (iPhone and iPad without a hardware keyboard).
-- [ ] Edit-menu actions in place of the bubble menu; the code-language menu as a `UIMenu`.
+- [x] List continuation, indent/outdent, Backspace-unformat (in `UITextViewDelegate` and through key commands), in both editors.
+- [x] Formatting bar above the keyboard (iPhone and iPad without a hardware keyboard).
+- [x] Edit-menu formatting actions in place of the bubble menu.
+- [ ] The code-language menu as a `UIMenu` (tapping the code badge).
 - [ ] "/" block menu (popover on iPad, list above the keyboard on iPhone).
 - [ ] Interactive tables on UIKit.
 - [ ] Smart paste and rich copy with `UIPasteboard`.
