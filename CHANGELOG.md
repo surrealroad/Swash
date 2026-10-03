@@ -1,5 +1,11 @@
 # swash
 
+## 1.8.6
+
+### Patch Changes
+
+- 4f04726: Publish releases with an up-to-date GitHub release action, removing the last warning from release builds. The app itself is unchanged.
+
 ## 1.8.5
 
 ### Patch Changes
