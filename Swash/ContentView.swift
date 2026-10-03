@@ -168,37 +168,16 @@ struct ContentView: View {
                 Spacer()
             }
             
-            ToolbarItem(id: "viewMode_edit", placement: .primaryAction) {
-                Toggle(isOn: Binding(
-                    get: { viewMode == .edit },
-                    set: { if $0 { viewMode = .edit } }
-                )) {
-                    Label(ViewMode.edit.rawValue, systemImage: ViewMode.edit.icon)
+            ToolbarItem(id: "viewMode", placement: .primaryAction) {
+                Picker("View", selection: $viewMode) {
+                    ForEach(ViewMode.allCases) { mode in
+                        Label(mode.rawValue, systemImage: mode.icon)
+                            .help(mode.tooltip)
+                            .tag(mode)
+                    }
                 }
-                .toggleStyle(.button)
-                .help(ViewMode.edit.tooltip)
-            }
-            
-            ToolbarItem(id: "viewMode_preview", placement: .primaryAction) {
-                Toggle(isOn: Binding(
-                    get: { viewMode == .preview },
-                    set: { if $0 { viewMode = .preview } }
-                )) {
-                    Label(ViewMode.preview.rawValue, systemImage: ViewMode.preview.icon)
-                }
-                .toggleStyle(.button)
-                .help(ViewMode.preview.tooltip)
-            }
-            
-            ToolbarItem(id: "viewMode_split", placement: .primaryAction) {
-                Toggle(isOn: Binding(
-                    get: { viewMode == .split },
-                    set: { if $0 { viewMode = .split } }
-                )) {
-                    Label(ViewMode.split.rawValue, systemImage: ViewMode.split.icon)
-                }
-                .toggleStyle(.button)
-                .help(ViewMode.split.tooltip)
+                .pickerStyle(.segmented)
+                .help("Choose how the document is shown")
             }
             
             ToolbarItem(id: "flavorPicker", placement: .primaryAction) {

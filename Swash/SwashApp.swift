@@ -79,7 +79,7 @@ struct SwashApp: App {
         DocumentGroup(newDocument: SwashDocument()) { file in
             ContentView(document: file.$document, fileURL: file.fileURL)
         }
-        .windowToolbarStyle(.expanded)
+        .windowToolbarStyle(.unified)
         .defaultSize(width: 800, height: 750)
         .handlesExternalEvents(matching: ["*"])
         .commands {
