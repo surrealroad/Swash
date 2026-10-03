@@ -1,5 +1,11 @@
 # swash
 
+## 1.8.3
+
+### Patch Changes
+
+- b4b1493: Keep scrolling the preview when a scroll starts over a table or code block. Vertical scrolls now move the page instead of getting stuck on the block, while sideways scrolls still pan wide tables and code.
+
 ## 1.8.2
 
 ### Patch Changes
