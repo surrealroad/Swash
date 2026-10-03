@@ -7,6 +7,14 @@
 
 import Foundation
 
+#if !os(macOS) || SWASH_HTML_LITE
+// Foundation's XMLDocument (with its tidy-HTML option) is macOS-only; elsewhere the converter
+// runs on HTMLLiteDOM, which offers the same API.
+private typealias XMLDocument = HTMLLiteDocument
+private typealias XMLNode = HTMLLiteNode
+private typealias XMLElement = HTMLLiteElement
+#endif
+
 enum HTMLToMarkdown {
     /// Converts an HTML document or fragment to Markdown; nil when it holds no convertible content.
     static func convert(_ html: String) -> String? {

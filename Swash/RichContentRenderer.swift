@@ -4,10 +4,14 @@
 //
 //  Typesets TeX math with KaTeX and draws Mermaid diagrams, fully offline, using an offscreen
 //  WKWebView that loads the bundled Swash/Rendering/ page. Each formula or diagram is
-//  snapshotted to an NSImage and cached by source, kind, size and appearance.
+//  snapshotted to an image and cached by source, kind, size and appearance.
 //
 
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import WebKit
 import os
 
@@ -35,7 +39,7 @@ final class RichContentRenderer: NSObject {
 
     /// Snapshots are never mutated after rendering, so they can be handed across isolation domains.
     struct Rendered: @unchecked Sendable {
-        let image: NSImage
+        let image: PlatformImage
         /// Distance from the top of the image to the text baseline (inline math).
         let baseline: CGFloat
         var descent: CGFloat { max(0, image.size.height - baseline) }
@@ -147,8 +151,19 @@ final class RichContentRenderer: NSObject {
         guard let directory = Self.resourceDirectory else { return nil }
         let configuration = WKWebViewConfiguration()
         configuration.suppressesIncrementalRendering = true
-        let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800), configuration: configuration)
+        #if os(iOS)
+        // iPad defaults to desktop-class browsing, which lays the page out at a desktop width and
+        // scales it down; the snapshots must be at the page's own scale
+        configuration.defaultWebpagePreferences.preferredContentMode = .mobile
+        #endif
+        let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 1200, height: 800), configuration: configuration)
+        #if os(macOS)
         view.setValue(false, forKey: "drawsBackground")
+        #else
+        view.isOpaque = false
+        view.backgroundColor = .clear
+        view.scrollView.backgroundColor = .clear
+        #endif
         view.pageZoom = Self.scale
         view.navigationDelegate = self
         webView = view
@@ -200,9 +215,9 @@ final class RichContentRenderer: NSObject {
     private func snapshot(_ request: Request, token: Int, size: CGSize, baseline: CGFloat) {
         guard let webView = webView else { return }
         // The view must cover the content (in zoomed points) for the snapshot rect to be valid
-        let needed = NSSize(width: max(1200, size.width * Self.scale), height: max(800, size.height * Self.scale))
+        let needed = CGSize(width: max(1200, size.width * Self.scale), height: max(800, size.height * Self.scale))
         if webView.frame.width < needed.width || webView.frame.height < needed.height {
-            webView.frame = NSRect(origin: .zero, size: needed)
+            webView.frame = CGRect(origin: .zero, size: needed)
         }
         let configuration = WKSnapshotConfiguration()
         configuration.rect = CGRect(x: 0, y: 0, width: size.width * Self.scale, height: size.height * Self.scale)
@@ -216,8 +231,14 @@ final class RichContentRenderer: NSObject {
             }
             self.renderCount += 1
             self.timeouts = 0
+            #if os(macOS)
             image.size = size
-            self.finish(request, .rendered(Rendered(image: image, baseline: baseline)))
+            let sized = image
+            #else
+            // UIImage.size is read-only: rebuild the image with the scale that maps it to `size` points
+            let sized = image.cgImage.map { UIImage(cgImage: $0, scale: CGFloat($0.width) / max(size.width, 1), orientation: .up) } ?? image
+            #endif
+            self.finish(request, .rendered(Rendered(image: sized, baseline: baseline)))
         }
     }
 

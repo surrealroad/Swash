@@ -5,6 +5,7 @@
 //  Created by Jack James on 13/07/2026.
 //
 
+#if os(macOS)
 import SwiftUI
 
 enum FormatAction: Hashable {
@@ -444,3 +445,4 @@ struct BubbleButton: View {
         .help(tooltip)
     }
 }
+#endif
