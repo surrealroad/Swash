@@ -402,14 +402,47 @@ struct CellTextField: View {
         )
         .frame(minHeight: 20)
         #else
-        // Plain field until the UIKit cell editor (live inline styling, Tab navigation) lands
-        TextField("", text: $text)
-            .textFieldStyle(.plain)
-            .onSubmit(onCommit)
-            .frame(minHeight: 20)
+        IOSCellTextField(text: $text, onCommit: onCommit, onNextCell: onNextCell, onPrevCell: onPrevCell)
         #endif
     }
 }
+
+#if os(iOS)
+/// iOS cell editor: focused as soon as it appears; Return commits, Tab / Shift-Tab move between
+/// cells on a hardware keyboard, and the keyboard toolbar offers the same moves on screen.
+private struct IOSCellTextField: View {
+    @Binding var text: String
+    var onCommit: () -> Void
+    var onNextCell: () -> Void
+    var onPrevCell: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        TextField("", text: $text)
+            .textFieldStyle(.plain)
+            .autocorrectionDisabled()
+            .focused($isFocused)
+            .submitLabel(.done)
+            .onSubmit(onCommit)
+            .onKeyPress(keys: [.tab]) { press in
+                press.modifiers.contains(.shift) ? onPrevCell() : onNextCell()
+                return .handled
+            }
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Button(action: onPrevCell) { Image(systemName: "chevron.left") }
+                        .accessibilityLabel("Previous Cell")
+                    Button(action: onNextCell) { Image(systemName: "chevron.right") }
+                        .accessibilityLabel("Next Cell")
+                    Spacer()
+                    Button("Done", action: onCommit)
+                }
+            }
+            .frame(minHeight: 20)
+            .onAppear { isFocused = true }
+    }
+}
+#endif
 
 #if os(macOS)
 
