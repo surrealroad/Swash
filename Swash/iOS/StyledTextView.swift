@@ -194,11 +194,40 @@ struct StyledTextView: UIViewRepresentable {
             applyEdit(in: textView, newRawText: updated, rawSelection: selection, actionName: checked ? "Uncheck To-do" : "Check To-do")
         }
 
+        /// Replaces the "/" typed at `slashLocation` (raw) with the chosen block.
+        func insertBlock(_ kind: MarkdownEditingCommands.BlockInsert, slashLocation: Int, in textView: StyledUITextView) {
+            let raw = swashRawMarkdown(from: textView.textStorage)
+            guard let edit = MarkdownEditingCommands.insertBlock(kind, text: raw, slashLocation: slashLocation) else { return }
+            applyEdit(in: textView, newRawText: edit.text, rawSelection: edit.selection, actionName: kind.title)
+        }
+
+        /// Sets (or clears) the language of the fenced code block whose badge is at `location` (storage).
+        func setCodeLanguage(_ language: String?, atStorageLocation location: Int, in textView: StyledUITextView) {
+            let raw = swashRawMarkdown(from: textView.textStorage)
+            let rawLocation = rawRange(forStorage: NSRange(location: location, length: 0), in: textView).location
+            guard let edit = MarkdownEditingCommands.setCodeLanguage(language, text: raw, location: rawLocation) else { return }
+            let selection = rawRange(forStorage: textView.selectedRange, in: textView)
+            let delta = (edit.text as NSString).length - (raw as NSString).length
+            let kept = selection.location > rawLocation ? NSRange(location: selection.location + delta, length: selection.length) : selection
+            applyEdit(in: textView, newRawText: edit.text, rawSelection: kept, actionName: "Code Language")
+        }
+
+        /// Replaces the selection with `markdown` (one undoable edit) and puts the caret after it.
+        func replaceSelection(with markdown: String, in textView: StyledUITextView, actionName: String) {
+            let raw = swashRawMarkdown(from: textView.textStorage) as NSString
+            let selection = rawRange(forStorage: textView.selectedRange, in: textView)
+            guard NSMaxRange(selection) <= raw.length else { return }
+            let updated = raw.replacingCharacters(in: selection, with: markdown)
+            let caret = NSRange(location: selection.location + (markdown as NSString).length, length: 0)
+            applyEdit(in: textView, newRawText: updated, rawSelection: caret, actionName: actionName)
+        }
+
         // MARK: UITextViewDelegate
 
         func textViewDidChange(_ textView: UITextView) {
             guard let textView = textView as? StyledUITextView else { return }
             cachedOffsetMap = nil
+            textView.setNeedsOverlayLayout()
             guard !isUpdatingFromSwiftUI, !isHighlighting else { return }
             parent.text = swashRawMarkdown(from: textView.textStorage)
             editGeneration += 1
@@ -214,6 +243,21 @@ struct StyledTextView: UIViewRepresentable {
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText replacement: String) -> Bool {
             guard let textView = textView as? StyledUITextView, !textView.isApplyingEdit, !isHighlighting,
                   textView.markedTextRange == nil else { return true }
+            textView.dismissBlockMenu()
+            if replacement == "/", range.length == 0 {
+                let raw = swashRawMarkdown(from: textView.textStorage)
+                let rawLocation = rawRange(forStorage: range, in: textView).location
+                if MarkdownEditingCommands.isBlockMenuTrigger(text: raw, location: rawLocation) {
+                    DispatchQueue.main.async { [weak self, weak textView] in
+                        guard let self = self, let textView = textView else { return }
+                        textView.presentBlockMenu { [weak self, weak textView] kind in
+                            guard let self = self, let textView = textView else { return }
+                            self.insertBlock(kind, slashLocation: rawLocation, in: textView)
+                        }
+                    }
+                }
+                return true
+            }
             if replacement == "\n", range.length == 0 {
                 return !applyStructuralEdit(in: textView, actionName: "New Line") { MarkdownEditingCommands.newline(text: $0, selection: $1) }
             }
@@ -231,6 +275,9 @@ struct StyledTextView: UIViewRepresentable {
                 return
             }
             let snapped = snappedSelection(from: lastSelection, to: textView.selectedRange, in: textView.textStorage)
+            if snapped != lastSelection, snapped.location != lastSelection.location + 1 {
+                (textView as? StyledUITextView)?.dismissBlockMenu()
+            }
             lastSelection = snapped
             if snapped != textView.selectedRange {
                 textView.selectedRange = snapped
@@ -494,7 +541,7 @@ struct StyledTextView: UIViewRepresentable {
             if textView.contentOffset != savedOffset, !textView.isFirstResponder || textView.isDragging || textView.isDecelerating {
                 textView.contentOffset = savedOffset
             }
-            textView.setNeedsLayout()
+            textView.setNeedsOverlayLayout()
             lastStyledText = rawText
             lastFlavor = parent.flavor
             lastBaseURL = parent.baseURL
@@ -617,11 +664,146 @@ final class StyledUITextView: MarkdownEditingTextView {
     override func layoutSubviews() {
         super.layoutSubviews()
         if abs(bounds.width - lastLayoutWidth) > 1 {
+            needsOverlayLayout = true
             let isFirstLayout = lastLayoutWidth == 0
             lastLayoutWidth = bounds.width
             if !isFirstLayout { coordinator?.widthChanged(in: self) }
         }
-        layoutTableViews()
+        // Tables and badge buttons are content subviews: they scroll with the text, so they only
+        // move after a restyle or a size change, not on every scroll frame
+        if needsOverlayLayout {
+            needsOverlayLayout = false
+            layoutTableViews()
+            layoutCodeBadgeButtons()
+        }
+    }
+
+    /// Set when the text or its layout changed, so the next layout pass repositions the overlays.
+    private var needsOverlayLayout = true
+
+    func setNeedsOverlayLayout() {
+        needsOverlayLayout = true
+        setNeedsLayout()
+    }
+
+    // MARK: Clipboard
+
+    override func copy(_ sender: Any?) {
+        EditorClipboard.copy(selectedRange, from: textStorage)
+    }
+
+    override func cut(_ sender: Any?) {
+        guard selectedRange.length > 0 else { return }
+        EditorClipboard.copy(selectedRange, from: textStorage)
+        coordinator?.replaceSelection(with: "", in: self, actionName: "Cut")
+    }
+
+    /// Rich text (HTML, RTF) is converted to Markdown and Swash's own copies paste their raw
+    /// Markdown; anything else pastes as plain text.
+    override func paste(_ sender: Any?) {
+        if let markdown = EditorClipboard.markdownForPaste(from: .general), let coordinator = coordinator {
+            coordinator.replaceSelection(with: markdown, in: self, actionName: "Paste")
+            return
+        }
+        super.paste(sender)
+    }
+
+    // MARK: Code language
+
+    private var badgeButtons: [UIButton] = []
+
+    /// An invisible button over each code block's language badge; tapping it opens the language menu.
+    private func layoutCodeBadgeButtons() {
+        guard let layoutManager = layoutManager as? StyledLayoutManager else { return }
+        let badges = layoutManager.codeBadgeRects()
+        while badgeButtons.count < badges.count {
+            let button = UIButton(type: .custom)
+            button.showsMenuAsPrimaryAction = true
+            addSubview(button)
+            badgeButtons.append(button)
+        }
+        for (index, button) in badgeButtons.enumerated() {
+            guard index < badges.count else {
+                button.isHidden = true
+                continue
+            }
+            let badge = badges[index]
+            button.isHidden = false
+            button.frame = badge.rect.offsetBy(dx: textContainerInset.left, dy: textContainerInset.top).insetBy(dx: -8, dy: -6)
+            button.accessibilityLabel = "Code language: \(badge.info.title.capitalized)"
+            button.menu = languageMenu(current: badge.info.language, location: badge.location)
+        }
+    }
+
+    private func languageMenu(current: String?, location: Int) -> UIMenu {
+        let selected = (current ?? "").lowercased()
+        func action(_ title: String, _ value: String?) -> UIAction {
+            UIAction(title: title, state: (value ?? "") == selected ? .on : .off) { [weak self] _ in
+                guard let self = self else { return }
+                self.coordinator?.setCodeLanguage(value, atStorageLocation: location, in: self)
+            }
+        }
+        var languages = MarkdownEditingCommands.commonLanguages.map { action($0.capitalized, $0) }
+        if !selected.isEmpty, !MarkdownEditingCommands.commonLanguages.contains(selected) {
+            languages.insert(action(current ?? selected, current), at: 0)
+        }
+        return UIMenu(title: "Language", children: [
+            UIMenu(options: .displayInline, children: [action("Plain Text", nil)]),
+            UIMenu(options: .displayInline, children: languages),
+        ])
+    }
+
+    // MARK: "/" block menu
+
+    private var blockMenuChoice: ((MarkdownEditingCommands.BlockInsert) -> Void)?
+    private weak var blockMenuPopover: UIViewController?
+
+    /// Offers the block types: a popover at the caret where there is room (iPad), otherwise a bar
+    /// above the keyboard (iPhone).
+    func presentBlockMenu(_ choose: @escaping (MarkdownEditingCommands.BlockInsert) -> Void) {
+        dismissBlockMenu()
+        blockMenuChoice = choose
+        if traitCollection.horizontalSizeClass == .regular, let presenter = topViewController(), let caret = selectedTextRange?.end {
+            let menu = BlockMenuViewController { [weak self] kind in self?.chooseBlock(kind) }
+            menu.modalPresentationStyle = .popover
+            if let popover = menu.popoverPresentationController {
+                popover.sourceView = self
+                popover.sourceRect = caretRect(for: caret)
+                popover.permittedArrowDirections = [.up, .down]
+                popover.delegate = menu
+            }
+            presenter.present(menu, animated: true)
+            blockMenuPopover = menu
+        } else {
+            inputAccessoryView = BlockMenuBar(choose: { [weak self] kind in self?.chooseBlock(kind) },
+                                              close: { [weak self] in self?.dismissBlockMenu() })
+            reloadInputViews()
+        }
+    }
+
+    private func chooseBlock(_ kind: MarkdownEditingCommands.BlockInsert) {
+        let choose = blockMenuChoice
+        dismissBlockMenu()
+        choose?(kind)
+    }
+
+    /// Closes the block menu (leaving the typed "/" in place) and restores the formatting bar.
+    func dismissBlockMenu() {
+        guard blockMenuChoice != nil else { return }
+        blockMenuChoice = nil
+        if let popover = blockMenuPopover {
+            popover.dismiss(animated: true)
+            blockMenuPopover = nil
+        }
+        if inputAccessoryView is BlockMenuBar {
+            restoreFormattingBar()
+        }
+    }
+
+    private func topViewController() -> UIViewController? {
+        var top = window?.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        return top
     }
 
     // MARK: Task checkboxes
@@ -689,6 +871,7 @@ final class StyledUITextView: MarkdownEditingTextView {
             if fitted > 0, abs(fitted - (table.measuredHeight ?? 0)) > 1 {
                 table.measuredHeight = fitted
                 layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
+                needsOverlayLayout = true
                 setNeedsLayout()
             }
             frame.size.height = table.measuredHeight ?? frame.height
@@ -707,6 +890,101 @@ private final class TaskTapFilter: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard let textView = textView else { return false }
         return textView.taskMarkerRange(at: touch.location(in: textView)) != nil
+    }
+}
+/// The "/" menu's block types in a popover (iPad).
+private final class BlockMenuViewController: UITableViewController, UIPopoverPresentationControllerDelegate {
+    private let choose: (MarkdownEditingCommands.BlockInsert) -> Void
+    private let kinds = MarkdownEditingCommands.BlockInsert.allCases
+
+    init(choose: @escaping (MarkdownEditingCommands.BlockInsert) -> Void) {
+        self.choose = choose
+        super.init(style: .plain)
+        preferredContentSize = CGSize(width: 240, height: CGFloat(kinds.count) * 44)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "block")
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        kinds.count
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "block", for: indexPath)
+        var content = cell.defaultContentConfiguration()
+        content.text = kinds[indexPath.row].title
+        content.image = UIImage(systemName: kinds[indexPath.row].symbolName)
+        cell.contentConfiguration = content
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        choose(kinds[indexPath.row])
+    }
+
+    /// Stay a popover on every size class.
+    func adaptivePresentationStyle(for controller: UIPresentationController, traitCollection: UITraitCollection) -> UIModalPresentationStyle {
+        .none
+    }
+}
+
+/// The "/" menu's block types as a scrolling bar above the keyboard (iPhone).
+private final class BlockMenuBar: UIInputView {
+    init(choose: @escaping (MarkdownEditingCommands.BlockInsert) -> Void, close: @escaping () -> Void) {
+        super.init(frame: CGRect(x: 0, y: 0, width: 320, height: 52), inputViewStyle: .keyboard)
+        autoresizingMask = .flexibleWidth
+        allowsSelfSizing = true
+
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        for kind in MarkdownEditingCommands.BlockInsert.allCases {
+            var configuration = UIButton.Configuration.gray()
+            configuration.title = kind.title
+            configuration.image = UIImage(systemName: kind.symbolName)
+            configuration.imagePadding = 6
+            configuration.cornerStyle = .capsule
+            configuration.buttonSize = .small
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 12)
+            stack.addArrangedSubview(UIButton(configuration: configuration, primaryAction: UIAction { _ in choose(kind) }))
+        }
+        let scroll = UIScrollView()
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.addSubview(stack)
+
+        var closeConfiguration = UIButton.Configuration.plain()
+        closeConfiguration.image = UIImage(systemName: "xmark")
+        let closeButton = UIButton(configuration: closeConfiguration, primaryAction: UIAction { _ in close() })
+        closeButton.accessibilityLabel = "Close Block Menu"
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(scroll)
+        addSubview(closeButton)
+        NSLayoutConstraint.activate([
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor),
+            scroll.topAnchor.constraint(equalTo: topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -12),
+            stack.centerYAnchor.constraint(equalTo: scroll.frameLayoutGuide.centerYAnchor),
+            heightAnchor.constraint(equalToConstant: 52),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
 #endif

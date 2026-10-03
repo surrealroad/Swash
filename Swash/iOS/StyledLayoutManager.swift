@@ -60,6 +60,18 @@ final class StyledLayoutManager: NSLayoutManager {
         }
     }
 
+    /// Every code-block language badge, in text-container coordinates.
+    func codeBadgeRects() -> [(location: Int, info: CodeBadgeInfo, rect: CGRect)] {
+        guard let storage = textStorage else { return [] }
+        var result: [(location: Int, info: CodeBadgeInfo, rect: CGRect)] = []
+        storage.enumerateAttribute(.codeBadge, in: NSRange(location: 0, length: storage.length), options: []) { value, range, _ in
+            guard let badge = value as? CodeBadgeInfo else { return }
+            let lineRect = lineFragmentRect(forGlyphAt: glyphIndexForCharacter(at: range.location), effectiveRange: nil)
+            result.append((range.location, badge, badge.rect(in: textLineRect(lineRect, at: range.location))))
+        }
+        return result
+    }
+
     /// The line fragment narrowed to the content area of the innermost box around `location`, as
     /// NSTextBlock line fragments are on macOS.
     private func textLineRect(_ lineRect: CGRect, at location: Int) -> CGRect {

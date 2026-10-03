@@ -145,6 +145,12 @@ class MarkdownEditingTextView: UITextView {
         reloadInputViews()
     }
 
+    /// Puts the formatting bar back after another accessory (the "/" block menu) replaced it.
+    func restoreFormattingBar() {
+        inputAccessoryView = formattingBarEnabled == true ? makeFormattingBar() : nil
+        reloadInputViews()
+    }
+
     private func makeFormattingBar() -> UIView {
         let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
         bar.autoresizingMask = .flexibleWidth

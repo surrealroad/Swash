@@ -87,11 +87,11 @@ Status: **in progress** on the `feat/universal-ios` branch. The phase checklists
 - [x] List continuation, indent/outdent, Backspace-unformat (in `UITextViewDelegate` and through key commands), in both editors.
 - [x] Formatting bar above the keyboard (iPhone and iPad without a hardware keyboard).
 - [x] Edit-menu formatting actions in place of the bubble menu.
-- [ ] The code-language menu as a `UIMenu` (tapping the code badge).
-- [ ] "/" block menu (popover on iPad, list above the keyboard on iPhone).
-- [ ] Interactive tables on UIKit.
-- [ ] Smart paste and rich copy with `UIPasteboard`.
-- [ ] Hardware-keyboard shortcuts: `.commands` / `UIKeyCommand` matching the Mac.
+- [x] The code-language menu: tapping a code block's badge opens a native pull-down menu (an invisible menu button over the badge).
+- [x] "/" block menu: a popover at the caret where the width is regular (iPad), a scrolling bar of block types above the keyboard otherwise (iPhone).
+- [x] Interactive tables on UIKit: tables are hosted over their attachments. Cells focus when tapped; Return commits; Tab / Shift-Tab and the keyboard toolbar move between cells. Unlike the Mac, a cell being edited shows its raw Markdown without live inline styling.
+- [x] Smart paste and rich copy with `UIPasteboard`: copies carry RTF, HTML and the raw Markdown; pasted HTML or RTF becomes Markdown.
+- [x] Hardware-keyboard shortcuts through the shared `FormatMenuCommands` (the iPadOS menu bar), with Tab / Shift-Tab as `UIKeyCommand`s. Still needs checking with a hardware keyboard on a device.
 
 ### 5. System integration
 - [ ] Folder access on iOS with the document picker and persisted bookmarks.
