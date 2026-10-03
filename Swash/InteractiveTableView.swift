@@ -879,7 +879,7 @@ final class TableAttachmentCell: NSTextAttachmentCell {
     }
 }
 
-final class TableTextAttachment: NSTextAttachment {
+final class TableTextAttachment: NSTextAttachment, RawMarkdownAttachment {
     static let fileTypeIdentifier = "com.surrealroad.swash.table"
     
     var tableData: MarkdownTableData

@@ -309,6 +309,34 @@ struct MarkdownParser {
         img.unlockFocus()
         return img
     }
+    #else
+    static func scaleImageForEditor(_ image: UIImage, maxWidth: CGFloat = 550) -> UIImage {
+        let originalSize = image.size
+        guard originalSize.width > 0, originalSize.height > 0, originalSize.width > maxWidth else { return image }
+        let targetSize = CGSize(width: maxWidth, height: ceil(originalSize.height * maxWidth / originalSize.width))
+        return UIGraphicsImageRenderer(size: targetSize).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+    }
+    
+    static func placeholderImage(alt: String) -> UIImage {
+        let displayText = alt.isEmpty ? "Image" : alt
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: UIColor.secondaryLabel
+        ]
+        let textSize = (displayText as NSString).size(withAttributes: attrs)
+        let size = CGSize(width: min(max(textSize.width + 44, 80), 550), height: 28)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            UIColor.secondaryLabel.withAlphaComponent(0.12).setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6).fill()
+            let configuration = UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+            UIImage(systemName: "photo", withConfiguration: configuration)?
+                .withTintColor(.secondaryLabel, renderingMode: .alwaysOriginal)
+                .draw(in: CGRect(x: 8, y: (size.height - 12) / 2, width: 14, height: 12))
+            (displayText as NSString).draw(at: CGPoint(x: 28, y: (size.height - textSize.height) / 2), withAttributes: attrs)
+        }
+    }
     #endif
     
     static func parseAlignments(_ line: String) -> [TableAlignment] {

@@ -15,9 +15,20 @@ typealias PlatformColor = NSColor
 typealias PlatformFont = NSFont
 typealias PlatformImage = NSImage
 
+/// Semantic colours under one name on both platforms (UIKit spells them `label`, `tintColor`…).
 extension NSColor {
-    /// Secondary text colour under one name on both platforms (`secondaryLabel` in UIKit).
+    static var primaryTextColor: NSColor { .labelColor }
     static var secondaryTextColor: NSColor { .secondaryLabelColor }
+    static var tertiaryTextColor: NSColor { .tertiaryLabelColor }
+    static var accentTintColor: NSColor { .controlAccentColor }
+    static var separatorLineColor: NSColor { .separatorColor }
+}
+
+extension NSFont {
+    /// The italic variant of `font` (the font itself when the family has none).
+    static func italicVariant(of font: NSFont) -> NSFont {
+        NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+    }
 }
 
 extension Image {
@@ -51,7 +62,19 @@ extension UIColor {
     static var textBackgroundColor: UIColor { .systemBackground }
     static var controlBackgroundColor: UIColor { .secondarySystemBackground }
     static var underPageBackgroundColor: UIColor { .secondarySystemBackground }
+    static var primaryTextColor: UIColor { .label }
     static var secondaryTextColor: UIColor { .secondaryLabel }
+    static var tertiaryTextColor: UIColor { .tertiaryLabel }
+    static var accentTintColor: UIColor { .tintColor }
+    static var separatorLineColor: UIColor { .separator }
+}
+
+extension UIFont {
+    /// The italic variant of `font` (the font itself when the family has none).
+    static func italicVariant(of font: UIFont) -> UIFont {
+        guard let descriptor = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.traitItalic)) else { return font }
+        return UIFont(descriptor: descriptor, size: font.pointSize)
+    }
 }
 
 extension Image {
