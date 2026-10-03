@@ -13,7 +13,7 @@ jobs:
     if: "!contains(github.event.pull_request.labels.*.name, 'skip-changeset') && !contains(github.event.pull_request.title, 'Version Packages')"
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
