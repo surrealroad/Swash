@@ -16,16 +16,16 @@ permissions:
 jobs:
   release:
     name: Build, Package & Release
-    runs-on: macos-14
+    runs-on: macos-26
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0 # Full history for proper changelog/release notes generation
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: 'npm'
@@ -107,6 +107,7 @@ jobs:
           if [ -n "$CODE_SIGN_IDENTITY" ]; then
             echo "Building Swash with Code Sign Identity: $CODE_SIGN_IDENTITY"
             xcodebuild -scheme Swash \
+              -destination 'generic/platform=macOS' \
               -configuration Release \
               -derivedDataPath build \
               CODE_SIGN_STYLE="Manual" \
@@ -117,6 +118,7 @@ jobs:
           else
             echo "No MACOS_CERTIFICATE found. Falling back to default ad-hoc signing."
             xcodebuild -scheme Swash \
+              -destination 'generic/platform=macOS' \
               -configuration Release \
               -derivedDataPath build \
               CODE_SIGN_IDENTITY="-" \

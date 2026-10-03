@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum ViewMode: String, CaseIterable, Identifiable {
     case edit = "Source"
@@ -79,7 +80,6 @@ struct ContentView: View {
     @State private var window: NSWindow? = nil
     @State private var previousSingleWidth: CGFloat = 800
     @State private var previousSplitWidth: CGFloat = 1200
-    @State private var previousViewMode: ViewMode = .preview
     @State private var scrollSync = ScrollSync()
 
     @ObservedObject private var folderAccessManager = FolderAccessManager.shared
@@ -229,9 +229,7 @@ struct ContentView: View {
         }
         .background(WindowAccessor(window: $window))
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
-        .onChange(of: viewMode) { newMode in
-            let oldMode = previousViewMode
-            previousViewMode = newMode
+        .onChange(of: viewMode) { oldMode, newMode in
             handleViewModeChange(from: oldMode, to: newMode)
         }
     }
@@ -280,7 +278,7 @@ struct ContentView: View {
         image.isTemplate = false
         
         image.lockFocus()
-        let docIcon = NSWorkspace.shared.icon(forFileType: "md")
+        let docIcon = NSWorkspace.shared.icon(for: UTType(filenameExtension: "md") ?? .plainText)
         docIcon.isTemplate = false
         docIcon.draw(in: NSRect(x: 0, y: 0, width: 64, height: 64))
         image.unlockFocus()

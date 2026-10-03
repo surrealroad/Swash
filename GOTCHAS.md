@@ -75,8 +75,8 @@
 - **Solution**: Write the message to a file and use `git commit -F <file>`, or avoid backticks in `-m` messages.
 
 ## 19. CI Builds With an Older SDK Than Local Xcode
-- **Issue**: The release workflow builds on `macos-14` with `latest-stable` Xcode (macOS 15.2 SDK, Swift 6.0), while local builds use a much newer Xcode and SDK. AppKit signatures can differ: `NSTextBlock.drawBackground(withFrame:in:characterRange:layoutManager:)` takes `NSView` on the CI SDK but `NSView?` locally, so an override that compiles locally broke the v1.5.0 release on `main`.
-- **Solution**: Avoid overriding AppKit methods whose signatures have changed between SDKs, and prefer composition (here, `SwashLayoutManager` paints `IndentedTextBlock.fillColor`). The `PR Build` workflow builds every pull request on the release toolchain, so these failures show up before merging.
+- **Issue**: CI (`PR Build`, `Build & Release`) runs on `macos-26` with `latest-stable` Xcode, which can lag the local Xcode (a beta or newer release). AppKit signatures can differ between SDKs: `NSTextBlock.drawBackground(withFrame:in:characterRange:layoutManager:)` takes `NSView` on one SDK and `NSView?` on another, so an override that compiled locally broke the v1.5.0 release on `main`. Until v1.8.4, CI ran on `macos-14` (macOS 15.2 SDK), which was older than the 15.7 deployment target and logged deployment-target warnings on every build.
+- **Solution**: Avoid overriding AppKit methods whose signatures have changed between SDKs, and prefer composition (here, `SwashLayoutManager` paints `IndentedTextBlock.fillColor`). The `PR Build` workflow builds every pull request on the release toolchain, so these failures show up before merging. Keep the CI runner's SDK at or above `MACOSX_DEPLOYMENT_TARGET`.
 
 ## 20. Incremental Restyling: Raw Text vs Partially Collapsed Storage
 - **Issue**: Edit Text restyles only the changed blocks. Outside that region the text storage still holds collapsed table and image attachments, so storage offsets differ from AST (raw-Markdown) offsets by a constant shift, and `storage.string` is not the Markdown.
@@ -93,3 +93,7 @@
 ## 23. Nested Horizontal Scroll Views Latch Vertical Gestures
 - **Issue**: AppKit sends a whole trackpad scroll gesture, momentum included, to the scroll view under the pointer when it begins. In the preview, tables and code blocks sit in SwiftUI `ScrollView(.horizontal)` views (backed by `NSScrollView`), so a vertical swipe that began over one stalled there.
 - **Solution**: `NestedScrollRouter` (in `MarkdownPreviewView.swift`) is a local `.scrollWheel` monitor. It decides at each gesture's `.began` (or per event for mouse wheels) and sends mostly-vertical gestures that start over a nested scroll view to the preview's `NSScrollView`. The decision lives in `shouldForward(...)` so the interaction harness can test it without a real event stream.
+
+## 24. Release Version Comes From the Build Command, Not the Project
+- **Issue**: `MARKETING_VERSION` is `1.0` in the project; `Build & Release` passes the changesets version (`MARKETING_VERSION=…`) on the `xcodebuild` command line. Extension `Info.plist` files that hard-coded `CFBundleShortVersionString` stayed at `1.0` and triggered "must match that of its containing parent app" warnings.
+- **Solution**: Every target's `Info.plist` must use `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)` so the command-line override reaches the app and all extensions.

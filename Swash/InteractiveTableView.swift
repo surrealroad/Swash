@@ -115,7 +115,7 @@ struct InteractiveTableView: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .onChange(of: initialData) { newData in
+        .onChange(of: initialData) { _, newData in
             headers = newData.headers
             alignments = newData.alignments
             rows = newData.rows
@@ -816,7 +816,7 @@ final class TableAttachmentCell: NSTextAttachmentCell {
     
     nonisolated override func cellFrame(for textContainer: NSTextContainer, proposedLineFragment lineFrag: NSRect, glyphPosition position: CGPoint, characterIndex charIndex: Int) -> NSRect {
         let width = lineFrag.width > 0 ? lineFrag.width : 500
-        let rowCount = tableData.rows.count + 1
+        let rowCount = MainActor.assumeIsolated { tableData.rows.count } + 1
         let estimatedHeight = CGFloat(max(100, rowCount * 36 + 60))
         return NSRect(x: 0, y: 0, width: width, height: estimatedHeight)
     }
