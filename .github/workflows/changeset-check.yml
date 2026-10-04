@@ -10,7 +10,7 @@ jobs:
   check-changeset:
     name: Validate Changeset
     runs-on: macos-latest
-    if: "!contains(github.event.pull_request.labels.*.name, 'skip-changeset') && !contains(github.event.pull_request.title, 'Version Packages')"
+    if: "!contains(github.event.pull_request.labels.*.name, 'skip-changeset') && !contains(github.event.pull_request.title, 'Version Packages') && github.actor != 'dependabot[bot]'"
     steps:
       - name: Checkout Code
         uses: actions/checkout@v5
