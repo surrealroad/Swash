@@ -1,4 +1,0 @@
----
----
-
-Configure Dependabot weekly updates
