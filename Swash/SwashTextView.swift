@@ -5,6 +5,7 @@
 //  Created by Jack James on 13/07/2026.
 //
 
+#if os(macOS)
 import SwiftUI
 import AppKit
 
@@ -12,82 +13,9 @@ func logDebug(_ message: String) {
     // No-op in production. Diagnostics disabled.
 }
 
-extension NSAttributedString.Key {
-    static let listMarker = NSAttributedString.Key("SwashListMarkerKey")
-}
-
 extension NSPasteboard.PasteboardType {
     /// Raw Markdown written by Swash's own copy, so copy/paste between Swash documents is lossless.
     static let swashMarkdown = NSPasteboard.PasteboardType("com.surrealroad.swash.markdown")
-}
-
-extension Notification.Name {
-    static let cellSelectionDidChange = Notification.Name("cellSelectionDidChange")
-    static let removeCurrentTable = Notification.Name("removeCurrentTable")
-}
-
-/// The markdown source an attachment stands in for, or nil for non-Swash attachments.
-func swashRawMarkdown(for attachment: Any?) -> String? {
-    if let table = attachment as? TableTextAttachment { return table.rawMarkdown }
-    if let image = attachment as? ImageTextAttachment { return image.rawMarkdown }
-    return nil
-}
-
-/// Maps between text-storage offsets (where each table/image is a single attachment character)
-/// and raw-markdown offsets (where it is its full source). All public selection ranges and all
-/// edits coming from SwiftUI are expressed in raw-markdown offsets.
-struct AttachmentOffsetMap {
-    /// Storage location of each attachment and the UTF-16 length of the markdown it replaces, ascending.
-    private(set) var spans: [(storage: Int, rawLength: Int)] = []
-
-    static let identity = AttachmentOffsetMap()
-
-    init() {}
-
-    init(storage: NSAttributedString) {
-        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length), options: []) { value, range, _ in
-            if let raw = swashRawMarkdown(for: value) {
-                for i in 0..<range.length {
-                    spans.append((storage: range.location + i, rawLength: (raw as NSString).length))
-                }
-            }
-        }
-    }
-
-    func rawLocation(forStorage location: Int) -> Int {
-        var delta = 0
-        for span in spans {
-            guard span.storage < location else { break }
-            delta += span.rawLength - 1
-        }
-        return location + delta
-    }
-
-    func rawRange(forStorage range: NSRange) -> NSRange {
-        let start = rawLocation(forStorage: range.location)
-        let end = rawLocation(forStorage: range.location + range.length)
-        return NSRange(location: start, length: end - start)
-    }
-
-    /// A raw location inside an attachment's source snaps to the attachment's start (or end when `roundUp`).
-    func storageLocation(forRaw location: Int, roundUp: Bool) -> Int {
-        var delta = 0
-        for span in spans {
-            let rawStart = span.storage + delta
-            if location <= rawStart { break }
-            if location < rawStart + span.rawLength {
-                return roundUp ? span.storage + 1 : span.storage
-            }
-            delta += span.rawLength - 1
-        }
-        return location - delta
-    }
-
-    func storageRange(forRaw range: NSRange) -> NSRange {
-        let start = storageLocation(forRaw: range.location, roundUp: false)
-        let end = storageLocation(forRaw: range.location + range.length, roundUp: range.length > 0)
-        return NSRange(location: start, length: max(0, end - start))
-    }
 }
 
 /// Lets SwiftUI views apply document edits through the live text view, so they are undoable and
@@ -126,12 +54,6 @@ final class SwashEditorController {
         coordinator.applyEdit(in: textView, newRawText: newText, rawSelection: selection, actionName: actionName)
         return true
     }
-}
-
-struct ListMarkerInfo {
-    let text: String
-    let indent: CGFloat
-    var color: NSColor? = nil
 }
 
 final class SwashLayoutManager: NSLayoutManager {
@@ -331,7 +253,8 @@ class SwashNSTextView: NSTextView {
         guard let source = html else { return nil }
         // Code editors put pre-formatted HTML on the pasteboard: keep their plain text (indentation intact)
         if plain != nil, source.range(of: "white-space:\\s*pre", options: [.regularExpression, .caseInsensitive]) != nil { return nil }
-        guard let markdown = HTMLToMarkdown.convert(source) else { return nil }
+        let sourceURL = pasteboard.string(forType: NSPasteboard.PasteboardType(HTMLToMarkdown.chromiumSourceURLType)).flatMap(URL.init(string:))
+        guard let markdown = HTMLToMarkdown.convert(source, sourceURL: sourceURL) else { return nil }
         // No formatting gained over the plain text: paste it as-is rather than backslash-escaped
         if let plain = plain {
             let unescaped = markdown.replacingOccurrences(of: "\\\\([\\\\*_`\\[\\]])", with: "$1", options: .regularExpression)
@@ -572,7 +495,7 @@ class SwashNSTextView: NSTextView {
     }
 }
 
-final class ImageTextAttachment: NSTextAttachment {
+final class ImageTextAttachment: NSTextAttachment, RawMarkdownAttachment {
     static let fileTypeIdentifier = "com.surrealroad.swash.image"
     let alt: String
     let urlString: String
@@ -2294,3 +2217,4 @@ struct SwashTextView: NSViewRepresentable {
         }
     }
 }
+#endif

@@ -97,3 +97,31 @@
 ## 24. Release Version Comes From the Build Command, Not the Project
 - **Issue**: `MARKETING_VERSION` is `1.0` in the project; `Build & Release` passes the changesets version (`MARKETING_VERSION=…`) on the `xcodebuild` command line. Extension `Info.plist` files that hard-coded `CFBundleShortVersionString` stayed at `1.0` and triggered "must match that of its containing parent app" warnings.
 - **Solution**: Every target's `Info.plist` must use `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)` so the command-line override reaches the app and all extensions.
+
+## 25. One Target, Two Platforms: Keep macOS-Only Code Behind `#if os(macOS)`
+- **Issue**: The `Swash` app target builds for macOS and iOS (`SUPPORTED_PLATFORMS = iphoneos iphonesimulator macosx`, `SDKROOT = auto`). Every file in the synchronised `Swash/` folder compiles for both platforms, so any new AppKit use breaks the iOS build. Sparkle and the four extensions are macOS-only through `platformFilters = (macos, )` on their build files and target dependencies.
+- **Solution**: Wrap AppKit-only files completely in `#if os(macOS)`, and put iOS-only UI in `Swash/iOS/` inside `#if os(iOS)`. Shared code uses `PlatformColor`, `PlatformFont`, `PlatformImage`, `Image(platformImage:)` and `PlatformPasteboard` from `PlatformTypes.swift`. Build both platforms before committing: `-destination 'generic/platform=macOS'` and `-destination 'generic/platform=iOS Simulator'`. The iOS app uses `Swash/Info-iOS.plist` (`INFOPLIST_FILE[sdk=iphone*]`), so document types and URL schemes must be added to both plists.
+
+## 26. `XMLDocument` Is macOS-Only
+- **Issue**: `HTMLToMarkdown` parses with Foundation's `XMLDocument` (`.documentTidyHTML`), which iOS does not have. The preview uses it for raw HTML blocks.
+- **Solution**: On other platforms the converter uses `HTMLLiteDOM` through file-private type aliases with the same API. `scripts/run_commonmark_spec.sh` also builds the checks with `-D SWASH_HTML_LITE` so both parsers must pass the same HTML cases. Add new cases there when changing the converter.
+
+## 27. Offscreen WebKit Rendering on iOS and iPadOS
+- **Issue**: Without a viewport meta tag, iOS lays the render page out at 980 px and scales it to the view, so math and diagram snapshots came out cropped. On iPad, desktop-class browsing scaled them down to a fraction of their size. The first render also takes a few seconds while the WebContent process starts.
+- **Solution**: `swash-render.html` declares `width=device-width, initial-scale=1` and `-webkit-text-size-adjust: 100%`. On iOS, `RichContentRenderer` sets `preferredContentMode = .mobile`. `UIImage.size` is read-only, so the snapshot is rebuilt with `scale = pixel width ÷ point width`. Check new rendering features on both an iPhone and an iPad simulator.
+
+## 28. SwiftUI Text in Horizontal Scroll Views Under UIKit Hosting
+- **Issue**: In the iOS preview (a `UIHostingController` sized by intrinsic content size inside a `UIScrollView`), a multi-line `Text` inside `ScrollView(.horizontal)` was squeezed to one line with an ellipsis.
+- **Solution**: Give such text `.fixedSize()` (code blocks), or `.fixedSize(horizontal: false, vertical: true)` where it should wrap.
+
+## 29. Don't Make a UITextView Subclass Its Own Gesture Delegate
+- **Issue**: `StyledUITextView` implemented `gestureRecognizer(_:shouldReceive:)` to limit its task-checkbox tap to checkboxes. A scroll view is already the delegate of its own pan and text-interaction recognizers, so the override filtered those too. The editor stopped scrolling, with no error and no `scrollViewDidScroll` calls.
+- **Solution**: Give extra recognizers on a text or scroll view a separate delegate object (`TaskTapFilter`). Never implement `UIGestureRecognizerDelegate` methods on the scroll view subclass itself.
+
+## 30. UITextView in UIViewRepresentable Must Fill the Proposed Size
+- **Issue**: SwiftUI can size a representable `UITextView` to its fitting size, which is the whole text height, so the view grows instead of scrolling.
+- **Solution**: Both iOS editors implement `sizeThatFits(_:uiView:context:)` and return the proposed width and height.
+
+## 31. Edit Text Blocks on iOS: Decorations Instead of NSTextBlock
+- **Issue**: iOS has no `NSTextBlock`, which the styler uses on macOS for quotes, alerts, code blocks and rules.
+- **Solution**: On iOS, `MarkdownEditorStyler.pushBox`/`pushRule` add a `BlockDecoration` (outermost first) to the context instead. `setParagraphStyle(_ context:…)` sets the paragraph indents for the box's border and padding and writes `.blockDecorations` over the paragraphs. `padBoxes()` turns top and bottom padding into paragraph spacing, and `StyledLayoutManager` paints each box over its paragraphs' line fragments. Always set paragraph styles through `setParagraphStyle(context:…)`. When adjusting a paragraph style later, adjust the indents (`tailIndent -= …`) rather than replacing them, or the box insets are lost on iOS. macOS keeps its `NSTextBlock` path unchanged; check it with `Tests/EditorAudit/run_audit.sh`.

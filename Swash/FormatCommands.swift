@@ -7,13 +7,16 @@
 //
 
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 
 enum FormatCommand: Equatable {
     case bold, italic, strikethrough, code, link
     case heading(Int), paragraph
     case bulletList, numberedList, taskList, quote, codeBlock
     
+    #if os(macOS)
     /// Maps a key-down event to a command (key codes for digits/punctuation, so shifted keys work on any layout).
     static func command(for event: NSEvent) -> FormatCommand? {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -42,6 +45,7 @@ enum FormatCommand: Equatable {
         default: return nil
         }
     }
+    #endif
 }
 
 struct FormatCommandHandlerKey: FocusedValueKey {
