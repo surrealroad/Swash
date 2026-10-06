@@ -245,6 +245,19 @@ enum ParserChecks {
                 print("❌ html \(html.debugDescription): expected \(expected.debugDescription), got \(actual.debugDescription)")
             }
         }
+        // Confluence copies images as media placeholders; they link to the attachment on the source page's site
+        let media = "<p>Before</p><div data-node-type=\"mediaSingle\"><div data-node-type=\"media\" data-type=\"file\" data-context-id=\"42\" data-alt=\"shot 1.png\" data-file-name=\"shot 1.png\"></div></div>"
+        let sourceCases: [(URL?, String)] = [
+            (URL(string: "https://example.atlassian.net/wiki/spaces/X/pages/42"), "Before\n\n![shot 1.png](https://example.atlassian.net/wiki/download/attachments/42/shot%201.png)"),
+            (nil, "Before\n\n![shot 1.png](shot%201.png)"),
+        ]
+        for (source, expected) in sourceCases {
+            let actual = HTMLToMarkdown.convert(media, sourceURL: source) ?? "nil"
+            if actual != expected {
+                failures += 1
+                print("❌ html media from \(source?.absoluteString ?? "nil"): expected \(expected.debugDescription), got \(actual.debugDescription)")
+            }
+        }
         print("HTML paste conversion checks: \(failures == 0 ? "all passed" : "\(failures) failed") (\(htmlCases.count) cases)")
         return failures
     }

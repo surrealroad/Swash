@@ -28,7 +28,8 @@ enum EditorClipboard {
         guard let source = html else { return nil }
         // Code editors put pre-formatted HTML on the pasteboard: keep their plain text (indentation intact)
         if plain != nil, source.range(of: "white-space:\\s*pre", options: [.regularExpression, .caseInsensitive]) != nil { return nil }
-        guard let markdown = HTMLToMarkdown.convert(source) else { return nil }
+        let sourceURL = pasteboard.data(forPasteboardType: HTMLToMarkdown.chromiumSourceURLType).flatMap { String(data: $0, encoding: .utf8) }.flatMap(URL.init(string:))
+        guard let markdown = HTMLToMarkdown.convert(source, sourceURL: sourceURL) else { return nil }
         // No formatting gained over the plain text: paste it as-is rather than backslash-escaped
         if let plain = plain {
             let unescaped = markdown.replacingOccurrences(of: "\\\\([\\\\*_`\\[\\]])", with: "$1", options: .regularExpression)
