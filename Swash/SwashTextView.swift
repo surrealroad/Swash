@@ -118,6 +118,43 @@ final class SwashEditorController {
         return coordinator.rawRange(forStorage: textView.selectedRange(), in: textView)
     }
     
+    private var cachedOutline: (text: String, outline: MarkdownOutline)?
+    private var cachedStatistics: (text: String, statistics: MarkdownStatistics)?
+
+    /// Heading outline of `text`, reused until the text changes.
+    func outline(for text: String) -> MarkdownOutline {
+        if let cached = cachedOutline, cached.text == text { return cached.outline }
+        let outline = MarkdownOutline(document: formatting(for: text).document)
+        cachedOutline = (text, outline)
+        return outline
+    }
+
+    /// Reader-facing statistics of `text`, reused until the text changes.
+    func statistics(for text: String) -> MarkdownStatistics {
+        if let cached = cachedStatistics, cached.text == text { return cached.statistics }
+        let statistics = MarkdownStatistics(document: formatting(for: text).document)
+        cachedStatistics = (text, statistics)
+        return statistics
+    }
+
+    /// Moves the caret to `rawLocation` and scrolls it near the top of the editor.
+    func reveal(rawLocation: Int) {
+        guard let textView = textView, let coordinator = coordinator else { return }
+        let range = coordinator.storageRange(forRaw: NSRange(location: rawLocation, length: 0), in: textView)
+        textView.window?.makeFirstResponder(textView)
+        textView.setSelectedRange(range)
+        if let layoutManager = textView.layoutManager, let container = textView.textContainer,
+           let clipView = textView.enclosingScrollView?.contentView {
+            let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: container)
+            let y = max(0, rect.minY + textView.textContainerOrigin.y - 12)
+            clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: min(y, max(0, textView.frame.height - clipView.bounds.height))))
+            textView.enclosingScrollView?.reflectScrolledClipView(clipView)
+        } else {
+            textView.scrollRangeToVisible(range)
+        }
+    }
+
     /// Applies `newText` as a minimal edit to the live editor. Returns false when no editor is attached,
     /// in which case the caller should assign the document text directly.
     @discardableResult
@@ -341,6 +378,21 @@ class SwashNSTextView: NSTextView {
         return markdown
     }
     
+    // MARK: VoiceOver rotors
+
+    private lazy var rotorDelegates: [MarkdownRotorDelegate] = MarkdownRotorDelegate.Kind.allCases.map { MarkdownRotorDelegate(kind: $0, textView: self) }
+
+    /// Headings, links and tables, so VoiceOver users can jump through the document's structure.
+    override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
+        rotorDelegates.map { delegate in
+            switch delegate.kind {
+            case .headings: return NSAccessibilityCustomRotor(rotorType: .heading, itemSearchDelegate: delegate)
+            case .links: return NSAccessibilityCustomRotor(rotorType: .link, itemSearchDelegate: delegate)
+            case .tables: return NSAccessibilityCustomRotor(rotorType: .table, itemSearchDelegate: delegate)
+            }
+        }
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if window?.firstResponder === self, let handler = onFormatCommand, let command = FormatCommand.command(for: event) {
             handler(command)
@@ -572,6 +624,41 @@ class SwashNSTextView: NSTextView {
     }
 }
 
+/// Finds the next or previous heading, link or table for a VoiceOver custom rotor.
+final class MarkdownRotorDelegate: NSObject, NSAccessibilityCustomRotorItemSearchDelegate {
+    enum Kind: CaseIterable { case headings, links, tables }
+
+    let kind: Kind
+    weak var textView: NSTextView?
+
+    init(kind: Kind, textView: NSTextView) {
+        self.kind = kind
+        self.textView = textView
+    }
+
+    func rotor(_ rotor: NSAccessibilityCustomRotor, resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters) -> NSAccessibilityCustomRotor.ItemResult? {
+        guard let textView = textView, let coordinator = textView.delegate as? SwashTextView.Coordinator else { return nil }
+        var items = coordinator.rotorItems(kind, in: textView)
+        let filter = searchParameters.filterString.trimmingCharacters(in: .whitespaces)
+        if !filter.isEmpty {
+            items = items.filter { $0.label.localizedCaseInsensitiveContains(filter) }
+        }
+        let current = searchParameters.currentItem?.targetRange
+        let anchor = current?.location ?? textView.selectedRange().location
+        let item: (range: NSRange, label: String)?
+        if searchParameters.searchDirection == .previous {
+            item = items.last { $0.range.location < anchor }
+        } else {
+            item = items.first { current == nil ? $0.range.location >= anchor : $0.range.location > anchor }
+        }
+        guard let item = item else { return nil }
+        let result = NSAccessibilityCustomRotor.ItemResult(targetElement: textView)
+        result.targetRange = item.range
+        result.customLabel = item.label
+        return result
+    }
+}
+
 final class ImageTextAttachment: NSTextAttachment {
     static let fileTypeIdentifier = "com.surrealroad.swash.image"
     let alt: String
@@ -668,7 +755,9 @@ struct SwashTextView: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isContinuousSpellCheckingEnabled = true
-        
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
+
         // Premium typography and spacing styling
         textView.textColor = NSColor.textColor
         textView.drawsBackground = true
@@ -987,9 +1076,83 @@ struct SwashTextView: NSViewRepresentable {
             }
         }
 
+        // MARK: Writing Tools
+
+        /// True while Apple Intelligence Writing Tools is rewriting the text. Styling and document
+        /// updates wait until it finishes, so its in-place edits aren't restyled (or autosaved) mid-session.
+        private(set) var isWritingToolsActive = false
+        private var textChangedDuringWritingTools = false
+
+        @available(macOS 15.0, *)
+        func textViewWritingToolsWillBegin(_ textView: NSTextView) {
+            isWritingToolsActive = true
+        }
+
+        @available(macOS 15.0, *)
+        func textViewWritingToolsDidEnd(_ textView: NSTextView) {
+            isWritingToolsActive = false
+            guard textChangedDuringWritingTools else { return }
+            textChangedDuringWritingTools = false
+            forceFullRestyle = true
+            textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
+        }
+
+        /// Code, math, HTML, front matter, tables and images are left alone by Writing Tools.
+        @available(macOS 15.0, *)
+        func textView(_ textView: NSTextView, writingToolsIgnoredRangesInEnclosingRange enclosingRange: NSRange) -> [NSValue] {
+            var ranges = cachedStorageCodeBlocks
+            if parent.isStyled, let storage = textView.textStorage {
+                let bounded = NSIntersectionRange(enclosingRange, NSRange(location: 0, length: storage.length))
+                storage.enumerateAttribute(.attachment, in: bounded, options: []) { value, range, _ in
+                    if swashRawMarkdown(for: value) != nil { ranges.append(range) }
+                }
+            }
+            return ranges
+                .map { NSIntersectionRange($0, enclosingRange) }
+                .filter { $0.length > 0 }
+                .sorted { $0.location < $1.location }
+                .map { NSValue(range: $0) }
+        }
+
+        // MARK: VoiceOver rotor items
+
+        /// Storage ranges and labels of the headings, links or tables in the document, in order.
+        func rotorItems(_ kind: MarkdownRotorDelegate.Kind, in textView: NSTextView) -> [(range: NSRange, label: String)] {
+            let text = parent.text
+            let document = parent.controller?.formatting(for: text).document ?? MarkdownDocument.parse(text)
+            var items: [(NSRange, String)] = []
+            switch kind {
+            case .headings:
+                for heading in MarkdownOutline(document: document).headings {
+                    items.append((heading.range, heading.title))
+                }
+            case .links:
+                document.root.walk { node in
+                    if case .link(let destination, _, _) = node.kind {
+                        let label = node.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        items.append((node.range, label.isEmpty ? destination : label))
+                    }
+                }
+            case .tables:
+                var index = 0
+                document.root.walk { node in
+                    if case .table = node.kind {
+                        index += 1
+                        let header = node.firstChild?.plainText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        items.append((node.range, header.isEmpty ? "Table \(index)" : "Table \(index): \(header)"))
+                    }
+                }
+            }
+            return items.map { (storageRange(forRaw: $0.0, in: textView), $0.1) }
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             cachedOffsetMap = nil
+            if isWritingToolsActive {
+                textChangedDuringWritingTools = true
+                return
+            }
             if !isUpdatingFromSwiftUI {
                 if parent.isStyled, let textStorage = textView.textStorage {
                     parent.text = buildRawMarkdown(from: textStorage)
@@ -1330,7 +1493,7 @@ struct SwashTextView: NSViewRepresentable {
         // Custom interactive high-fidelity Markdown inline styling
         func highlightMarkdown(in textView: NSTextView) {
             logDebug("[SwashTextView] highlightMarkdown called")
-            guard let textStorage = textView.textStorage, !isHighlighting else { return }
+            guard let textStorage = textView.textStorage, !isHighlighting, !isWritingToolsActive else { return }
             if highlightIncrementally(in: textView, storage: textStorage) {
                 pendingRawSelection = nil
                 return

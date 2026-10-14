@@ -292,8 +292,38 @@ enum ParserChecks {
         return failures
     }
     
+    private static func runOutline() -> Int {
+        var failures = 0
+        func expect(_ ok: Bool, _ message: @autoclosure () -> String) {
+            if !ok { failures += 1; print("❌ outline: \(message())") }
+        }
+        let text = "# Title\n\nIntro text.\n\n## Getting Started\n\n```\n# not a heading\n```\n\n## Getting Started\n\n### C++ & [Links]\n\n> ## Quoted\n"
+        let outline = MarkdownOutline(text: text)
+        expect(outline.headings.map(\.level) == [1, 2, 2, 3, 2], "levels \(outline.headings.map(\.level))")
+        expect(outline.headings.map(\.anchor) == ["title", "getting-started", "getting-started-1", "c--links", "quoted"], "anchors \(outline.headings.map(\.anchor))")
+        expect(outline.headings.map(\.title).last == "Quoted", "titles \(outline.headings.map(\.title))")
+        let introLocation = (text as NSString).range(of: "Intro").location
+        expect(outline.headingIndex(containing: introLocation) == 0, "section of intro")
+        expect(outline.headingIndex(containing: 0) == 0, "section at start")
+        expect(MarkdownOutline(text: "Text\n\n# Later").headingIndex(containing: 0) == nil, "no section before first heading")
+        let toc = outline.tableOfContents()
+        let expectedTOC = "- [Getting Started](#getting-started)\n- [Getting Started](#getting-started-1)\n  - [C++ & \\[Links\\]](#c--links)\n- [Quoted](#quoted)"
+        expect(toc == expectedTOC, "toc \(toc.debugDescription)")
+        expect(MarkdownOutline(text: "# A\n\n# B").tableOfContents() == "- [A](#a)\n- [B](#b)", "two H1s are both kept")
+        expect(MarkdownOutline.slug("Über Café 2.0!") == "über-café-20", "unicode slug \(MarkdownOutline.slug("Über Café 2.0!"))")
+
+        let stats = MarkdownStatistics(text: "---\ntitle: Ignored words here\n---\n# Hello **world**\n\nA [link](https://example.com) and `code`.\n\n| a | b |\n|---|---|\n| one | two |\n")
+        expect(stats.words == 10, "words \(stats.words)")
+        expect(stats.paragraphs == 3, "paragraphs \(stats.paragraphs)")
+        expect(MarkdownStatistics(text: "").readingMinutes == 0, "empty reading time")
+        expect(MarkdownStatistics(text: "one two").readingMinutes == 1, "short reading time")
+        expect(MarkdownStatistics(text: "a b").charactersExcludingSpaces == 2, "characters excluding spaces")
+        print("Outline and statistics checks: \(failures == 0 ? "all passed" : "\(failures) failed")")
+        return failures
+    }
+
     static func run() -> Int {
-        var failures = runFormatting() + runEditing() + runHTML()
+        var failures = runFormatting() + runEditing() + runHTML() + runOutline()
         // 1. Marker ranges
         for (markdown, nodeName, expected) in markerCases {
             let document = MarkdownDocument.parse(markdown)
