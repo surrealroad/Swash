@@ -180,28 +180,6 @@ struct ContentView: View {
                 .help("Choose how the document is shown")
             }
             
-            ToolbarItem(id: "flavorPicker", placement: .primaryAction) {
-                Picker("Flavor", selection: Binding(
-                    get: { document.flavor },
-                    set: { newFlavor in
-                        let oldFlavor = document.flavor
-                        if oldFlavor != newFlavor {
-                            var updatedDoc = document
-                            updatedDoc.text = MarkdownParser.convert(document.text, from: oldFlavor, to: newFlavor)
-                            updatedDoc.flavor = newFlavor
-                            document = updatedDoc
-                        }
-                    }
-                )) {
-                    ForEach(MarkdownFlavor.allCases) { flavor in
-                        Text(flavor.rawValue).tag(flavor)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .help("Select Markdown format scheme (converting raw text format in place)")
-            }
-            
             ToolbarItem(id: "share", placement: .primaryAction) {
                 ShareLink(
                     item: document.text,
@@ -229,6 +207,7 @@ struct ContentView: View {
         }
         .background(WindowAccessor(window: $window))
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
+        .focusedSceneValue(\.markdownFlavorSelection, MarkdownFlavorSelection(current: document.flavor) { requestFlavorChange(to: $0) })
         .onChange(of: viewMode) { oldMode, newMode in
             handleViewModeChange(from: oldMode, to: newMode)
         }
@@ -936,6 +915,66 @@ struct ContentView: View {
             }
         case .link:
             promptForLink()
+        }
+    }
+    
+    /// Format ▸ Markdown Flavor: asks whether to rewrite the text so its formatting carries over,
+    /// or keep the raw text and read it with the new flavor's rules.
+    private func requestFlavorChange(to newFlavor: MarkdownFlavor) {
+        let oldFlavor = document.flavor
+        guard newFlavor != oldFlavor else { return }
+        let converted = MarkdownParser.convert(document.text, from: oldFlavor, to: newFlavor)
+        guard converted != document.text else {
+            changeFlavor(to: newFlavor, convertedText: nil)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Switch to \(newFlavor.displayName)?"
+        alert.informativeText = "Keep Formatting rewrites the Markdown so bold, links and other formatting look the same in \(newFlavor.displayName). Keep Raw Text leaves the text unchanged and reads it with \(newFlavor.displayName) rules."
+        alert.addButton(withTitle: "Keep Formatting")
+        alert.addButton(withTitle: "Keep Raw Text")
+        alert.addButton(withTitle: "Cancel")
+        let respond: (NSApplication.ModalResponse) -> Void = { response in
+            switch response {
+            case .alertFirstButtonReturn:
+                changeFlavor(to: newFlavor, convertedText: converted)
+            case .alertSecondButtonReturn:
+                changeFlavor(to: newFlavor, convertedText: nil)
+            default:
+                break
+            }
+        }
+        if let window = window {
+            alert.beginSheetModal(for: window, completionHandler: respond)
+        } else {
+            respond(alert.runModal())
+        }
+    }
+    
+    /// Switches the flavor (and optionally rewrites the text) as a single undoable step. The text edit
+    /// goes through the live text view's undo; the flavor is restored by an action in the same group.
+    private func changeFlavor(to newFlavor: MarkdownFlavor, convertedText: String?) {
+        let undoManager = editor.textView?.undoManager ?? window?.undoManager
+        let actionName = convertedText == nil ? "Change Markdown Flavor" : "Convert to \(newFlavor.displayName)"
+        undoManager?.beginUndoGrouping()
+        registerFlavorUndo(restoring: document.flavor, text: nil, undoManager: undoManager)
+        document.flavor = newFlavor
+        if let convertedText = convertedText, !editor.apply(newText: convertedText, selection: nil, actionName: actionName) {
+            // No live editor: the text has to be restored by the flavor undo action too
+            registerFlavorUndo(restoring: newFlavor, text: document.text, undoManager: undoManager)
+            document.text = convertedText
+        }
+        undoManager?.setActionName(actionName)
+        undoManager?.endUndoGrouping()
+    }
+    
+    /// Registers an undo that restores `flavor` (and `text`, if given), re-registering itself for redo.
+    private func registerFlavorUndo(restoring flavor: MarkdownFlavor, text: String?, undoManager: UndoManager?) {
+        let binding = $document
+        undoManager?.registerUndo(withTarget: editor) { _ in
+            registerFlavorUndo(restoring: binding.wrappedValue.flavor, text: text == nil ? nil : binding.wrappedValue.text, undoManager: undoManager)
+            binding.wrappedValue.flavor = flavor
+            if let text = text { binding.wrappedValue.text = text }
         }
     }
     

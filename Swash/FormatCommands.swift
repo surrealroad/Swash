@@ -55,9 +55,27 @@ extension FocusedValues {
     }
 }
 
+/// The focused document's Markdown flavor and a request to switch it (ContentView asks how to convert).
+struct MarkdownFlavorSelection {
+    let current: MarkdownFlavor
+    let select: (MarkdownFlavor) -> Void
+}
+
+struct MarkdownFlavorSelectionKey: FocusedValueKey {
+    typealias Value = MarkdownFlavorSelection
+}
+
+extension FocusedValues {
+    var markdownFlavorSelection: MarkdownFlavorSelection? {
+        get { self[MarkdownFlavorSelectionKey.self] }
+        set { self[MarkdownFlavorSelectionKey.self] = newValue }
+    }
+}
+
 /// The Format menu; shortcuts mirror the editor's key handling.
 struct FormatMenuCommands: Commands {
     @FocusedValue(\.formatCommandHandler) private var handler
+    @FocusedValue(\.markdownFlavorSelection) private var flavorSelection
     
     var body: some Commands {
         CommandMenu("Format") {
@@ -77,6 +95,16 @@ struct FormatMenuCommands: Commands {
             item("To-do List", .taskList, "9", [.command, .shift])
             item("Quote", .quote, ".", [.command, .shift])
             item("Code Block", .codeBlock, "c", [.command, .option])
+            Divider()
+            Picker("Markdown Flavor", selection: Binding(
+                get: { flavorSelection?.current ?? .github },
+                set: { flavorSelection?.select($0) }
+            )) {
+                ForEach(MarkdownFlavor.allCases) { flavor in
+                    Text(flavor.displayName).tag(flavor)
+                }
+            }
+            .disabled(flavorSelection == nil)
         }
     }
     
