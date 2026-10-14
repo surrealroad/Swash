@@ -88,6 +88,11 @@ struct ContentView: View {
     @AppStorage("showOutline") private var showOutline = false
     @State private var currentHeadingIndex: Int? = nil
     @State private var conflictCount = 0
+    /// Outline and statistics of `insightsText`, refreshed once typing pauses so keystrokes don't
+    /// pay for an extra whole-document parse.
+    @State private var outline = MarkdownOutline(text: "")
+    @State private var statistics = MarkdownStatistics.empty
+    @State private var insightsText: String? = nil
     @State private var showConflictSheet = false
 
     private var effectiveBaseURL: URL? {
@@ -116,10 +121,10 @@ struct ContentView: View {
             HStack(spacing: 0) {
             if showOutline {
                 DocumentOutlineView(
-                    outline: editor.outline(for: document.text),
+                    outline: outline,
                     currentIndex: currentHeadingIndex,
                     onSelect: { heading in
-                        currentHeadingIndex = editor.outline(for: document.text).headings.firstIndex(of: heading)
+                        currentHeadingIndex = outline.headings.firstIndex(of: heading)
                         editor.reveal(rawLocation: heading.range.location)
                     }
                 )
@@ -263,6 +268,17 @@ struct ContentView: View {
         .focusedSceneValue(\.documentFileURL, effectiveBaseURL)
         .onChange(of: viewMode) { oldMode, newMode in
             handleViewModeChange(from: oldMode, to: newMode)
+        }
+        .task(id: document.text) {
+            // The first pass (document just opened) is immediate; edits wait for a pause in typing
+            if insightsText != nil {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+            }
+            refreshInsights()
+        }
+        .onChange(of: showOutline) { _, shown in
+            if shown, let caret = editor.currentRawSelection?.location { updateCurrentHeading(caret: caret) }
         }
         .onAppear {
             // An untitled document created for a quick note or an import starts with its text
@@ -479,7 +495,7 @@ struct ContentView: View {
             
             Spacer()
             
-            StatisticsMenu(document: editor.statistics(for: document.text), selection: selectionStatistics)
+            StatisticsMenu(document: statistics, selection: selectionStatistics)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
@@ -1610,10 +1626,21 @@ struct ContentView: View {
     
     // MARK: - Outline & Document Commands
     
+    private func refreshInsights() {
+        let text = document.text
+        guard text != insightsText else { return }
+        insightsText = text
+        let newOutline = editor.outline(for: text)
+        if newOutline != outline { outline = newOutline }
+        let newStatistics = editor.statistics(for: text)
+        if newStatistics != statistics { statistics = newStatistics }
+        if showOutline, let caret = editor.currentRawSelection?.location { updateCurrentHeading(caret: caret) }
+    }
+    
     /// Tracks the heading around the caret; only real changes are published, so caret moves stay cheap.
     private func updateCurrentHeading(caret: Int) {
         guard showOutline else { return }
-        let index = editor.outline(for: document.text).headingIndex(containing: caret)
+        let index = outline.headingIndex(containing: caret)
         if index != currentHeadingIndex { currentHeadingIndex = index }
     }
     
