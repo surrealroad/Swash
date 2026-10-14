@@ -137,7 +137,11 @@ struct IOSContentView: View {
             .pickerStyle(.menu)
         }
         ToolbarItem(placement: .secondaryAction) {
-            ShareLink(item: document.text, subject: Text(documentTitle), preview: SharePreview(Text(documentTitle))) {
+            // Not ShareLink: inside the collapsed overflow menu it presents a popover with no
+            // source view, which UIKit rejects (an uncaught exception)
+            Button {
+                presentShareSheet()
+            } label: {
                 Label("Share Markdown", systemImage: "square.and.arrow.up")
             }
         }
@@ -162,6 +166,22 @@ struct IOSContentView: View {
                 document = updated
             }
         )
+    }
+
+    /// The system share sheet for the Markdown, anchored at the top trailing corner on iPad.
+    private func presentShareSheet() {
+        let activity = UIActivityViewController(activityItems: [document.text], applicationActivities: nil)
+        activity.setValue(documentTitle, forKey: "subject")
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let window = scenes.filter({ $0.activationState == .foregroundActive }).flatMap(\.windows).first(where: \.isKeyWindow),
+              var presenter = window.rootViewController else { return }
+        while let presented = presenter.presentedViewController { presenter = presented }
+        if let popover = activity.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(x: presenter.view.bounds.maxX - 60, y: presenter.view.safeAreaInsets.top, width: 1, height: 1)
+            popover.permittedArrowDirections = .up
+        }
+        presenter.present(activity, animated: true)
     }
 
     private var documentTitle: String {

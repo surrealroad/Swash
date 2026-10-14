@@ -94,11 +94,13 @@ Status: **in progress** on the `feat/universal-ios` branch. The phase checklists
 - [x] Hardware-keyboard shortcuts through the shared `FormatMenuCommands` (the iPadOS menu bar), with Tab / Shift-Tab as `UIKeyCommand`s. Still needs checking with a hardware keyboard on a device.
 
 ### 5. System integration
-- [ ] Folder access on iOS with the document picker and persisted bookmarks.
-- [ ] `swash://new` and `swash://open`, and the Create Document intent, on iOS.
-- [ ] iOS Quick Look preview and thumbnail extensions that reuse the shared renderer.
-- [ ] iOS share extension.
-- [ ] Widget for both platforms.
+- [x] Folder access on iOS with the document picker and persisted bookmarks (built in phase 1). Not yet exercised: the simulator doesn't enforce the sandbox for On My iPhone, so the access banner never appears there. Needs checking on a device with an iCloud Drive or external folder.
+- [x] `swash://new` and `swash://open`, and the Create Document intent, on iOS (`DocumentOpener`, GOTCHAS #34), whether or not a document is open.
+- [ ] ~~iOS Quick Look preview and thumbnail extensions~~: dropped for now. iOS has a built-in Markdown viewer and thumbnailer that take precedence over third-party extensions in Files, so Swash's never ran (GOTCHAS #35). Both extensions stay macOS-only.
+- [x] iOS share extension: "Save to Swash" saves the note to the App Group inbox; Swash imports and opens it when it next comes to the front (extensions can't open their app).
+- [x] Widget for both platforms (the existing SwiftUI widget, now also built for iOS).
+
+**Phase 5 notes.** The app and share extension on iOS use the App Group `group.com.surrealroad.Swash`, which has to be registered for the team before device or App Store builds. Unsigned simulator builds have no App Group container, so the share extension reports that it can't save there.
 
 ### 6. Testing and distribution
 - [ ] iOS simulator test target for the editor (mirrors `Tests/EditorAudit`), run in CI.

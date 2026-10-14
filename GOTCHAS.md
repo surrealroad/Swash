@@ -125,3 +125,19 @@
 ## 31. Edit Text Blocks on iOS: Decorations Instead of NSTextBlock
 - **Issue**: iOS has no `NSTextBlock`, which the styler uses on macOS for quotes, alerts, code blocks and rules.
 - **Solution**: On iOS, `MarkdownEditorStyler.pushBox`/`pushRule` add a `BlockDecoration` (outermost first) to the context instead. `setParagraphStyle(_ context:…)` sets the paragraph indents for the box's border and padding and writes `.blockDecorations` over the paragraphs. `padBoxes()` turns top and bottom padding into paragraph spacing, and `StyledLayoutManager` paints each box over its paragraphs' line fragments. Always set paragraph styles through `setParagraphStyle(context:…)`. When adjusting a paragraph style later, adjust the indents (`tailIndent -= …`) rather than replacing them, or the box insets are lost on iOS. macOS keeps its `NSTextBlock` path unchanged; check it with `Tests/EditorAudit/run_audit.sh`.
+
+## 32. Default MainActor Isolation and Callbacks on Background Queues
+- **Issue**: Every target builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. Closures in a type that isn't marked otherwise are treated as main-actor code, and Swift traps (`EXC_BREAKPOINT`) when a framework calls them off the main thread. The thumbnail extension crashed this way on macOS: Quick Look runs `QLThumbnailReply`'s drawing block on a background queue.
+- **Solution**: Mark extension principal classes whose callbacks arrive on background queues `nonisolated` (as `ThumbnailProvider` is), or mark the specific closures `@Sendable`/`nonisolated`. Check new extension points or framework callbacks for the queue they run on.
+
+## 33. ShareLink in a Collapsed Toolbar Menu Crashes on iPhone
+- **Issue**: A `ShareLink` in a `.secondaryAction` toolbar item, which collapses into the overflow menu on iPhone, presents `UIActivityViewController` as a popover with no source view. UIKit throws an uncaught `NSGenericException`.
+- **Solution**: Use a `Button` that presents `UIActivityViewController` itself with `popoverPresentationController.sourceView`/`sourceRect` set (`IOSContentView.presentShareSheet()`).
+
+## 34. Opening Documents From Code on iOS
+- **Issue**: SwiftUI's `openDocument` and `newDocument` environment actions are macOS-only. On iOS, `onOpenURL` on a document view doesn't fire while the document browser is showing, and the browser is a presented card on the launch screen but absent from the hierarchy once a document is open.
+- **Solution**: `DocumentOpener` receives `swash://` URLs in a `UIWindowSceneDelegate` (installed through `@UIApplicationDelegateAdaptor` and `configurationForConnecting`). It finds the browser through `UIDocumentViewController.launchOptions.browserViewController`, which works whether or not a document is open. It then calls the browser delegate's `documentBrowser(_:didPickDocumentsAt:)` with the file. Pass files in the app's own Documents folder directly: `revealDocument(at:importIfNeeded: true)` copies them ("Name 2.md").
+
+## 35. iOS Prefers Its Own Quick Look Viewer for Markdown
+- **Issue**: iOS has a built-in Markdown previewer and thumbnailer. In Files, they take precedence over a third-party Quick Look preview or thumbnail extension for `net.daringfireball.markdown`, so Swash's extensions registered but never ran.
+- **Solution**: The Quick Look and thumbnail extensions are filtered to macOS (`platformFilters = (macos, )`). Only the share extension and widget are built and embedded for iOS.

@@ -9,9 +9,9 @@
 /* Begin PBXBuildFile section */
 		0460136230045F6A00853817 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = 0460136130045F6A00853817 /* Sparkle */; };
 		0460137130045F6800853817 /* SwashQuickLookExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460137030045F6800853817 /* SwashQuickLookExtension.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		0460138130045F6800853817 /* SwashShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460138030045F6800853817 /* SwashShareExtension.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0460138130045F6800853817 /* SwashShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460138030045F6800853817 /* SwashShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0460139130045F6800853817 /* SwashThumbnailExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460139030045F6800853817 /* SwashThumbnailExtension.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		046013A130045F6800853817 /* SwashWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 046013A030045F6800853817 /* SwashWidgetExtension.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		046013A130045F6800853817 /* SwashWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 046013A030045F6800853817 /* SwashWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,6 +76,7 @@
 			membershipExceptions = (
 				"Info-iOS.plist",
 				Info.plist,
+				"Swash-iOS.entitlements",
 				Swash.entitlements,
 			);
 			target = 0460133F30045F6800853817 /* Swash */;
@@ -89,6 +90,7 @@
 				ServicesProvider.swift,
 				SettingsView.swift,
 				SparkleUpdater.swift,
+				"Swash-iOS.entitlements",
 				Swash.entitlements,
 				SwashApp.swift,
 				SwashAppIntents.swift,
@@ -106,6 +108,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				"SwashShareExtension-iOS.entitlements",
 			);
 			target = 0460138330045F6800853817 /* SwashShareExtension */;
 		};
@@ -487,9 +490,6 @@
 		};
 		0460138430045F6800853817 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			platformFilters = (
-				macos,
-			);
 			target = 0460138330045F6800853817 /* SwashShareExtension */;
 			targetProxy = 0460138230045F6800853817 /* PBXContainerItemProxy */;
 		};
@@ -503,9 +503,6 @@
 		};
 		046013A430045F6800853817 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			platformFilters = (
-				macos,
-			);
 			target = 046013A330045F6800853817 /* SwashWidgetExtension */;
 			targetProxy = 046013A230045F6800853817 /* PBXContainerItemProxy */;
 		};
@@ -518,7 +515,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Swash/Swash.entitlements;
-				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "";
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "Swash/Swash-iOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 27;
@@ -567,7 +564,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Swash/Swash.entitlements;
-				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "";
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "Swash/Swash-iOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 27;
@@ -797,6 +794,19 @@
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SwashShareExtension/Info.plist;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "SwashShareExtension/SwashShareExtension-iOS.entitlements";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -826,6 +836,19 @@
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SwashShareExtension/Info.plist;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "SwashShareExtension/SwashShareExtension-iOS.entitlements";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -913,6 +936,18 @@
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SwashWidgetExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -942,6 +977,18 @@
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SwashWidgetExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
