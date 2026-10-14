@@ -244,11 +244,15 @@ struct MarkdownPreviewView: View {
     
     static let updateDelay: Duration = .milliseconds(200)
     
-    init(text: String, flavor: MarkdownFlavor, baseURL: URL? = nil, scrollSync: ScrollSync? = nil) {
+    /// `preparsed`: the parse of `text`, made off the main thread by the caller (Quick Look).
+    init(text: String, flavor: MarkdownFlavor, baseURL: URL? = nil, scrollSync: ScrollSync? = nil, preparsed: MarkdownDocument? = nil) {
         self.text = text
         self.flavor = flavor
         self.baseURL = baseURL
         self.scrollSync = scrollSync
+        if let preparsed = preparsed {
+            _parseCache = State(initialValue: ParseCache(text: text, flavor: flavor, document: preparsed))
+        }
     }
     
     private struct ContentKey: Hashable {
@@ -310,6 +314,13 @@ struct MarkdownPreviewView: View {
     final class ParseCache {
         private var key: (text: String, flavor: MarkdownFlavor)? = nil
         private var cached: MarkdownDocument? = nil
+        
+        init() {}
+        
+        init(text: String, flavor: MarkdownFlavor, document: MarkdownDocument) {
+            key = (text, flavor)
+            cached = document
+        }
         
         func document(for text: String, flavor: MarkdownFlavor) -> MarkdownDocument {
             if let key = key, let cached = cached, key.flavor == flavor, key.text == text {
