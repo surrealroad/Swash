@@ -339,16 +339,23 @@ Measured with the extended `run_audit.sh perf` (best of the runs, `main` → Pha
 | Backspace in a paragraph, 4,401 lines | 10.8 ms | 0.01 ms |
 | Keystroke next to a 2400×1600 local image | 30 ms | 7 ms |
 
-### Phase B: views and rendering (medium)
+### Phase B: views and rendering (medium) — mostly done
 
-| # | Change | Sections |
+| # | Change | Sections | Status |
+|---|---|---|---|
+| B1 | Delay preview updates until typing pauses, give blocks stable identities, remove `AnyView` and the synchronous `fittingSize` | §2.3 | Done. The preview updates 200 ms after typing, and blocks are keyed by source and `Equatable`. `fittingSize` only runs when the content or width changes, or after a render or access grant lands. Nested lists, list items and footnotes still use `AnyView` |
+| B2 | Move word count, the banner check and the share preview out of `body` | §2.1 | Done. The banner check runs from a task, the share icon is static, and the title scan stops early. The window's document URL is cached. Word count is debounced in the outline/statistics feature work (#19) |
+| B3 | Restyle Slack incrementally, with static regexes | §1.9 | Partial. Slack restyles 120 ms after typing pauses and patterns are compiled once. The incremental block diff for Slack is not done |
+| B4 | Cancel or combine stale math and Mermaid requests, and post `didRender` once per batch | §4.1 | Done. Requests are coalesced per editor block and dropped when cancelled, `didRender` is throttled, and eviction is batched. Batched snapshots (§4.2) are not done |
+| B5 | Quick Look size limit, background parsing, no WebKit | §6.1, §6.2, §6.5 | Done. Quick Look reads at most 256 KB, parses in the background and doesn't bundle `Rendering/`. Thumbnails read 4 KB |
+| B6 | Lighter scroll handling, table cell edits, Source-mode restyle | §1.6–§1.8 | Done |
+
+Measured with `run_audit.sh perf` (before Phase B → after):
+
+| Benchmark | Before | After |
 |---|---|---|
-| B1 | Delay preview updates until typing pauses, give blocks stable identities, remove `AnyView` and the synchronous `fittingSize` | §2.3 |
-| B2 | Move word count, the banner check and the share preview out of `body` | §2.1 |
-| B3 | Restyle Slack incrementally, with static regexes | §1.9 |
-| B4 | Cancel or combine stale math and Mermaid requests, and post `didRender` once per batch | §4.1 |
-| B5 | Quick Look size limit, background parsing, no WebKit | §6.1, §6.2 |
-| B6 | Lighter scroll handling, table cell edits, Source-mode restyle | §1.6–§1.8 |
+| Split preview, 10 quick keystrokes, 900 lines (CPU) | 521 ms | 114 ms |
+| Slack full restyle, 900 lines | 36 ms | 33 ms (one pass per typing pause instead of per keystroke) |
 
 ### Phase C: parser hardening
 

@@ -86,8 +86,17 @@ struct ContentView: View {
     @State private var editor = SwashEditorController()
     @State private var dismissedFolderBanner: URL? = nil
 
+    /// The window's document file when SwiftUI hasn't passed `fileURL`, looked up when the window
+    /// attaches or becomes key rather than on every evaluation of `body`.
+    @State private var windowDocumentURL: URL? = nil
+    
     private var effectiveBaseURL: URL? {
-        fileURL ?? window?.representedURL ?? (window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
+        fileURL ?? windowDocumentURL
+    }
+    
+    private func refreshWindowDocumentURL() {
+        let url = window?.representedURL ?? window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL }
+        if url != windowDocumentURL { windowDocumentURL = url }
     }
 
     /// Folder whose images can't be read, refreshed off the keystroke path (see `refreshFolderBanner`).
@@ -234,6 +243,10 @@ struct ContentView: View {
             }
         }
         .background(WindowAccessor(window: $window))
+        .onChange(of: window) { _, _ in refreshWindowDocumentURL() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if let window = window, notification.object as? NSWindow === window { refreshWindowDocumentURL() }
+        }
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
         .onChange(of: viewMode) { oldMode, newMode in
             handleViewModeChange(from: oldMode, to: newMode)
