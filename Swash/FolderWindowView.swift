@@ -74,9 +74,9 @@ private struct FolderBrowserView: View {
             sidebar
         } detail: {
             if let file = workspace.selectedFile {
-                ContentView(document: $workspace.document, fileURL: file)
-                    // Fresh editor state (selection, scroll, styling) for each file
-                    .id(file)
+                // Not `.id(file)`: rebuilding ContentView also rebuilds its customizable toolbar,
+                // and AppKit throws while removing the old items. `documentID` resets only the editor.
+                ContentView(document: $workspace.document, fileURL: file, documentID: file)
             } else {
                 ContentUnavailableView(
                     "No Markdown Files",
