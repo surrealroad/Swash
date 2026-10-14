@@ -1013,10 +1013,14 @@ struct SwashTextView: NSViewRepresentable {
                     parent.text = raw
                     editGeneration += 1
                     let generation = editGeneration
-                    DispatchQueue.main.async { [weak self, weak textView] in
+                    // Slack mrkdwn has no incremental path: each pass restyles the whole document,
+                    // so it waits for a short pause in typing and only the latest edit is styled
+                    let isSlack = parent.flavor == .slack
+                    DispatchQueue.main.asyncAfter(deadline: .now() + (isSlack ? 0.12 : 0)) { [weak self, weak textView] in
                         guard let self = self, let textView = textView else { return }
                         // Skip if a synchronous pass (e.g. a bubble-menu edit) already styled this revision
                         guard self.highlightedGeneration < generation else { return }
+                        if isSlack && generation != self.editGeneration { return }
                         self.highlightMarkdown(in: textView)
                     }
                 } else {
@@ -1638,7 +1642,7 @@ struct SwashTextView: NSViewRepresentable {
                         } else if line.hasPrefix("> ") || line == ">" {
                             let quoteContent = line.hasPrefix("> ") ? String(line.dropFirst(2)) : ""
                             let alertPattern = "^\\[\\!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\\]"
-                            if let alertRegex = try? NSRegularExpression(pattern: alertPattern, options: [.caseInsensitive]),
+                            if let alertRegex = Coordinator.regex(alertPattern, [.caseInsensitive]),
                                let match = alertRegex.firstMatch(in: quoteContent, options: [], range: NSRange(location: 0, length: (quoteContent as NSString).length)) {
                                 let typeStr = (quoteContent as NSString).substring(with: match.range(at: 1)).lowercased()
                                 let calloutColor: NSColor
@@ -1689,7 +1693,7 @@ struct SwashTextView: NSViewRepresentable {
                         } else {
                             activeAlertColor = nil
                             let taskPattern = "^[-*+]\\s+\\[([ xX])\\]\\s*"
-                            if let taskRegex = try? NSRegularExpression(pattern: taskPattern),
+                            if let taskRegex = Coordinator.regex(taskPattern),
                                let taskMatch = taskRegex.firstMatch(in: trimmedLine, options: [], range: NSRange(location: 0, length: (trimmedLine as NSString).length)) {
                                 let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
                                 let fullMarkerLen = taskMatch.range(at: 0).length
@@ -1741,7 +1745,7 @@ struct SwashTextView: NSViewRepresentable {
                                 textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             
                                 textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: "•", indent: indent), range: rawMarkerRange)
-                            } else if let fnDefMatch = try? NSRegularExpression(pattern: "^ {0,3}\\[\\^([^\\]]+)\\]:\\s*(.*)$").firstMatch(in: trimmedLine, options: [], range: NSRange(location: 0, length: (trimmedLine as NSString).length)) {
+                            } else if let fnDefMatch = Coordinator.regex("^ {0,3}\\[\\^([^\\]]+)\\]:\\s*(.*)$")?.firstMatch(in: trimmedLine, options: [], range: NSRange(location: 0, length: (trimmedLine as NSString).length)) {
                                 let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
                                 let fullPrefixLen = fnDefMatch.range(at: 0).length - fnDefMatch.range(at: 2).length
                             
@@ -1818,7 +1822,7 @@ struct SwashTextView: NSViewRepresentable {
                 styleCodeSpans()
             
                 // Slack Links: <url|text>
-                if let linkWithPipeRegex = try? NSRegularExpression(pattern: "(<(https?://[^>|\\n]+)\\|)([^>|\\n]+)(>)", options: []) {
+                if let linkWithPipeRegex = Coordinator.regex("(<(https?://[^>|\\n]+)\\|)([^>|\\n]+)(>)") {
                     let nsString = text as NSString
                     let matches = linkWithPipeRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
                     for match in matches {
@@ -1850,7 +1854,7 @@ struct SwashTextView: NSViewRepresentable {
                 }
             
                 // Slack Links: <url>
-                if let linkRegex = try? NSRegularExpression(pattern: "(<)(https?://[^>|\\n]+)(>)", options: []) {
+                if let linkRegex = Coordinator.regex("(<)(https?://[^>|\\n]+)(>)") {
                     let nsString = text as NSString
                     let matches = linkRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
                     for match in matches {
@@ -1872,7 +1876,7 @@ struct SwashTextView: NSViewRepresentable {
 
                 // Bare URLs, www. domains, and emails
                 let urlPattern = "(?:https?://|www\\.)[^\\s<>\"'\\)]+|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
-                if let bareUrlRegex = try? NSRegularExpression(pattern: urlPattern, options: []) {
+                if let bareUrlRegex = Coordinator.regex(urlPattern, []) {
                     let nsString = text as NSString
                     let matches = bareUrlRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
                     for match in matches {
@@ -1934,7 +1938,7 @@ struct SwashTextView: NSViewRepresentable {
             
                 // Scan for Inline Images: ![alt](url)
                 let inlineImgPattern = "!\\[(.*?)\\]\\((.*?)\\)"
-                if let regex = try? NSRegularExpression(pattern: inlineImgPattern) {
+                if let regex = Coordinator.regex(inlineImgPattern) {
                     let nsText = text as NSString
                     let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
                     for match in matches {
@@ -1949,7 +1953,7 @@ struct SwashTextView: NSViewRepresentable {
             
                 // Scan for Reference-Style Images: ![alt][ref]
                 let refImgPattern = "!\\[(.*?)\\]\\[(.*?)\\]"
-                if let regex = try? NSRegularExpression(pattern: refImgPattern) {
+                if let regex = Coordinator.regex(refImgPattern) {
                     let nsText = text as NSString
                     let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
                     for match in matches {
@@ -1967,7 +1971,7 @@ struct SwashTextView: NSViewRepresentable {
             
                 // Scan for Shortcut Reference-Style Images: ![alt]
                 let shortcutImgPattern = "!\\[([^\\]\\^]+)\\](?![\\(\\[:])"
-                if let regex = try? NSRegularExpression(pattern: shortcutImgPattern) {
+                if let regex = Coordinator.regex(shortcutImgPattern) {
                     let nsText = text as NSString
                     let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
                     for match in matches {
@@ -2370,8 +2374,19 @@ struct SwashTextView: NSViewRepresentable {
             cachedStorageCodeBlocks = MarkdownParser.codeRanges(in: textView.string).blockRanges
         }
         
+        /// Compiled patterns for the Slack styling path, which used to compile them per line and per pass.
+        private static var regexCache: [String: NSRegularExpression] = [:]
+        
+        static func regex(_ pattern: String, _ options: NSRegularExpression.Options = []) -> NSRegularExpression? {
+            let key = "\(options.rawValue)|\(pattern)"
+            if let cached = regexCache[key] { return cached }
+            let compiled = try? NSRegularExpression(pattern: pattern, options: options)
+            regexCache[key] = compiled
+            return compiled
+        }
+        
         private func applyRegex(pattern: String, in text: String, action: (NSRange, NSRange) -> Void) {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return }
+            guard let regex = Coordinator.regex(pattern, []) else { return }
             let nsString = text as NSString
             let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
             for match in matches {

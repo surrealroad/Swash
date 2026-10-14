@@ -78,6 +78,19 @@ func findTextView(in v: NSView) -> NSTextView? { if let tv = v as? NSTextView { 
         print("keystroke-next-to-image lines=162 avg=\(Int(total / 5 * 1000))ms (2400×1600 PNG in the restyled block)")
         try? FileManager.default.removeItem(at: folder)
     }
+    // Slack mrkdwn restyles the whole document per pass
+    do {
+        let section = "*Bold* and _italic_ with ~strike~ and `code` <https://s.com|a link>\n> quoted [!NOTE] text\n- [ ] task item\n1. numbered\n[^1]: footnote\n\n"
+        var t = String(repeating: section, count: 150)
+        let b = Binding<String>(get: { t }, set: { t = $0 })
+        let host = NSHostingView(rootView: SwashTextView(text: b, selectedRange: .constant(nil), selectionRect: .constant(nil), isStyled: true, flavor: .slack).frame(width: 600, height: 600))
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 600)
+        let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false); win.contentView = host
+        pump(0.5)
+        let tv = findTextView(in: host)!; let c = tv.delegate as! SwashTextView.Coordinator
+        let start = Date(); for _ in 0..<3 { c.forceFullRestyle = true; c.highlightMarkdown(in: tv) }
+        print("slack lines=\(t.components(separatedBy: "\n").count) full-restyle=\(Int(Date().timeIntervalSince(start) / 3 * 1000))ms")
+    }
     // Split view: the preview while typing quickly. Measures CPU time for a burst of keystrokes,
     // so it includes every preview rebuild and re-measure, plus the final one after the pause
     do {
