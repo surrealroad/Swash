@@ -925,7 +925,7 @@ struct ContentView: View {
         guard newFlavor != oldFlavor else { return }
         let converted = MarkdownParser.convert(document.text, from: oldFlavor, to: newFlavor)
         guard converted != document.text else {
-            document.flavor = newFlavor
+            changeFlavor(to: newFlavor, convertedText: nil)
             return
         }
         let alert = NSAlert()
@@ -937,12 +937,9 @@ struct ContentView: View {
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             switch response {
             case .alertFirstButtonReturn:
-                var updated = document
-                updated.text = converted
-                updated.flavor = newFlavor
-                document = updated
+                changeFlavor(to: newFlavor, convertedText: converted)
             case .alertSecondButtonReturn:
-                document.flavor = newFlavor
+                changeFlavor(to: newFlavor, convertedText: nil)
             default:
                 break
             }
@@ -951,6 +948,33 @@ struct ContentView: View {
             alert.beginSheetModal(for: window, completionHandler: respond)
         } else {
             respond(alert.runModal())
+        }
+    }
+    
+    /// Switches the flavor (and optionally rewrites the text) as a single undoable step. The text edit
+    /// goes through the live text view's undo; the flavor is restored by an action in the same group.
+    private func changeFlavor(to newFlavor: MarkdownFlavor, convertedText: String?) {
+        let undoManager = editor.textView?.undoManager ?? window?.undoManager
+        let actionName = convertedText == nil ? "Change Markdown Flavor" : "Convert to \(newFlavor.displayName)"
+        undoManager?.beginUndoGrouping()
+        registerFlavorUndo(restoring: document.flavor, text: nil, undoManager: undoManager)
+        document.flavor = newFlavor
+        if let convertedText = convertedText, !editor.apply(newText: convertedText, selection: nil, actionName: actionName) {
+            // No live editor: the text has to be restored by the flavor undo action too
+            registerFlavorUndo(restoring: newFlavor, text: document.text, undoManager: undoManager)
+            document.text = convertedText
+        }
+        undoManager?.setActionName(actionName)
+        undoManager?.endUndoGrouping()
+    }
+    
+    /// Registers an undo that restores `flavor` (and `text`, if given), re-registering itself for redo.
+    private func registerFlavorUndo(restoring flavor: MarkdownFlavor, text: String?, undoManager: UndoManager?) {
+        let binding = $document
+        undoManager?.registerUndo(withTarget: editor) { _ in
+            registerFlavorUndo(restoring: binding.wrappedValue.flavor, text: text == nil ? nil : binding.wrappedValue.text, undoManager: undoManager)
+            binding.wrappedValue.flavor = flavor
+            if let text = text { binding.wrappedValue.text = text }
         }
     }
     
