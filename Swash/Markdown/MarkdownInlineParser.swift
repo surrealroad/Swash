@@ -52,6 +52,8 @@ final class MarkdownInlineParser {
     var refmap: [String: (destination: String, title: String?)] = [:]
     var footnoteLabels: Set<String> = []
     private(set) var footnoteOrder: [String] = []
+    /// Labels already in `footnoteOrder` (a set, so each reference is an O(1) check).
+    private var orderedFootnotes: Set<String> = []
 
     private var subject: [UInt16] = []
     private var map: [Int] = []
@@ -792,7 +794,7 @@ final class MarkdownInlineParser {
         node.walk { n in
             if case .footnoteReference(let label) = n.kind {
                 let normalized = MarkdownSyntax.normalizeLabel(label)
-                if !footnoteOrder.contains(normalized) { footnoteOrder.append(normalized) }
+                if orderedFootnotes.insert(normalized).inserted { footnoteOrder.append(normalized) }
             }
         }
     }
