@@ -180,28 +180,6 @@ struct ContentView: View {
                 .help("Choose how the document is shown")
             }
             
-            ToolbarItem(id: "flavorPicker", placement: .primaryAction) {
-                Picker("Flavor", selection: Binding(
-                    get: { document.flavor },
-                    set: { newFlavor in
-                        let oldFlavor = document.flavor
-                        if oldFlavor != newFlavor {
-                            var updatedDoc = document
-                            updatedDoc.text = MarkdownParser.convert(document.text, from: oldFlavor, to: newFlavor)
-                            updatedDoc.flavor = newFlavor
-                            document = updatedDoc
-                        }
-                    }
-                )) {
-                    ForEach(MarkdownFlavor.allCases) { flavor in
-                        Text(flavor.rawValue).tag(flavor)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .help("Select Markdown format scheme (converting raw text format in place)")
-            }
-            
             ToolbarItem(id: "share", placement: .primaryAction) {
                 ShareLink(
                     item: document.text,
@@ -229,6 +207,7 @@ struct ContentView: View {
         }
         .background(WindowAccessor(window: $window))
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
+        .focusedSceneValue(\.markdownFlavorSelection, MarkdownFlavorSelection(current: document.flavor) { requestFlavorChange(to: $0) })
         .onChange(of: viewMode) { oldMode, newMode in
             handleViewModeChange(from: oldMode, to: newMode)
         }
@@ -936,6 +915,42 @@ struct ContentView: View {
             }
         case .link:
             promptForLink()
+        }
+    }
+    
+    /// Format ▸ Markdown Flavor: asks whether to rewrite the text so its formatting carries over,
+    /// or keep the raw text and read it with the new flavor's rules.
+    private func requestFlavorChange(to newFlavor: MarkdownFlavor) {
+        let oldFlavor = document.flavor
+        guard newFlavor != oldFlavor else { return }
+        let converted = MarkdownParser.convert(document.text, from: oldFlavor, to: newFlavor)
+        guard converted != document.text else {
+            document.flavor = newFlavor
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Switch to \(newFlavor.displayName)?"
+        alert.informativeText = "Keep Formatting rewrites the Markdown so bold, links and other formatting look the same in \(newFlavor.displayName). Keep Raw Text leaves the text unchanged and reads it with \(newFlavor.displayName) rules."
+        alert.addButton(withTitle: "Keep Formatting")
+        alert.addButton(withTitle: "Keep Raw Text")
+        alert.addButton(withTitle: "Cancel")
+        let respond: (NSApplication.ModalResponse) -> Void = { response in
+            switch response {
+            case .alertFirstButtonReturn:
+                var updated = document
+                updated.text = converted
+                updated.flavor = newFlavor
+                document = updated
+            case .alertSecondButtonReturn:
+                document.flavor = newFlavor
+            default:
+                break
+            }
+        }
+        if let window = window {
+            alert.beginSheetModal(for: window, completionHandler: respond)
+        } else {
+            respond(alert.runModal())
         }
     }
     
