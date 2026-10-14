@@ -78,6 +78,27 @@ func findTextView(in v: NSView) -> NSTextView? { if let tv = v as? NSTextView { 
         print("keystroke-next-to-image lines=162 avg=\(Int(total / 5 * 1000))ms (2400×1600 PNG in the restyled block)")
         try? FileManager.default.removeItem(at: folder)
     }
+    // Split view: the preview while typing quickly. Measures CPU time for a burst of keystrokes,
+    // so it includes every preview rebuild and re-measure, plus the final one after the pause
+    do {
+        final class Box: ObservableObject { @Published var text: String; init(_ t: String) { text = t } }
+        struct Preview: View { @ObservedObject var box: Box; var body: some View { MarkdownPreviewView(text: box.text, flavor: .github) } }
+        let section = "## Section\n\nSome **bold** and *italic* text with a [link](https://x.com) and `code`.\n\n- item one\n- item two\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n```swift\nlet x = 1\n```\n\n"
+        let box = Box(String(repeating: section, count: 60))
+        let host = NSHostingView(rootView: Preview(box: box).frame(width: 600, height: 600))
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 600)
+        let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false); win.contentView = host
+        pump(1.0)
+        let cpuStart = clock()
+        let wallStart = Date()
+        for ch in "abcdefghij" {
+            box.text += String(ch)
+            pump(0.03)
+        }
+        pump(0.5)
+        let cpu = Double(clock() - cpuStart) / Double(CLOCKS_PER_SEC) * 1000
+        print("split-preview-typing lines=\(box.text.components(separatedBy: "\n").count) keystrokes=10 cpu=\(Int(cpu))ms wall=\(Int(Date().timeIntervalSince(wallStart) * 1000))ms")
+    }
     let section = "## Section\n\nSome **bold** and *italic* text with a [link](https://x.com) and `code`.\n\n- item one\n- item two\n\n```swift\nlet x = 1\n```\n\n"
     for n in [10, 50, 200] {
         let md = String(repeating: section, count: n)
