@@ -122,9 +122,11 @@ struct MarkdownParser {
         return (level, headingText)
     }
     
+    private static let linkReferenceDefinitionRegex = try! NSRegularExpression(pattern: "^ {0,3}\\[([^^][^\\]]*)\\]:\\s*<?([^>\\s]+)>?(?:\\s+[\"'(](.*?)[\"')])?\\s*$")
+    private static let imageTitleRegex = try! NSRegularExpression(pattern: "(?:\\s+[\"'(](.*?)[\"')])\\s*$")
+    
     static func extractLinkReferenceDefinition(_ line: String) -> (label: String, url: String)? {
-        let pattern = "^ {0,3}\\[([^^][^\\]]*)\\]:\\s*<?([^>\\s]+)>?(?:\\s+[\"'(](.*?)[\"')])?\\s*$"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let regex = linkReferenceDefinitionRegex
         let nsLine = line as NSString
         guard let match = regex.firstMatch(in: line, options: [], range: NSRange(location: 0, length: nsLine.length)) else { return nil }
         let label = nsLine.substring(with: match.range(at: 1)).lowercased()
@@ -137,9 +139,7 @@ struct MarkdownParser {
         var title: String? = nil
         
         // Match optional trailing title: "title", 'title', or (title)
-        let titlePattern = "(?:\\s+[\"'(](.*?)[\"')])\\s*$"
-        if let regex = try? NSRegularExpression(pattern: titlePattern),
-           let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: (trimmed as NSString).length)) {
+        if let match = imageTitleRegex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: (trimmed as NSString).length)) {
             if match.numberOfRanges > 1 {
                 title = (trimmed as NSString).substring(with: match.range(at: 1))
             }
@@ -386,48 +386,52 @@ struct MarkdownParser {
     }
 
     /// Automatically detects the Markdown flavor based on syntax signatures.
-    static func detectFlavor(_ text: String) -> MarkdownFlavor {
+    private static func flavorRegex(_ pattern: String, _ options: NSRegularExpression.Options = []) -> NSRegularExpression {
+        try! NSRegularExpression(pattern: pattern, options: options)
+    }
+    private static let slackPipeLinkRegex = flavorRegex("<https?://[^>|\\n]+\\|[^>|\\n]+>")
+    private static let slackAngleLinkRegex = flavorRegex("<https?://[^>|\\n]+>")
+    private static let slackStrikeRegex = flavorRegex("(?<!~)~([^~\\n]+?)~(?!~)")
+    private static let slackBoldRegex = flavorRegex("(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)")
+    private static let gfmStrikeRegex = flavorRegex("~~([^~\\n]+?)~~")
+    private static let taskListRegex = flavorRegex("^\\s*[-*]\\s+\\[[ xX]\\]\\s+", [.anchorsMatchLines])
+    private static let tableRowRegex = flavorRegex("^\\|.*\\|\\s*$", [.anchorsMatchLines])
+    private static let markdownLinkRegex = flavorRegex("\\[[^\\]\\n]+\\]\\([^\\)\\n]+\\)")
+    private static let fourSpaceIndentRegex = flavorRegex("^ {4}\\S", [.anchorsMatchLines])
+    
+    /// Automatically detects the Markdown flavor based on syntax signatures. Only the start of a
+    /// long document is examined: the signatures show up early and opening a file stays fast.
+    static func detectFlavor(_ fullText: String) -> MarkdownFlavor {
+        let fullNS = fullText as NSString
+        if fullNS.length == 0 { return .github }
+        let sampleLength = 32 * 1024
+        let text = fullNS.length > sampleLength
+            ? fullNS.substring(with: fullNS.rangeOfComposedCharacterSequences(for: NSRange(location: 0, length: sampleLength)))
+            : fullText
         let nsText = text as NSString
-        if nsText.length == 0 { return .github }
+        let all = NSRange(location: 0, length: nsText.length)
         
         var slackScore = 0
         var gfmScore = 0
         var originalScore = 0
-        var mdLinkCount = 0
         
         // Slack heuristics: <url|text>, ~strikethrough~, *bold*
-        if let linkPipe = try? NSRegularExpression(pattern: "<https?://[^>|\\n]+\\|[^>|\\n]+>", options: []) {
-            slackScore += linkPipe.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 4
-        }
-        if let slackAngleLink = try? NSRegularExpression(pattern: "<https?://[^>|\\n]+>", options: []) {
-            slackScore += slackAngleLink.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 2
-        }
-        if let slackStrike = try? NSRegularExpression(pattern: "(?<!~)~([^~\\n]+?)~(?!~)", options: []) {
-            slackScore += slackStrike.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 3
-        }
-        if let slackBold = try? NSRegularExpression(pattern: "(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)", options: []) {
-            slackScore += slackBold.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 2
-        }
+        slackScore += slackPipeLinkRegex.numberOfMatches(in: text, options: [], range: all) * 4
+        slackScore += slackAngleLinkRegex.numberOfMatches(in: text, options: [], range: all) * 2
+        slackScore += slackStrikeRegex.numberOfMatches(in: text, options: [], range: all) * 3
+        slackScore += slackBoldRegex.numberOfMatches(in: text, options: [], range: all) * 2
         
         // GFM heuristics: ~~strikethrough~~, task lists, tables
-        if let gfmStrike = try? NSRegularExpression(pattern: "~~([^~\\n]+?)~~", options: []) {
-            gfmScore += gfmStrike.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 4
-        }
-        if let taskList = try? NSRegularExpression(pattern: "^\\s*[-*]\\s+\\[[ xX]\\]\\s+", options: [.anchorsMatchLines]) {
-            gfmScore += taskList.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 4
-        }
-        if let table = try? NSRegularExpression(pattern: "^\\|.*\\|\\s*$", options: [.anchorsMatchLines]) {
-            gfmScore += table.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) * 2
-        }
+        gfmScore += gfmStrikeRegex.numberOfMatches(in: text, options: [], range: all) * 4
+        gfmScore += taskListRegex.numberOfMatches(in: text, options: [], range: all) * 4
+        gfmScore += tableRowRegex.numberOfMatches(in: text, options: [], range: all) * 2
         
         // Standard Markdown links [text](url)
-        if let mdLink = try? NSRegularExpression(pattern: "\\[[^\\]\\n]+\\]\\([^\\)\\n]+\\)", options: []) {
-            mdLinkCount = mdLink.numberOfMatches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
-        }
+        let mdLinkCount = markdownLinkRegex.numberOfMatches(in: text, options: [], range: all)
         
         // Original Markdown heuristic: 4-space indented code block without fenced ``` code block
         let hasFencedCode = text.contains("```")
-        let hasFourSpaceIndent = (try? NSRegularExpression(pattern: "^ {4}\\S", options: [.anchorsMatchLines]))?.firstMatch(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) != nil
+        let hasFourSpaceIndent = fourSpaceIndentRegex.firstMatch(in: text, options: [], range: all) != nil
         if hasFourSpaceIndent && !hasFencedCode {
             originalScore += 4
         }

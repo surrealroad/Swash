@@ -747,18 +747,17 @@ final class MarkdownBlockParser {
         guard !delimiterCells.cells.isEmpty else { return 0 }
         var alignments: [TableAlignment] = []
         for cell in delimiterCells.cells {
-            let text = String(utf16CodeUnits: cell.chars, count: cell.chars.count)
-            guard text.range(of: "^:?-+:?$", options: .regularExpression) != nil else { return 0 }
-            let left = text.hasPrefix(":"), right = text.hasSuffix(":")
-            alignments.append(left && right ? .center : right ? .right : left ? .left : .defaultAlignment)
+            guard let alignment = Self.delimiterAlignment(cell.chars) else { return 0 }
+            alignments.append(alignment)
         }
-        // Header row = the paragraph's last line
+        // Header row = the paragraph's last line, found by scanning back in place
         let ps = state(container)
-        var content = ps.content
-        if content.chars.last == 0x0A { content.chars.removeLast(); content.map.removeLast() }
-        var headerStart = content.chars.count
-        while headerStart > 0 && content.chars[headerStart - 1] != 0x0A { headerStart -= 1 }
-        let header = MarkdownInlineSource(chars: Array(content.chars[headerStart...]), map: Array(content.map[headerStart...]))
+        let chars = ps.content.chars
+        var contentEnd = chars.count
+        if chars.last == 0x0A { contentEnd -= 1 }
+        var headerStart = contentEnd
+        while headerStart > 0 && chars[headerStart - 1] != 0x0A { headerStart -= 1 }
+        let header = MarkdownInlineSource(chars: Array(chars[headerStart..<contentEnd]), map: Array(ps.content.map[headerStart..<contentEnd]))
         let headerRow = splitRow(header)
         guard headerRow.cells.count == alignments.count, delimiterCells.hasPipe || headerRow.hasPipe else { return 0 }
 
@@ -789,6 +788,17 @@ final class MarkdownBlockParser {
         return 2
     }
 
+    /// Alignment of a delimiter-row cell matching `:?-+:?`, or nil when it isn't one.
+    private static func delimiterAlignment(_ cell: [UInt16]) -> TableAlignment? {
+        var lo = 0, hi = cell.count
+        let left = lo < hi && cell[lo] == 0x3A
+        if left { lo += 1 }
+        let right = hi > lo && cell[hi - 1] == 0x3A
+        if right { hi -= 1 }
+        guard hi > lo, cell[lo..<hi].allSatisfy({ $0 == 0x2D }) else { return nil }
+        return left && right ? .center : right ? .right : left ? .left : .defaultAlignment
+    }
+    
     private struct SplitRow {
         var cells: [MarkdownInlineSource] = []
         var pipes: [Int] = []
@@ -945,11 +955,17 @@ final class MarkdownBlockParser {
             }
             block.literal = String(utf16CodeUnits: content.chars, count: content.chars.count)
         case .htmlBlock:
-            var text = String(utf16CodeUnits: s.content.chars, count: s.content.chars.count)
-            if let range = text.range(of: "(\\n *)+$", options: .regularExpression) {
-                text.removeSubrange(range)
+            // Drop trailing blank lines (a newline followed by spaces, repeated)
+            let chars = s.content.chars
+            var end = chars.count, i = end
+            while i > 0 {
+                var j = i
+                while j > 0 && chars[j - 1] == 0x20 { j -= 1 }
+                guard j > 0 && chars[j - 1] == 0x0A else { break }
+                i = j - 1
+                end = i
             }
-            block.literal = text
+            block.literal = String(utf16CodeUnits: Array(chars[0..<end]), count: end)
         case .list:
             var tight = true
             var item = block.firstChild
