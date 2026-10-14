@@ -141,3 +141,11 @@
 ## 35. iOS Prefers Its Own Quick Look Viewer for Markdown
 - **Issue**: iOS has a built-in Markdown previewer and thumbnailer. In Files, they take precedence over a third-party Quick Look preview or thumbnail extension for `net.daringfireball.markdown`, so Swash's extensions registered but never ran.
 - **Solution**: The Quick Look and thumbnail extensions are filtered to macOS (`platformFilters = (macos, )`). Only the share extension and widget are built and embedded for iOS.
+
+## 36. Confluence and Jira Copy Images Without an `<img>` Tag
+- **Issue**: Atlassian's editor puts each image on the pasteboard as an empty `<div data-node-type="media">` with `data-file-name`/`data-alt` and `data-context-id` (the page ID). There is no `src` and no image data, so a converter that only reads `<img>` drops the images.
+- **Solution**: `HTMLToMarkdown` turns media nodes into `https://<site>[/wiki]/download/attachments/<pageID>/<file>`. It takes the site from the `org.chromium.source-url` pasteboard type, which Chromium browsers write. Safari does not write this type, so without it the image keeps only its file name. The attachment needs a signed-in browser, so Swash shows a placeholder for it.
+
+## 37. Don't Re-Identify a View That Declares a Customizable Toolbar
+- **Issue**: The folder window first gave `ContentView` an `.id(file)` so each file got fresh editor state. Every switch rebuilt `ContentView`'s `.toolbar(id: "mainToolbar")`, and AppKit threw `NSInternalInconsistencyException` (`index>=0 && index<[_currentItems count]` in `-[NSToolbar _removeItemAtIndex:]`) while SwiftUI removed the old items. A headless `NSHostingView` harness doesn't crash, because it has no window toolbar.
+- **Solution**: Keep the view that owns the toolbar stable and reset only the part below it. `ContentView` takes a `documentID` and applies `.id(documentID)` to the editor area, clears its selection state in `onChange(of: documentID)`, and keeps one `ScrollSync` per file (`ScrollSyncStore`). Reproduce toolbar issues in the real app, for example by launching the Debug build binary under `lldb`.
