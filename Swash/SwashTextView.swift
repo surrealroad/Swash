@@ -2039,13 +2039,7 @@ struct SwashTextView: NSViewRepresentable {
                         var attachment: TableTextAttachment? = nil
                         attachment = TableTextAttachment(tableData: tableData, flavor: parent.flavor, originalMarkdown: source) { [weak self, weak textView] updatedData in
                             guard let self = self, let textView = textView, let textStorage = textView.textStorage, let attachment = attachment else { return }
-                            attachment.tableData = updatedData
-                            // The table's raw length may have changed
-                            self.cachedOffsetMap = nil
-                            self.forceFullRestyle = true
-                            let raw = self.buildRawMarkdown(from: textStorage)
-                            self.lastPublishedText = raw
-                            self.parent.text = raw
+                            self.tableCellEdited(attachment, data: updatedData, in: textView, storage: textStorage)
                         }
                         if let validAttachment = attachment {
                             let attrAttachment = NSMutableAttributedString(attachment: validAttachment)
@@ -2217,6 +2211,52 @@ struct SwashTextView: NSViewRepresentable {
             return true
         }
         
+        /// A table cell edit changes only that table's source. Splice it into the published text and
+        /// shift the block bookkeeping after it, so the next keystroke stays incremental instead of
+        /// rebuilding every table and image. Falls back to a full rebuild when anything doesn't line up.
+        func tableCellEdited(_ attachment: TableTextAttachment, data: MarkdownTableData, in textView: NSTextView, storage: NSTextStorage) {
+            let oldSource = attachment.rawMarkdown
+            let map = offsetMap(for: textView)
+            var storageIndex: Int? = nil
+            storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length), options: []) { value, range, stop in
+                if (value as AnyObject?) === attachment { storageIndex = range.location; stop.pointee = true }
+            }
+            attachment.tableData = data
+            let newSource = attachment.rawMarkdown
+            cachedOffsetMap = nil
+
+            var spliced: String? = nil
+            if let index = storageIndex, let published = lastPublishedText {
+                let ns = published as NSString
+                let oldRange = NSRange(location: map.rawLocation(forStorage: index), length: (oldSource as NSString).length)
+                if NSMaxRange(oldRange) <= ns.length, ns.substring(with: oldRange) == oldSource {
+                    spliced = ns.replacingCharacters(in: oldRange, with: newSource)
+                    if !shiftBlocks(replacing: oldSource, at: oldRange.location, with: newSource) { forceFullRestyle = true }
+                }
+            }
+            if spliced == nil { forceFullRestyle = true }
+            let raw = spliced ?? buildRawMarkdown(from: storage)
+            lastPublishedText = raw
+            parent.text = raw
+        }
+
+        /// Replaces one top-level block's recorded source and moves the blocks after it.
+        private func shiftBlocks(replacing oldSource: String, at location: Int, with newSource: String) -> Bool {
+            guard var blocks = lastBlocks,
+                  let index = blocks.firstIndex(where: { $0.range.location == location && $0.source == oldSource }) else { return false }
+            let delta = (newSource as NSString).length - (oldSource as NSString).length
+            blocks[index] = (newSource, NSRange(location: location, length: (newSource as NSString).length), false)
+            for i in (index + 1)..<blocks.count {
+                blocks[i].range.location += delta
+            }
+            lastBlocks = blocks
+            lastRawLength += delta
+            if delta != 0 {
+                richPreviewMemory = Dictionary(uniqueKeysWithValues: richPreviewMemory.map { ($0.key > location ? $0.key + delta : $0.key, $0.value) })
+            }
+            return true
+        }
+
         /// Number of incremental passes (diagnostics and tests).
         private(set) var incrementalPassCount = 0
         
