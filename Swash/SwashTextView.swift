@@ -693,6 +693,8 @@ struct SwashTextView: NSViewRepresentable {
     var onPrevCell: (() -> Void)? = nil
     var controller: SwashEditorController? = nil
     var onFormatCommand: ((FormatCommand) -> Void)? = nil
+    /// Reports the caret's raw-markdown location whenever the selection moves.
+    var onCaretMove: ((Int) -> Void)? = nil
     
     init(
         text: Binding<String>,
@@ -706,7 +708,8 @@ struct SwashTextView: NSViewRepresentable {
         onNextCell: (() -> Void)? = nil,
         onPrevCell: (() -> Void)? = nil,
         controller: SwashEditorController? = nil,
-        onFormatCommand: ((FormatCommand) -> Void)? = nil
+        onFormatCommand: ((FormatCommand) -> Void)? = nil,
+        onCaretMove: ((Int) -> Void)? = nil
     ) {
         self._text = text
         self._selectedRange = selectedRange
@@ -720,6 +723,7 @@ struct SwashTextView: NSViewRepresentable {
         self.onPrevCell = onPrevCell
         self.controller = controller
         self.onFormatCommand = onFormatCommand
+        self.onCaretMove = onCaretMove
     }
     
     func makeNSView(context: Context) -> NSScrollView {
@@ -1177,6 +1181,9 @@ struct SwashTextView: NSViewRepresentable {
             
             // Only update selection if it wasn't triggered by SwiftUI itself
             if !isUpdatingFromSwiftUI {
+                if let onCaretMove = parent.onCaretMove, !isHighlighting {
+                    onCaretMove(rawRange(forStorage: textView.selectedRange(), in: textView).location)
+                }
                 let isMouseDown = NSEvent.pressedMouseButtons & 1 != 0
                 if isMouseDown {
                     // Defer updating selection rect until mouse is up/selection settles.

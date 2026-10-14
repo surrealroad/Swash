@@ -13,6 +13,7 @@ enum FormatCommand: Equatable {
     case bold, italic, strikethrough, code, link
     case heading(Int), paragraph
     case bulletList, numberedList, taskList, quote, codeBlock
+    case tableOfContents
     
     /// Maps a key-down event to a command (key codes for digits/punctuation, so shifted keys work on any layout).
     static func command(for event: NSEvent) -> FormatCommand? {
@@ -77,6 +78,9 @@ struct FormatMenuCommands: Commands {
             item("To-do List", .taskList, "9", [.command, .shift])
             item("Quote", .quote, ".", [.command, .shift])
             item("Code Block", .codeBlock, "c", [.command, .option])
+            Divider()
+            Button("Insert Table of Contents") { handler?(.tableOfContents) }
+                .disabled(handler == nil)
         }
     }
     

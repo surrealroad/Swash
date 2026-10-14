@@ -85,6 +85,8 @@ struct ContentView: View {
     @ObservedObject private var folderAccessManager = FolderAccessManager.shared
     @State private var editor = SwashEditorController()
     @State private var dismissedFolderBanner: URL? = nil
+    @AppStorage("showOutline") private var showOutline = false
+    @State private var currentHeadingIndex: Int? = nil
 
     private var effectiveBaseURL: URL? {
         fileURL ?? window?.representedURL ?? (window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
@@ -106,6 +108,18 @@ struct ContentView: View {
                 folderAccessBanner(for: folderURL)
             }
             
+            HStack(spacing: 0) {
+            if showOutline {
+                DocumentOutlineView(
+                    outline: editor.outline(for: document.text),
+                    currentIndex: currentHeadingIndex,
+                    onSelect: { heading in
+                        currentHeadingIndex = editor.outline(for: document.text).headings.firstIndex(of: heading)
+                        editor.reveal(rawLocation: heading.range.location)
+                    }
+                )
+                Divider()
+            }
             ZStack(alignment: .topLeading) {
                 if viewMode == .preview {
                     SwashTextView(
@@ -117,7 +131,8 @@ struct ContentView: View {
                         flavor: document.flavor,
                         baseURL: effectiveBaseURL,
                         controller: editor,
-                        onFormatCommand: { handleFormatCommand($0) }
+                        onFormatCommand: { handleFormatCommand($0) },
+                        onCaretMove: { updateCurrentHeading(caret: $0) }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -131,7 +146,8 @@ struct ContentView: View {
                         flavor: document.flavor,
                         baseURL: effectiveBaseURL,
                         controller: editor,
-                        onFormatCommand: { handleFormatCommand($0) }
+                        onFormatCommand: { handleFormatCommand($0) },
+                        onCaretMove: { updateCurrentHeading(caret: $0) }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -146,7 +162,8 @@ struct ContentView: View {
                             flavor: document.flavor,
                             baseURL: effectiveBaseURL,
                             controller: editor,
-                            onFormatCommand: { handleFormatCommand($0) }
+                            onFormatCommand: { handleFormatCommand($0) },
+                            onCaretMove: { updateCurrentHeading(caret: $0) }
                         )
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)
@@ -158,12 +175,20 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
             
             // Premium Bottom Status Bar
             statusView
         }
         .frame(minWidth: 600, idealWidth: 800, minHeight: 600, idealHeight: 750)
         .toolbar(id: "mainToolbar") {
+            ToolbarItem(id: "outline", placement: .navigation) {
+                Toggle(isOn: $showOutline) {
+                    Label("Outline", systemImage: "sidebar.left")
+                }
+                .help(showOutline ? "Hide the heading outline" : "Show the heading outline")
+            }
+            
             ToolbarItem(id: "flexibleSpace", placement: .automatic) {
                 Spacer()
             }
@@ -229,6 +254,8 @@ struct ContentView: View {
         }
         .background(WindowAccessor(window: $window))
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
+        .focusedSceneValue(\.documentCommandHandler, { handleDocumentCommand($0) })
+        .focusedSceneValue(\.documentFileURL, effectiveBaseURL)
         .onChange(of: viewMode) { oldMode, newMode in
             handleViewModeChange(from: oldMode, to: newMode)
         }
@@ -393,10 +420,7 @@ struct ContentView: View {
             
             Spacer()
             
-            let stats = calculateStats()
-            Text("\(stats.words) words   •   \(stats.chars) characters")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
+            StatisticsMenu(document: editor.statistics(for: document.text), selection: selectionStatistics)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
@@ -914,11 +938,16 @@ struct ContentView: View {
     
     /// Handles shortcuts and Format menu items using the live editor selection (carets included).
     private func handleFormatCommand(_ command: FormatCommand) {
+        if command == .tableOfContents {
+            insertTableOfContents()
+            return
+        }
         if let live = editor.currentRawSelection {
             selectedRange = live
         }
         guard let range = selectedRange else { return }
         switch command {
+        case .tableOfContents: break
         case .bold: applyFormatting(.bold)
         case .italic: applyFormatting(.italic)
         case .strikethrough: applyFormatting(.strikethrough)
@@ -1513,16 +1542,59 @@ struct ContentView: View {
         commitEdit(newText, selection: NSRange(location: link.fullRange.location, length: (link.text as NSString).length), actionName: "Remove Link")
     }
     
-    private func calculateStats() -> (words: Int, chars: Int) {
-        let trimmed = document.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return (0, 0) }
-        
-        let words = trimmed.components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .count
-        let chars = document.text.count
-        
-        return (words, chars)
+    /// Statistics of the selected text, or nil without a selection.
+    private var selectionStatistics: MarkdownStatistics? {
+        let ns = document.text as NSString
+        guard let range = selectedRange, range.length > 0, NSMaxRange(range) <= ns.length else { return nil }
+        return MarkdownStatistics(text: ns.substring(with: range))
+    }
+    
+    // MARK: - Outline & Document Commands
+    
+    /// Tracks the heading around the caret; only real changes are published, so caret moves stay cheap.
+    private func updateCurrentHeading(caret: Int) {
+        guard showOutline else { return }
+        let index = editor.outline(for: document.text).headingIndex(containing: caret)
+        if index != currentHeadingIndex { currentHeadingIndex = index }
+    }
+    
+    /// Raw location of the caret (or selection start) in the live editor, else the end of the document.
+    private var caretLocation: Int {
+        editor.currentRawSelection?.location ?? selectedRange?.location ?? (document.text as NSString).length
+    }
+    
+    private func handleDocumentCommand(_ command: DocumentCommand) {
+        switch command {
+        case .copyHeadingLink:
+            if let link = DocumentLinkText.headingLink(in: editor.outline(for: document.text), at: caretLocation) {
+                DocumentLinkText.copy(link)
+            } else {
+                NSSound.beep()
+            }
+        case .copyMarkdownLink:
+            guard let url = effectiveBaseURL else { NSSound.beep(); return }
+            DocumentLinkText.copy(DocumentLinkText.markdownLink(title: documentTitle, fileURL: url))
+        case .copyFilePath:
+            guard let url = effectiveBaseURL else { NSSound.beep(); return }
+            DocumentLinkText.copy(url.path)
+        }
+    }
+    
+    /// Inserts a linked list of the document's headings at the caret, as its own block.
+    private func insertTableOfContents() {
+        let toc = editor.outline(for: document.text).tableOfContents()
+        guard !toc.isEmpty else { NSSound.beep(); return }
+        let ns = document.text as NSString
+        var selection = editor.currentRawSelection ?? selectedRange ?? NSRange(location: ns.length, length: 0)
+        if NSMaxRange(selection) > ns.length { selection = NSRange(location: ns.length, length: 0) }
+        let before = ns.substring(to: selection.location)
+        let after = ns.substring(from: NSMaxRange(selection))
+        let leading = before.isEmpty || before.hasSuffix("\n\n") ? "" : (before.hasSuffix("\n") ? "\n" : "\n\n")
+        let trailing = after.hasPrefix("\n\n") ? "" : (after.hasPrefix("\n") || after.isEmpty ? "\n" : "\n\n")
+        let inserted = leading + toc + trailing
+        let newText = ns.replacingCharacters(in: selection, with: inserted)
+        let caret = selection.location + (leading as NSString).length + (toc as NSString).length
+        commitEdit(newText, selection: NSRange(location: caret, length: 0), actionName: "Insert Table of Contents")
     }
     
     private func handleViewModeChange(from oldMode: ViewMode, to newMode: ViewMode) {
