@@ -33,28 +33,32 @@ enum MarkdownEditingCommands {
         return Line(range: range, text: text, structure: MarkdownFormatting.structure(of: text))
     }
 
-    private static func isInCode(_ location: Int, text: String) -> Bool {
-        MarkdownFormatting(text: text).codeBlock(containing: NSRange(location: location, length: 0)) != nil
+    /// `document`, when given, must be the parse of `text`; callers that already have one pass it
+    /// so the check doesn't parse the whole document again.
+    private static func isInCode(_ location: Int, text: String, document: MarkdownDocument?) -> Bool {
+        let parsed = document.flatMap { $0.source == text ? $0 : nil }
+        return MarkdownFormatting(text: text, document: parsed).codeBlock(containing: NSRange(location: location, length: 0)) != nil
     }
 
     // MARK: - Enter
 
-    static func newline(text: String, selection: NSRange) -> MarkdownEdit? {
+    static func newline(text: String, selection: NSRange, document: MarkdownDocument? = nil) -> MarkdownEdit? {
         guard selection.length == 0 else { return nil }
         let ns = text as NSString
         let current = line(at: selection.location, in: ns)
         let s = current.structure
         guard current.isListItem || !s.quotePrefix.isEmpty else { return nil }
-        guard !isInCode(selection.location, text: text) else { return nil }
         let caretInLine = selection.location - current.range.location
         // Caret inside the prefix/marker: default behaviour
         guard caretInLine >= current.contentOffset else { return nil }
+        // The only check that parses the document, so it runs last
+        guard !isInCode(selection.location, text: text, document: document) else { return nil }
 
         let contentIsEmpty = s.content.trimmingCharacters(in: .whitespaces).isEmpty
         if contentIsEmpty {
             // Empty item: outdent a nested item, otherwise leave the list (or one quote level)
             if current.isListItem && !s.indent.isEmpty {
-                return outdent(text: text, selection: selection)
+                return outdent(text: text, selection: selection, document: document)
             }
             let replacement: String
             if current.isListItem {
@@ -138,10 +142,10 @@ enum MarkdownEditingCommands {
     // MARK: - Tab / Shift-Tab
 
     /// Nests a list item under its previous sibling (indentation = that sibling's content column).
-    static func indent(text: String, selection: NSRange) -> MarkdownEdit? {
+    static func indent(text: String, selection: NSRange, document: MarkdownDocument? = nil) -> MarkdownEdit? {
         let ns = text as NSString
         let current = line(at: selection.location, in: ns)
-        guard current.isListItem, !isInCode(selection.location, text: text) else { return nil }
+        guard current.isListItem, !isInCode(selection.location, text: text, document: document) else { return nil }
         let level = current.structure.indent.count
         // Walk up past deeper (nested) lines and blank lines to the previous sibling item
         var sibling: Line? = nil
@@ -168,10 +172,10 @@ enum MarkdownEditingCommands {
     }
     
     /// Moves a nested list item one level out.
-    static func outdent(text: String, selection: NSRange) -> MarkdownEdit? {
+    static func outdent(text: String, selection: NSRange, document: MarkdownDocument? = nil) -> MarkdownEdit? {
         let ns = text as NSString
         let current = line(at: selection.location, in: ns)
-        guard current.isListItem, !current.structure.indent.isEmpty, !isInCode(selection.location, text: text) else { return nil }
+        guard current.isListItem, !current.structure.indent.isEmpty, !isInCode(selection.location, text: text, document: document) else { return nil }
         // Remove the indentation down to the parent item's column
         var parentIndent = 0
         var search = current.range.location
@@ -196,17 +200,18 @@ enum MarkdownEditingCommands {
     /// At the start of a block's content, removes its marker (heading, list, task) or one quote level.
     /// `markersHidden`: in the WYSIWYG editor the prefix is invisible, so a caret anywhere before the
     /// content (even at the very start of the line) counts as being at the start of the block.
-    static func backspace(text: String, selection: NSRange, markersHidden: Bool = false) -> MarkdownEdit? {
+    static func backspace(text: String, selection: NSRange, markersHidden: Bool = false, document: MarkdownDocument? = nil) -> MarkdownEdit? {
         guard selection.length == 0 else { return nil }
         let ns = text as NSString
         let current = line(at: selection.location, in: ns)
         let s = current.structure
-        guard !isInCode(selection.location, text: text) else { return nil }
         var caretInLine = selection.location - current.range.location
         let prefixLength = (s.quotePrefix + s.indent).utf16.count
         guard caretInLine <= current.contentOffset, current.contentOffset > 0 else { return nil }
         if markersHidden { caretInLine = current.contentOffset }
         guard caretInLine > 0 else { return nil }
+        // The only check that parses the document, so it runs after the per-line ones
+        guard !isInCode(selection.location, text: text, document: document) else { return nil }
         if !s.marker.isEmpty, caretInLine > prefixLength {
             // Caret at (or within) the marker: remove it, keeping quote prefix and indentation
             let markerRange = NSRange(location: current.range.location + prefixLength, length: s.marker.utf16.count)
@@ -271,7 +276,7 @@ enum MarkdownEditingCommands {
         guard location - current.range.location >= current.contentOffset else { return false }
         guard current.structure.content.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         if case .heading = current.structure.format { return false }
-        return !isInCode(location, text: text)
+        return !isInCode(location, text: text, document: nil)
     }
     
     /// Replaces the line holding the "/" at `slashLocation` with the chosen block.

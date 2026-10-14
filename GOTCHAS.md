@@ -97,3 +97,7 @@
 ## 24. Release Version Comes From the Build Command, Not the Project
 - **Issue**: `MARKETING_VERSION` is `1.0` in the project; `Build & Release` passes the changesets version (`MARKETING_VERSION=…`) on the `xcodebuild` command line. Extension `Info.plist` files that hard-coded `CFBundleShortVersionString` stayed at `1.0` and triggered "must match that of its containing parent app" warnings.
 - **Solution**: Every target's `Info.plist` must use `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)` so the command-line override reaches the app and all extensions.
+
+## 29. Images Go Through `ImageCache`
+- **Issue**: Loading and scaling images directly (`NSImage(contentsOfFile:)` plus `scaleImageForEditor`) in a styling pass or a SwiftUI `body` re-reads the file on every keystroke near the image and on every preview render.
+- **Solution**: Resolve images with `MarkdownParser.resolveImageFile`, which checks candidate paths cheaply and loads through `ImageCache.shared`; scale with `ImageCache.shared.editorImage(_:path:maxWidth:)`. Entries are validated by modification date and size. Folder access is started once per folder per session by `FolderAccessManager.ensureAccess`; don't call `startAccessingSecurityScopedResource()` elsewhere.

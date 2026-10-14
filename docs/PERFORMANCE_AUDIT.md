@@ -320,16 +320,24 @@ Optional: set `DEAD_CODE_STRIPPING = YES` explicitly, and check it with `xcodebu
 
 ## Recommended plan
 
-### Phase A: per-keystroke work (small, low risk)
+### Phase A: per-keystroke work (small, low risk) — done
 
-| # | Change | Sections |
+| # | Change | Sections | Status |
+|---|---|---|---|
+| A1 | `updateNSView` returns early when `text` matches the last published text | §1.1 | Done |
+| A2 | One shared parse per edit, used by styling, link lookup, the bubble menu and code checks | §1.2, §2.2 | Done in the editor; the bubble menu's `codeRanges` scans (§2.2) remain |
+| A3 | Cache `TableTextAttachment.rawMarkdown` | §1.3 | Done |
+| A4 | Run cheap guards before `isInCode` in Backspace and Enter, and use the cached document | §1.4 | Done |
+| A5 | Image `NSCache`, and remove the repeated `ensureAccess` work and access leak | §3.1, §3.2, §3.3 | Done; bookmarks also resolve lazily (§3.3). The preview still loads images on the main thread (B1) |
+| A6 | Only restore the scroll position after full passes | §1.5 | Done |
+
+Measured with the extended `run_audit.sh perf` (best of the runs, `main` → Phase A):
+
+| Benchmark | `main` | Phase A |
 |---|---|---|
-| A1 | `updateNSView` returns early when `text` matches the last published text | §1.1 |
-| A2 | One shared parse per edit, used by styling, link lookup, the bubble menu and code checks | §1.2, §2.2 |
-| A3 | Cache `TableTextAttachment.rawMarkdown` | §1.3 |
-| A4 | Run cheap guards before `isInCode` in Backspace and Enter, and use the cached document | §1.4 |
-| A5 | Image `NSCache`, and remove the repeated `ensureAccess` work and access leak | §3.1, §3.2 |
-| A6 | Only restore the scroll position after full passes | §1.5 |
+| Keystroke, styled, 2,251 lines | 19 ms | 15 ms |
+| Backspace in a paragraph, 4,401 lines | 10.8 ms | 0.01 ms |
+| Keystroke next to a 2400×1600 local image | 30 ms | 7 ms |
 
 ### Phase B: views and rendering (medium)
 

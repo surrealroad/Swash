@@ -106,6 +106,8 @@ final class SwashEditorController {
     
     /// Parsed formatting state for `text`, reused until the text changes.
     func formatting(for text: String) -> MarkdownFormatting {
+        // Share the editor's parse when it has one for this text
+        if let coordinator = coordinator { return coordinator.formatting(for: text) }
         if let cached = cachedFormatting, cached.text == text { return cached }
         let formatting = MarkdownFormatting(text: text)
         cachedFormatting = formatting
@@ -704,13 +706,22 @@ struct SwashTextView: NSViewRepresentable {
         controller?.textView = textView
         controller?.coordinator = context.coordinator
         
-        let currentRawText = isStyled ? context.coordinator.buildRawMarkdown(from: textView.textStorage ?? NSTextStorage()) : textView.string
-        let normalizedTextView = currentRawText.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        let normalizedBinding = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        
-        // Trim whitespaces and newlines for comparison to ignore trivial formatting differences
-        let textChanged = (context.coordinator.lastStyledText != text) &&
-                          (normalizedTextView.trimmingCharacters(in: .whitespacesAndNewlines) != normalizedBinding.trimmingCharacters(in: .whitespacesAndNewlines))
+        // The binding usually just echoes what the editor published from its last edit: skip
+        // rebuilding and normalising the whole document in that case
+        let textChanged: Bool
+        if text == context.coordinator.lastPublishedText || text == context.coordinator.lastStyledText {
+            textChanged = false
+        } else {
+            let currentRawText = isStyled ? context.coordinator.buildRawMarkdown(from: textView.textStorage ?? NSTextStorage()) : textView.string
+            if currentRawText == text {
+                textChanged = false
+            } else {
+                let normalizedTextView = currentRawText.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+                let normalizedBinding = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+                // Trim whitespaces and newlines for comparison to ignore trivial formatting differences
+                textChanged = normalizedTextView.trimmingCharacters(in: .whitespacesAndNewlines) != normalizedBinding.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
         
         let isFirstResponder = textView.window?.firstResponder == textView
         let hasSelection = textView.selectedRange().length > 0
@@ -723,6 +734,7 @@ struct SwashTextView: NSViewRepresentable {
                 context.coordinator.lastKnownScrollOrigin = origin
             }
             textView.string = text
+            context.coordinator.lastPublishedText = text
             context.coordinator.invalidateOffsetMap()
             if let origin = context.coordinator.lastKnownScrollOrigin, let clipView = textView.enclosingScrollView?.contentView {
                 clipView.scroll(to: origin)
@@ -785,6 +797,8 @@ struct SwashTextView: NSViewRepresentable {
         var didAutoSelect = false
         
         var lastStyledText: String? = nil
+        /// The raw Markdown most recently written to the binding from the editor.
+        var lastPublishedText: String? = nil
         var lastIsStyled: Bool? = nil
         var lastFlavor: MarkdownFlavor? = nil
         var lastBaseURL: URL? = nil
@@ -856,6 +870,7 @@ struct SwashTextView: NSViewRepresentable {
             if removed {
                 forceFullRestyle = true
                 let updatedText = buildRawMarkdown(from: textStorage)
+                lastPublishedText = updatedText
                 self.parent.text = updatedText
                 highlightMarkdown(in: textView)
                 
@@ -882,13 +897,14 @@ struct SwashTextView: NSViewRepresentable {
         
         // MARK: - Storage ↔ Raw Offsets
         
-        private var cachedLinkFormatting: MarkdownFormatting?
+        private var sharedFormatting: MarkdownFormatting?
         
-        /// Parsed document used to detect the link under the caret; reused until the text changes.
-        private func linkFormatting(for text: String) -> MarkdownFormatting {
-            if let cached = cachedLinkFormatting, cached.text == text { return cached }
+        /// The parse of `text`, shared by styling, the link under the caret, structural editing and
+        /// (through `SwashEditorController`) the bubble menu, so each revision is parsed once.
+        func formatting(for text: String) -> MarkdownFormatting {
+            if let cached = sharedFormatting, cached.text == text { return cached }
             let formatting = MarkdownFormatting(text: text)
-            cachedLinkFormatting = formatting
+            sharedFormatting = formatting
             return formatting
         }
         
@@ -992,7 +1008,9 @@ struct SwashTextView: NSViewRepresentable {
             cachedOffsetMap = nil
             if !isUpdatingFromSwiftUI {
                 if parent.isStyled, let textStorage = textView.textStorage {
-                    parent.text = buildRawMarkdown(from: textStorage)
+                    let raw = buildRawMarkdown(from: textStorage)
+                    lastPublishedText = raw
+                    parent.text = raw
                     editGeneration += 1
                     let generation = editGeneration
                     DispatchQueue.main.async { [weak self, weak textView] in
@@ -1002,6 +1020,7 @@ struct SwashTextView: NSViewRepresentable {
                         self.highlightMarkdown(in: textView)
                     }
                 } else {
+                    lastPublishedText = textView.string
                     parent.text = textView.string
                     applyPlainStyle(in: textView)
                 }
@@ -1057,7 +1076,7 @@ struct SwashTextView: NSViewRepresentable {
             let activeLink: (fullRange: NSRange, url: String)?
             if parent.flavor == .slack {
                 activeLink = LinkDetector.findLink(at: rawSelection, in: parent.text, flavor: .slack).map { ($0.fullRange, $0.url) }
-            } else if let node = linkFormatting(for: parent.text).link(at: rawSelection),
+            } else if let node = formatting(for: parent.text).link(at: rawSelection),
                       case .link(let destination, _, let kind) = node.kind, kind != .extendedAutolink {
                 activeLink = (node.range, destination)
             } else {
@@ -1281,22 +1300,22 @@ struct SwashTextView: NSViewRepresentable {
                     onCommit()
                     return true
                 }
-                return applyStructuralEdit(in: textView, actionName: "New Line") { MarkdownEditingCommands.newline(text: $0, selection: $1) }
+                return applyStructuralEdit(in: textView, actionName: "New Line") { MarkdownEditingCommands.newline(text: $0, selection: $1, document: self.cachedDocument(for: $0)) }
             } else if commandSelector == #selector(NSResponder.insertTab(_:)) {
                 if let onNextCell = parent.onNextCell {
                     onNextCell()
                     return true
                 }
-                return applyStructuralEdit(in: textView, actionName: "Indent") { MarkdownEditingCommands.indent(text: $0, selection: $1) }
+                return applyStructuralEdit(in: textView, actionName: "Indent") { MarkdownEditingCommands.indent(text: $0, selection: $1, document: self.cachedDocument(for: $0)) }
             } else if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
                 if let onPrevCell = parent.onPrevCell {
                     onPrevCell()
                     return true
                 }
-                return applyStructuralEdit(in: textView, actionName: "Outdent") { MarkdownEditingCommands.outdent(text: $0, selection: $1) }
+                return applyStructuralEdit(in: textView, actionName: "Outdent") { MarkdownEditingCommands.outdent(text: $0, selection: $1, document: self.cachedDocument(for: $0)) }
             } else if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
                 let hidden = parent.isStyled
-                return applyStructuralEdit(in: textView, actionName: "Delete") { MarkdownEditingCommands.backspace(text: $0, selection: $1, markersHidden: hidden) }
+                return applyStructuralEdit(in: textView, actionName: "Delete") { MarkdownEditingCommands.backspace(text: $0, selection: $1, markersHidden: hidden, document: self.cachedDocument(for: $0)) }
             }
             return false
         }
@@ -1309,6 +1328,12 @@ struct SwashTextView: NSViewRepresentable {
             guard let edit = command(raw, rawSelection) else { return false }
             applyEdit(in: textView, newRawText: edit.text, rawSelection: edit.selection, actionName: actionName)
             return true
+        }
+        
+        /// The shared parse of `text` if it is already available (no parse is started for it).
+        private func cachedDocument(for text: String) -> MarkdownDocument? {
+            guard let cached = sharedFormatting, cached.text == text else { return nil }
+            return cached.document
         }
         
         // Disable spellcheck inside code blocks
@@ -1398,7 +1423,7 @@ struct SwashTextView: NSViewRepresentable {
             var styledCodeRanges: [NSRange]? = nil
             if parent.flavor != .slack {
                 // CommonMark / GFM: style from the shared Markdown AST
-                let document = MarkdownDocument.parse(text)
+                let document = formatting(for: text).document
                 let styler = MarkdownEditorStyler(storage: textStorage, document: document)
                 configureRichPreviews(styler, for: textView)
                 styler.style()
@@ -1951,7 +1976,7 @@ struct SwashTextView: NSViewRepresentable {
             isHighlighting = false
             
             let exclusions = styledCodeRanges ?? codeRanges.blockRanges
-            finishStyling(in: textView, rawText: text, exclusions: exclusions, savedRawSelection: savedRawSelection, savedScrollOrigin: savedScrollOrigin)
+            finishStyling(in: textView, rawText: text, exclusions: exclusions, savedRawSelection: savedRawSelection, savedScrollOrigin: savedScrollOrigin, fullPass: true)
         }
         
         // MARK: Shared styling steps
@@ -2004,7 +2029,9 @@ struct SwashTextView: NSViewRepresentable {
                             // The table's raw length may have changed
                             self.cachedOffsetMap = nil
                             self.forceFullRestyle = true
-                            self.parent.text = self.buildRawMarkdown(from: textStorage)
+                            let raw = self.buildRawMarkdown(from: textStorage)
+                            self.lastPublishedText = raw
+                            self.parent.text = raw
                         }
                         if let validAttachment = attachment {
                             let attrAttachment = NSMutableAttributedString(attachment: validAttachment)
@@ -2020,10 +2047,10 @@ struct SwashTextView: NSViewRepresentable {
                     if validRange.length > 0 {
                         let cleaned = MarkdownParser.cleanImageURLAndTitle(urlString)
                         let winURL = textView.window?.representedURL ?? (textView.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
-                        let resolved = MarkdownParser.resolveImage(urlString: cleaned.url, baseURL: parent.baseURL, windowURL: winURL)
+                        let resolved = MarkdownParser.resolveImageFile(urlString: cleaned.url, baseURL: parent.baseURL, windowURL: winURL)
                         let displayImage: NSImage
-                        if let realImage = resolved {
-                            displayImage = MarkdownParser.scaleImageForEditor(realImage, maxWidth: min(550, width ?? 550))
+                        if let (realImage, path) = resolved {
+                            displayImage = ImageCache.shared.editorImage(realImage, path: path, maxWidth: min(550, width ?? 550))
                         } else {
                             displayImage = MarkdownParser.placeholderImage(alt: alt)
                         }
@@ -2040,7 +2067,9 @@ struct SwashTextView: NSViewRepresentable {
         }
         
         /// Bookkeeping after a styling pass: spellcheck exclusions, selection, scroll position, state.
-        private func finishStyling(in textView: NSTextView, rawText: String, exclusions: [NSRange], savedRawSelection: NSRange, savedScrollOrigin: NSPoint?) {
+        /// `fullPass`: the storage was rebuilt, so layout may settle late and the scroll position is
+        /// restored again shortly after. Incremental passes skip that, so it can't fight autoscroll.
+        private func finishStyling(in textView: NSTextView, rawText: String, exclusions: [NSRange], savedRawSelection: NSRange, savedScrollOrigin: NSPoint?, fullPass: Bool) {
             cachedOffsetMap = nil
             highlightedGeneration = editGeneration
             
@@ -2055,11 +2084,11 @@ struct SwashTextView: NSViewRepresentable {
                 clipView.scroll(to: origin)
                 textView.enclosingScrollView?.reflectScrolledClipView(clipView)
                 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak textView] in
+                if fullPass { DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak textView] in
                     guard let clipView = textView?.enclosingScrollView?.contentView else { return }
                     clipView.scroll(to: origin)
                     textView?.enclosingScrollView?.reflectScrolledClipView(clipView)
-                }
+                } }
             }
             
             lastStyledText = rawText
@@ -2113,7 +2142,7 @@ struct SwashTextView: NSViewRepresentable {
             
             let rawText = buildRawMarkdown(from: storage)
             let raw = rawText as NSString
-            let document = MarkdownDocument.parse(rawText)
+            let document = formatting(for: rawText).document
             let blocks = document.root.children
             let current = Coordinator.blockSummaries(document, raw: raw)
             
@@ -2170,7 +2199,7 @@ struct SwashTextView: NSViewRepresentable {
             lastRawLength = raw.length
             incrementalPassCount += 1
             finishStyling(in: textView, rawText: rawText, exclusions: MarkdownEditorStyler.spellcheckExclusions(in: document),
-                          savedRawSelection: savedRawSelection, savedScrollOrigin: savedScrollOrigin)
+                          savedRawSelection: savedRawSelection, savedScrollOrigin: savedScrollOrigin, fullPass: false)
             return true
         }
         
