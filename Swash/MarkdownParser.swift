@@ -58,6 +58,14 @@ struct MarkdownParser {
     }
     
     static func parseOpeningCodeFence(_ line: String) -> CodeFenceInfo? {
+        // Fast rejection on bytes for the common case, a line that isn't a fence: up to three
+        // spaces, then ` or ~ (the full check below works on Characters)
+        var bytes = line.utf8.makeIterator()
+        var first = bytes.next()
+        var spaces = 0
+        while first == 0x20 && spaces < 3 { first = bytes.next(); spaces += 1 }
+        guard first == 0x60 || first == 0x7E else { return nil }
+        
         let trimmedLeading = line.drop(while: { $0 == " " })
         let leadingSpaces = line.count - trimmedLeading.count
         guard leadingSpaces <= 3 else { return nil }
@@ -743,6 +751,11 @@ struct MarkdownParser {
     private static let listMarkerRegex = try? NSRegularExpression(pattern: "^\\s*(?:[-*+]|[0-9]+[.)])\\s+")
 
     static func isListItemLine(_ line: String) -> Bool {
+        // Fast rejection: after leading whitespace, a list marker starts with - * + or a digit
+        if let first = line.utf8.first(where: { $0 != 0x20 && $0 != 0x09 }),
+           !(first == 0x2D || first == 0x2A || first == 0x2B || (first >= 0x30 && first <= 0x39)) {
+            return false
+        }
         guard let regex = listMarkerRegex else { return false }
         return regex.firstMatch(in: line, options: [], range: NSRange(location: 0, length: (line as NSString).length)) != nil
     }
