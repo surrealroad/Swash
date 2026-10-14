@@ -3,6 +3,7 @@
 //  Swash
 //
 
+#if os(macOS)
 import AppKit
 import Foundation
 
@@ -22,3 +23,4 @@ import Foundation
         }
     }
 }
+#endif

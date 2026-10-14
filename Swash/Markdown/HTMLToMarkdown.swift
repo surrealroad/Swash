@@ -7,14 +7,26 @@
 
 import Foundation
 
+#if !os(macOS) || SWASH_HTML_LITE
+// Foundation's XMLDocument (with its tidy-HTML option) is macOS-only; elsewhere the converter
+// runs on HTMLLiteDOM, which offers the same API.
+private typealias XMLDocument = HTMLLiteDocument
+private typealias XMLNode = HTMLLiteNode
+private typealias XMLElement = HTMLLiteElement
+#endif
+
 enum HTMLToMarkdown {
+    /// Pasteboard type where Chromium browsers record the page the HTML was copied from.
+    static let chromiumSourceURLType = "org.chromium.source-url"
+
     /// Converts an HTML document or fragment to Markdown; nil when it holds no convertible content.
-    static func convert(_ html: String) -> String? {
+    /// `sourceURL` is the page it was copied from, used to link images that carry no URL of their own.
+    static func convert(_ html: String, sourceURL: URL? = nil) -> String? {
         let wrapped = html.range(of: "<html", options: .caseInsensitive) == nil ? "<html><body>\(html)</body></html>" : html
         guard let document = try? XMLDocument(xmlString: wrapped, options: [.documentTidyHTML, .nodeLoadExternalEntitiesNever]),
               let root = document.rootElement() else { return nil }
         let body = root.elements(forName: "body").first ?? root
-        let blocks = Converter().blocks(of: body, listDepth: 0)
+        let blocks = Converter(sourceURL: sourceURL).blocks(of: body, listDepth: 0)
         let markdown = blocks.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
         return markdown.isEmpty ? nil : markdown
     }
@@ -32,6 +44,8 @@ enum HTMLToMarkdown {
             "table", "hr", "section", "article", "header", "footer", "main", "figure", "dl", "dt", "dd", "body",
         ]
         private static let skipped: Set<String> = ["script", "style", "head", "meta", "title", "link", "noscript", "template"]
+
+        let sourceURL: URL?
 
         private func name(_ node: XMLNode) -> String { node.name?.lowercased() ?? "" }
 
@@ -104,6 +118,7 @@ enum HTMLToMarkdown {
             case "li":
                 return [list(element, ordered: false, depth: listDepth, singleItem: true)]
             default:
+                if let image = (element as? XMLElement).flatMap(atlassianMedia) { return [image] }
                 // Generic containers (div, section…): paragraphs, or nested blocks
                 if containsBlocks(element) {
                     return blocks(of: element, listDepth: listDepth)
@@ -206,6 +221,7 @@ enum HTMLToMarkdown {
             guard node.kind == .element, let element = node as? XMLElement else { return "" }
             let tag = name(element)
             if Self.skipped.contains(tag) { return "" }
+            if let image = atlassianMedia(element) { return image }
             var s = styleAttributes(element, style)
             switch tag {
             case "br":
@@ -279,6 +295,30 @@ enum HTMLToMarkdown {
                 out.append(c)
             }
             return out
+        }
+
+        /// Confluence and Jira copy images as empty `data-node-type="media"` placeholders naming the
+        /// attachment rather than as <img>: link them to the attachment's download URL on the page's site.
+        private func atlassianMedia(_ element: XMLElement) -> String? {
+            func attribute(_ key: String) -> String? {
+                element.attribute(forName: key)?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+            }
+            guard attribute("data-node-type") == "media" else { return nil }
+            let alt = attribute("data-alt") ?? attribute("data-file-name") ?? ""
+            if attribute("data-type") == "external", let url = attribute("data-url") {
+                return "![\(escape(alt))](\(destination(url)))"
+            }
+            guard let fileName = attribute("data-file-name") ?? attribute("data-alt"),
+                  let encodedName = fileName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#"))) else { return nil }
+            let pageID = attribute("data-context-id")
+                ?? attribute("data-collection").flatMap { $0.hasPrefix("contentId-") ? String($0.dropFirst("contentId-".count)) : nil }
+            // Without the site or page, keep the file name so a downloaded copy beside the document resolves
+            guard let pageID = pageID, let source = sourceURL, let scheme = source.scheme, let host = source.host else {
+                return "![\(escape(alt))](\(encodedName))"
+            }
+            let port = source.port.map { ":\($0)" } ?? ""
+            let context = source.path.hasPrefix("/wiki/") ? "/wiki" : ""
+            return "![\(escape(alt))](\(scheme)://\(host)\(port)\(context)/download/attachments/\(pageID)/\(encodedName))"
         }
 
         private func destination(_ url: String) -> String {

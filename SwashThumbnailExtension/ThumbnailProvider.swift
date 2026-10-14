@@ -6,7 +6,9 @@
 import QuickLookThumbnailing
 import AppKit
 
-class ThumbnailProvider: QLThumbnailProvider {
+/// Nonisolated: Quick Look calls the drawing block on a background queue, and the target's
+/// default MainActor isolation would otherwise trap there (GOTCHAS #32).
+nonisolated class ThumbnailProvider: QLThumbnailProvider {
     
     override func provideThumbnail(for request: QLFileThumbnailRequest, _ handler: @escaping (QLThumbnailReply?, Error?) -> Void) {
         let size = request.maximumSize

@@ -159,6 +159,11 @@ enum MarkdownSyntax {
     }
 
     /// Percent-encodes a URL the way commonmark.js does (existing `%XX` escapes are preserved).
+    /// A link destination as a URL, normalising characters that `URL(string:)` rejects.
+    static func url(_ destination: String) -> URL? {
+        URL(string: destination) ?? URL(string: normalizeURI(destination))
+    }
+
     static func normalizeURI(_ uri: String) -> String {
         let safe = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789;/?:@&=+$,-_.!~*'()#".utf8)
         let bytes = Array(uri.utf8)

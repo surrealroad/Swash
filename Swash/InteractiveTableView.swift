@@ -6,7 +6,9 @@
 //
 
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 
 extension Notification.Name {
     static let applyCellFormatting = Notification.Name("applyCellFormatting")
@@ -148,7 +150,9 @@ struct InteractiveTableView: View {
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundColor(.secondary)
                         }
+                        #if os(macOS)
                         .menuStyle(.borderlessButton)
+                        #endif
                         .menuIndicator(.hidden)
                         .frame(width: 14)
                     }
@@ -388,6 +392,7 @@ struct CellTextField: View {
     var onPrevCell: () -> Void
 
     var body: some View {
+        #if os(macOS)
         CellTextView(
             text: $text,
             flavor: flavor,
@@ -396,8 +401,50 @@ struct CellTextField: View {
             onPrevCell: onPrevCell
         )
         .frame(minHeight: 20)
+        #else
+        IOSCellTextField(text: $text, onCommit: onCommit, onNextCell: onNextCell, onPrevCell: onPrevCell)
+        #endif
     }
 }
+
+#if os(iOS)
+/// iOS cell editor: focused as soon as it appears; Return commits, Tab / Shift-Tab move between
+/// cells on a hardware keyboard, and the keyboard toolbar offers the same moves on screen.
+private struct IOSCellTextField: View {
+    @Binding var text: String
+    var onCommit: () -> Void
+    var onNextCell: () -> Void
+    var onPrevCell: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        TextField("", text: $text)
+            .textFieldStyle(.plain)
+            .autocorrectionDisabled()
+            .focused($isFocused)
+            .submitLabel(.done)
+            .onSubmit(onCommit)
+            .onKeyPress(keys: [.tab]) { press in
+                press.modifiers.contains(.shift) ? onPrevCell() : onNextCell()
+                return .handled
+            }
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Button(action: onPrevCell) { Image(systemName: "chevron.left") }
+                        .accessibilityLabel("Previous Cell")
+                    Button(action: onNextCell) { Image(systemName: "chevron.right") }
+                        .accessibilityLabel("Next Cell")
+                    Spacer()
+                    Button("Done", action: onCommit)
+                }
+            }
+            .frame(minHeight: 20)
+            .onAppear { isFocused = true }
+    }
+}
+#endif
+
+#if os(macOS)
 
 // MARK: - CellTextView with Live Inline Markdown Formatting
 struct CellTextView: NSViewRepresentable {
@@ -865,7 +912,7 @@ final class TableAttachmentCell: NSTextAttachmentCell {
     }
 }
 
-final class TableTextAttachment: NSTextAttachment {
+final class TableTextAttachment: NSTextAttachment, RawMarkdownAttachment {
     static let fileTypeIdentifier = "com.surrealroad.swash.table"
     
     var tableData: MarkdownTableData
@@ -902,4 +949,4 @@ final class TableTextAttachment: NSTextAttachment {
         fatalError("init(coder:) has not been implemented")
     }
 }
-
+#endif

@@ -4,7 +4,9 @@
 //
 
 import AppIntents
+#if os(macOS)
 import AppKit
+#endif
 
 enum MarkdownWrapperStyle: String, AppEnum {
     case codeBlock = "Code Block"
@@ -32,12 +34,17 @@ struct CreateDocumentIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & OpensIntent {
-        let tempDir = FileManager.default.temporaryDirectory
         let fileName = "\(title).md".replacingOccurrences(of: "/", with: "-")
-        let fileURL = tempDir.appendingPathComponent(fileName)
-        
+        #if os(macOS)
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
         try content.write(to: fileURL, atomically: true, encoding: .utf8)
         NSDocumentController.shared.openDocument(withContentsOf: fileURL, display: true) { _, _, _ in }
+        #else
+        // Saved to Documents (On My iPhone › Swash) and opened in the document browser
+        _ = fileName
+        let fileURL = try DocumentOpener.createDocument(title: title, text: content)
+        DocumentOpener.open(fileURL)
+        #endif
         
         return .result()
     }

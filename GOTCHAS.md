@@ -97,3 +97,55 @@
 ## 24. Release Version Comes From the Build Command, Not the Project
 - **Issue**: `MARKETING_VERSION` is `1.0` in the project; `Build & Release` passes the changesets version (`MARKETING_VERSION=…`) on the `xcodebuild` command line. Extension `Info.plist` files that hard-coded `CFBundleShortVersionString` stayed at `1.0` and triggered "must match that of its containing parent app" warnings.
 - **Solution**: Every target's `Info.plist` must use `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)` so the command-line override reaches the app and all extensions.
+
+## 25. One Target, Two Platforms: Keep macOS-Only Code Behind `#if os(macOS)`
+- **Issue**: The `Swash` app target builds for macOS and iOS (`SUPPORTED_PLATFORMS = iphoneos iphonesimulator macosx`, `SDKROOT = auto`). Every file in the synchronised `Swash/` folder compiles for both platforms, so any new AppKit use breaks the iOS build. Sparkle and the four extensions are macOS-only through `platformFilters = (macos, )` on their build files and target dependencies.
+- **Solution**: Wrap AppKit-only files completely in `#if os(macOS)`, and put iOS-only UI in `Swash/iOS/` inside `#if os(iOS)`. Shared code uses `PlatformColor`, `PlatformFont`, `PlatformImage`, `Image(platformImage:)` and `PlatformPasteboard` from `PlatformTypes.swift`. Build both platforms before committing: `-destination 'generic/platform=macOS'` and `-destination 'generic/platform=iOS Simulator'`. The iOS app uses `Swash/Info-iOS.plist` (`INFOPLIST_FILE[sdk=iphone*]`), so document types and URL schemes must be added to both plists.
+
+## 26. `XMLDocument` Is macOS-Only
+- **Issue**: `HTMLToMarkdown` parses with Foundation's `XMLDocument` (`.documentTidyHTML`), which iOS does not have. The preview uses it for raw HTML blocks.
+- **Solution**: On other platforms the converter uses `HTMLLiteDOM` through file-private type aliases with the same API. `scripts/run_commonmark_spec.sh` also builds the checks with `-D SWASH_HTML_LITE` so both parsers must pass the same HTML cases. Add new cases there when changing the converter.
+
+## 27. Offscreen WebKit Rendering on iOS and iPadOS
+- **Issue**: Without a viewport meta tag, iOS lays the render page out at 980 px and scales it to the view, so math and diagram snapshots came out cropped. On iPad, desktop-class browsing scaled them down to a fraction of their size. The first render also takes a few seconds while the WebContent process starts.
+- **Solution**: `swash-render.html` declares `width=device-width, initial-scale=1` and `-webkit-text-size-adjust: 100%`. On iOS, `RichContentRenderer` sets `preferredContentMode = .mobile`. `UIImage.size` is read-only, so the snapshot is rebuilt with `scale = pixel width ÷ point width`. Check new rendering features on both an iPhone and an iPad simulator.
+
+## 28. SwiftUI Text in Horizontal Scroll Views Under UIKit Hosting
+- **Issue**: In the iOS preview (a `UIHostingController` sized by intrinsic content size inside a `UIScrollView`), a multi-line `Text` inside `ScrollView(.horizontal)` was squeezed to one line with an ellipsis.
+- **Solution**: Give such text `.fixedSize()` (code blocks), or `.fixedSize(horizontal: false, vertical: true)` where it should wrap.
+
+## 29. Don't Make a UITextView Subclass Its Own Gesture Delegate
+- **Issue**: `StyledUITextView` implemented `gestureRecognizer(_:shouldReceive:)` to limit its task-checkbox tap to checkboxes. A scroll view is already the delegate of its own pan and text-interaction recognizers, so the override filtered those too. The editor stopped scrolling, with no error and no `scrollViewDidScroll` calls.
+- **Solution**: Give extra recognizers on a text or scroll view a separate delegate object (`TaskTapFilter`). Never implement `UIGestureRecognizerDelegate` methods on the scroll view subclass itself.
+
+## 30. UITextView in UIViewRepresentable Must Fill the Proposed Size
+- **Issue**: SwiftUI can size a representable `UITextView` to its fitting size, which is the whole text height, so the view grows instead of scrolling.
+- **Solution**: Both iOS editors implement `sizeThatFits(_:uiView:context:)` and return the proposed width and height.
+
+## 31. Edit Text Blocks on iOS: Decorations Instead of NSTextBlock
+- **Issue**: iOS has no `NSTextBlock`, which the styler uses on macOS for quotes, alerts, code blocks and rules.
+- **Solution**: On iOS, `MarkdownEditorStyler.pushBox`/`pushRule` add a `BlockDecoration` (outermost first) to the context instead. `setParagraphStyle(_ context:…)` sets the paragraph indents for the box's border and padding and writes `.blockDecorations` over the paragraphs. `padBoxes()` turns top and bottom padding into paragraph spacing, and `StyledLayoutManager` paints each box over its paragraphs' line fragments. Always set paragraph styles through `setParagraphStyle(context:…)`. When adjusting a paragraph style later, adjust the indents (`tailIndent -= …`) rather than replacing them, or the box insets are lost on iOS. macOS keeps its `NSTextBlock` path unchanged; check it with `Tests/EditorAudit/run_audit.sh`.
+
+## 32. Default MainActor Isolation and Callbacks on Background Queues
+- **Issue**: Every target builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. Closures in a type that isn't marked otherwise are treated as main-actor code, and Swift traps (`EXC_BREAKPOINT`) when a framework calls them off the main thread. The thumbnail extension crashed this way on macOS: Quick Look runs `QLThumbnailReply`'s drawing block on a background queue.
+- **Solution**: Mark extension principal classes whose callbacks arrive on background queues `nonisolated` (as `ThumbnailProvider` is), or mark the specific closures `@Sendable`/`nonisolated`. Check new extension points or framework callbacks for the queue they run on.
+
+## 33. ShareLink in a Collapsed Toolbar Menu Crashes on iPhone
+- **Issue**: A `ShareLink` in a `.secondaryAction` toolbar item, which collapses into the overflow menu on iPhone, presents `UIActivityViewController` as a popover with no source view. UIKit throws an uncaught `NSGenericException`.
+- **Solution**: Use a `Button` that presents `UIActivityViewController` itself with `popoverPresentationController.sourceView`/`sourceRect` set (`IOSContentView.presentShareSheet()`).
+
+## 34. Opening Documents From Code on iOS
+- **Issue**: SwiftUI's `openDocument` and `newDocument` environment actions are macOS-only. On iOS, `onOpenURL` on a document view doesn't fire while the document browser is showing, and the browser is a presented card on the launch screen but absent from the hierarchy once a document is open.
+- **Solution**: `DocumentOpener` receives `swash://` URLs in a `UIWindowSceneDelegate` (installed through `@UIApplicationDelegateAdaptor` and `configurationForConnecting`). It finds the browser through `UIDocumentViewController.launchOptions.browserViewController`, which works whether or not a document is open. It then calls the browser delegate's `documentBrowser(_:didPickDocumentsAt:)` with the file. Pass files in the app's own Documents folder directly: `revealDocument(at:importIfNeeded: true)` copies them ("Name 2.md").
+
+## 35. iOS Prefers Its Own Quick Look Viewer for Markdown
+- **Issue**: iOS has a built-in Markdown previewer and thumbnailer. In Files, they take precedence over a third-party Quick Look preview or thumbnail extension for `net.daringfireball.markdown`, so Swash's extensions registered but never ran.
+- **Solution**: The Quick Look and thumbnail extensions are filtered to macOS (`platformFilters = (macos, )`). Only the share extension and widget are built and embedded for iOS.
+
+## 36. Confluence and Jira Copy Images Without an `<img>` Tag
+- **Issue**: Atlassian's editor puts each image on the pasteboard as an empty `<div data-node-type="media">` with `data-file-name`/`data-alt` and `data-context-id` (the page ID). There is no `src` and no image data, so a converter that only reads `<img>` drops the images.
+- **Solution**: `HTMLToMarkdown` turns media nodes into `https://<site>[/wiki]/download/attachments/<pageID>/<file>`. It takes the site from the `org.chromium.source-url` pasteboard type, which Chromium browsers write. Safari does not write this type, so without it the image keeps only its file name. The attachment needs a signed-in browser, so Swash shows a placeholder for it.
+
+## 37. Don't Re-Identify a View That Declares a Customizable Toolbar
+- **Issue**: The folder window first gave `ContentView` an `.id(file)` so each file got fresh editor state. Every switch rebuilt `ContentView`'s `.toolbar(id: "mainToolbar")`, and AppKit threw `NSInternalInconsistencyException` (`index>=0 && index<[_currentItems count]` in `-[NSToolbar _removeItemAtIndex:]`) while SwiftUI removed the old items. A headless `NSHostingView` harness doesn't crash, because it has no window toolbar.
+- **Solution**: Keep the view that owns the toolbar stable and reset only the part below it. `ContentView` takes a `documentID` and applies `.id(documentID)` to the editor area, clears its selection state in `onChange(of: documentID)`, and keeps one `ScrollSync` per file (`ScrollSyncStore`). Reproduce toolbar issues in the real app, for example by launching the Debug build binary under `lldb`.

@@ -5,36 +5,9 @@
 //  Created by Jack James on 13/07/2026.
 //
 
+#if os(macOS)
 import SwiftUI
 import UniformTypeIdentifiers
-
-enum ViewMode: String, CaseIterable, Identifiable {
-    case edit = "Source"
-    case preview = "Formatted"
-    case split = "Split"
-    
-    var id: String { self.rawValue }
-    
-    var icon: String {
-        switch self {
-        case .edit: return "text.alignleft"
-        case .preview: return "character.cursor.ibeam"
-        case .split: return "square.split.2x1"
-        }
-    }
-    
-    var tooltip: String {
-        switch self {
-        case .edit: return "Show source"
-        case .preview: return "Edit text"
-        case .split: return "Side-by-side view"
-        }
-    }
-}
-
-
-
-
 
 struct BubbleMenuSizePreferenceKey: PreferenceKey {
     static var defaultValue: CGSize = .zero
@@ -66,9 +39,27 @@ struct WindowAccessor: NSViewRepresentable {
     }
 }
 
+/// One `ScrollSync` per file, so a window that switches files doesn't carry the scroll position over.
+/// A plain class, so asking for the current sync during a view update changes no SwiftUI state.
+final class ScrollSyncStore {
+    private var key: URL?
+    private var sync = ScrollSync()
+
+    func sync(for key: URL?) -> ScrollSync {
+        if key != self.key {
+            self.key = key
+            sync = ScrollSync()
+        }
+        return sync
+    }
+}
+
 struct ContentView: View {
     @Binding var document: SwashDocument
     var fileURL: URL? = nil
+    /// Identifies the file shown, in windows that switch between files. Changing it gives the
+    /// editor a fresh text view, selection and scroll position, while the window's toolbar stays.
+    var documentID: URL? = nil
     
     @State private var viewMode: ViewMode = .preview
     @State private var selectedRange: NSRange? = nil
@@ -80,7 +71,8 @@ struct ContentView: View {
     @State private var window: NSWindow? = nil
     @State private var previousSingleWidth: CGFloat = 800
     @State private var previousSplitWidth: CGFloat = 1200
-    @State private var scrollSync = ScrollSync()
+    @State private var scrollSyncs = ScrollSyncStore()
+    private var scrollSync: ScrollSync { scrollSyncs.sync(for: documentID) }
 
     @ObservedObject private var folderAccessManager = FolderAccessManager.shared
     @State private var editor = SwashEditorController()
@@ -158,6 +150,7 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .id(documentID)
             
             // Premium Bottom Status Bar
             statusView
@@ -229,12 +222,22 @@ struct ContentView: View {
         }
         .background(WindowAccessor(window: $window))
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
+        .onChange(of: documentID) {
+            selectedRange = nil
+            selectionRect = nil
+            cellSelectionRect = nil
+            cellActiveFormats = []
+        }
         .onChange(of: viewMode) { oldMode, newMode in
             handleViewModeChange(from: oldMode, to: newMode)
         }
     }
     
     private var documentTitle: String {
+        if let fileURL {
+            // Folder windows are titled with the folder, not the file
+            return fileURL.deletingPathExtension().lastPathComponent
+        }
         if let title = window?.title, !title.isEmpty {
             let cleaned = title
                 .components(separatedBy: " — ").first?
@@ -286,11 +289,17 @@ struct ContentView: View {
         return Image(nsImage: image)
     }
     
+    /// False for the one update after switching files, before the old selection is cleared.
+    private var selectionFitsText: Bool {
+        guard let range = selectedRange else { return true }
+        return NSMaxRange(range) <= (document.text as NSString).length
+    }
+    
     // Bubble menu overlay positioned relatively in local coordinates
     @ViewBuilder
     private var bubbleMenuOverlay: some View {
         GeometryReader { geometry in
-            if let rect = selectionRect ?? cellSelectionRect {
+            if let rect = selectionRect ?? cellSelectionRect, selectionFitsText {
                 let activeCodeFormat = determineActiveCodeFormat()
                 let activeHeadingLevel = determineActiveHeadingLevel()
                 let bubbleContext = determineBubbleMenuContext()
@@ -1587,3 +1596,4 @@ struct ContentView: View {
 #Preview {
     ContentView(document: .constant(SwashDocument()))
 }
+#endif

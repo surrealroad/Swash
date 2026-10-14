@@ -6,7 +6,11 @@
 //
 
 import Foundation
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 
 struct MarkdownTableData: Equatable {
     var headers: [String]
@@ -155,27 +159,27 @@ struct MarkdownParser {
         return (trimmed, title)
     }
     
-    static func resolveImage(urlString: String, baseURL: URL? = nil, windowURL: URL? = nil) -> NSImage? {
+    static func resolveImage(urlString: String, baseURL: URL? = nil, windowURL: URL? = nil) -> PlatformImage? {
         let (cleanedURL, _) = cleanImageURLAndTitle(urlString)
         guard !cleanedURL.isEmpty else { return nil }
         
         // 1. Direct path check
         if cleanedURL.hasPrefix("file://") {
             if let fileURL = URL(string: cleanedURL), fileURL.isFileURL {
-                if let direct = NSImage(contentsOf: fileURL) {
+                if let direct = PlatformImage(contentsOf: fileURL) {
                     return direct
                 }
             }
             let directPath = cleanedURL.replacingOccurrences(of: "file://", with: "")
-            if let direct = NSImage(contentsOfFile: directPath) {
+            if let direct = PlatformImage(contentsOfFile: directPath) {
                 return direct
             }
         } else if cleanedURL.hasPrefix("/") {
-            if let direct = NSImage(contentsOfFile: cleanedURL) {
+            if let direct = PlatformImage(contentsOfFile: cleanedURL) {
                 return direct
             }
             if let decoded = cleanedURL.removingPercentEncoding,
-               let direct = NSImage(contentsOfFile: decoded) {
+               let direct = PlatformImage(contentsOfFile: decoded) {
                 return direct
             }
         }
@@ -185,6 +189,7 @@ struct MarkdownParser {
         if documentURL == nil {
             documentURL = windowURL
         }
+        #if os(macOS)
         if documentURL == nil, let keyWin = NSApp.keyWindow {
             documentURL = keyWin.representedURL ?? NSDocumentController.shared.document(for: keyWin)?.fileURL
         }
@@ -199,18 +204,19 @@ struct MarkdownParser {
                 }
             }
         }
+        #endif
         
         // 3. Resolve strictly relative to document folder
         if let docURL = documentURL {
             let folderURL = docURL.hasDirectoryPath ? docURL : docURL.deletingLastPathComponent()
             _ = FolderAccessManager.shared.ensureAccess(for: folderURL)
             let targetURL = folderURL.appendingPathComponent(cleanedURL)
-            if let img = NSImage(contentsOfFile: targetURL.path) ?? NSImage(contentsOf: targetURL) {
+            if let img = PlatformImage(contentsOfFile: targetURL.path) ?? PlatformImage(contentsOf: targetURL) {
                 return img
             }
             if let decoded = cleanedURL.removingPercentEncoding {
                 let decodedTarget = folderURL.appendingPathComponent(decoded)
-                if let img = NSImage(contentsOfFile: decodedTarget.path) ?? NSImage(contentsOf: decodedTarget) {
+                if let img = PlatformImage(contentsOfFile: decodedTarget.path) ?? PlatformImage(contentsOf: decodedTarget) {
                     return img
                 }
             }
@@ -219,12 +225,12 @@ struct MarkdownParser {
         // 4. Fallback relative to current working directory
         let currentDir = FileManager.default.currentDirectoryPath
         let cwdURL = URL(fileURLWithPath: currentDir).appendingPathComponent(cleanedURL)
-        if let img = NSImage(contentsOfFile: cwdURL.path) {
+        if let img = PlatformImage(contentsOfFile: cwdURL.path) {
             return img
         }
         if let decoded = cleanedURL.removingPercentEncoding {
             let decodedCwd = URL(fileURLWithPath: currentDir).appendingPathComponent(decoded)
-            if let img = NSImage(contentsOfFile: decodedCwd.path) {
+            if let img = PlatformImage(contentsOfFile: decodedCwd.path) {
                 return img
             }
         }
@@ -258,6 +264,7 @@ struct MarkdownParser {
         return nil
     }
     
+    #if os(macOS)
     static func scaleImageForEditor(_ image: NSImage, maxWidth: CGFloat = 550) -> NSImage {
         let originalSize = image.size
         guard originalSize.width > 0, originalSize.height > 0 else { return image }
@@ -302,6 +309,35 @@ struct MarkdownParser {
         img.unlockFocus()
         return img
     }
+    #else
+    static func scaleImageForEditor(_ image: UIImage, maxWidth: CGFloat = 550) -> UIImage {
+        let originalSize = image.size
+        guard originalSize.width > 0, originalSize.height > 0, originalSize.width > maxWidth else { return image }
+        let targetSize = CGSize(width: maxWidth, height: ceil(originalSize.height * maxWidth / originalSize.width))
+        return UIGraphicsImageRenderer(size: targetSize).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+    }
+    
+    static func placeholderImage(alt: String) -> UIImage {
+        let displayText = alt.isEmpty ? "Image" : alt
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: UIColor.secondaryLabel
+        ]
+        let textSize = (displayText as NSString).size(withAttributes: attrs)
+        let size = CGSize(width: min(max(textSize.width + 44, 80), 550), height: 28)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            UIColor.secondaryLabel.withAlphaComponent(0.12).setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6).fill()
+            let configuration = UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+            UIImage(systemName: "photo", withConfiguration: configuration)?
+                .withTintColor(.secondaryLabel, renderingMode: .alwaysOriginal)
+                .draw(in: CGRect(x: 8, y: (size.height - 12) / 2, width: 14, height: 12))
+            (displayText as NSString).draw(at: CGPoint(x: 28, y: (size.height - textSize.height) / 2), withAttributes: attrs)
+        }
+    }
+    #endif
     
     static func parseAlignments(_ line: String) -> [TableAlignment] {
         let cells = parseTableCells(line)

@@ -3,6 +3,7 @@
 //  Swash
 //
 
+#if os(macOS)
 import AppKit
 import UniformTypeIdentifiers
 import Combine
@@ -123,3 +124,4 @@ final class DefaultAppManager: ObservableObject {
         }
     }
 }
+#endif

@@ -5,6 +5,7 @@
 //  Created by Jack James on 13/07/2026.
 //
 
+#if os(macOS)
 import SwiftUI
 import AppKit
 
@@ -90,6 +91,7 @@ struct SwashApp: App {
                 .disabled(!sparkleUpdater.canCheckForUpdates)
             }
             FormatMenuCommands()
+            OpenFolderCommands()
             CommandGroup(after: .saveItem) {
                 Button("Grant Folder Access…") {
                     if let keyWindow = NSApp.keyWindow {
@@ -103,8 +105,19 @@ struct SwashApp: App {
             }
         }
         
+        WindowGroup("Folder", id: FolderWindowView.windowID, for: URL.self) { $folderURL in
+            if let folderURL {
+                FolderWindowView(folderURL: folderURL)
+            }
+        }
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 1040, height: 750)
+        // Folder windows open only through File › Open Folder…, not File › New
+        .commandsRemoved()
+
         Settings {
             SettingsView()
         }
     }
 }
+#endif

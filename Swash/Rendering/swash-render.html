@@ -2,11 +2,13 @@
 <html>
 <head>
 <meta charset="utf-8">
+<!-- iOS: lay out at the view width (no 980px default viewport, no text autosizing) -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <!-- Offscreen page used by RichContentRenderer: typesets TeX with KaTeX and draws Mermaid
      diagrams, then reports the size of #stage so the app can snapshot it. Fully offline. -->
 <link rel="stylesheet" href="katex.min.css">
 <style>
-  html, body { margin: 0; padding: 0; background: transparent; }
+  html, body { margin: 0; padding: 0; background: transparent; -webkit-text-size-adjust: 100%; }
   body { font-family: -apple-system, "Helvetica Neue", sans-serif; }
   #stage { position: absolute; left: 0; top: 0; display: inline-block; width: max-content; padding: 2px; }
   #stage .katex { font-size: 1.1em; }
