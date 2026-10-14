@@ -144,10 +144,21 @@ final class MarkdownInlineParser {
 
     /// Parses a link reference definition at the start of `source`.
     func parseReference(_ source: MarkdownInlineSource, refmap: inout [String: (destination: String, title: String?)]) -> (consumed: Int, label: String, destination: String, title: String?)? {
+        beginReferences(source)
+        return parseReference(at: 0, refmap: &refmap)
+    }
+    
+    /// Prepares `source` for `parseReference(at:)`, so a run of definitions is parsed without
+    /// copying the rest of the paragraph for each one.
+    func beginReferences(_ source: MarkdownInlineSource) {
         subject = source.chars
         map = source.map
         nsSubject = String(utf16CodeUnits: subject, count: subject.count) as NSString
-        pos = 0
+    }
+    
+    /// Parses a link reference definition starting at `offset` of the source given to `beginReferences`.
+    func parseReference(at offset: Int, refmap: inout [String: (destination: String, title: String?)]) -> (consumed: Int, label: String, destination: String, title: String?)? {
+        pos = offset
         let start = pos
         let labelLength = parseLinkLabel()
         guard labelLength > 0 else { return nil }
@@ -734,9 +745,15 @@ final class MarkdownInlineParser {
         removeBracket()
         opener.node.unlink()
         if !isImage {
+            // Links can't contain links: deactivate the link openers below. An opener that is already
+            // inactive was deactivated by an earlier link along with everything below it (openers
+            // are only ever pushed on top), so the sweep stops there instead of walking the whole stack.
             var o = brackets
             while let b = o {
-                if !b.isImage { b.active = false }
+                if !b.isImage {
+                    if !b.active { break }
+                    b.active = false
+                }
                 o = b.previous
             }
         }
@@ -749,15 +766,21 @@ final class MarkdownInlineParser {
     private func mergeText(in node: MarkdownNode) {
         var child = node.firstChild
         while let c = child {
-            if case .text = c.kind {
+            if case .text = c.kind, let first = c.nextSibling, case .text = first.kind {
+                // Build the run's literal and map in place, writing them back once: appending to a
+                // copy of the growing map for every merged node made long runs quadratic
+                var literal = c.literal
+                var map = textMaps.removeValue(forKey: ObjectIdentifier(c))?.map ?? []
                 while let next = c.nextSibling, case .text = next.kind {
-                    c.literal += next.literal
+                    literal += next.literal
                     let end = next.range.location + next.range.length
                     c.range = NSRange(location: c.range.location, length: max(c.range.length, end - c.range.location))
                     c.markers += next.markers
-                    setTextMap(c, (textMap(c) ?? []) + (textMap(next) ?? []))
+                    if let nextMap = textMaps.removeValue(forKey: ObjectIdentifier(next))?.map { map += nextMap }
                     next.unlink()
                 }
+                c.literal = literal
+                setTextMap(c, map)
             } else {
                 mergeText(in: c)
             }

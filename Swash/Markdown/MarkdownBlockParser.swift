@@ -41,6 +41,10 @@ final class MarkdownBlockParser {
         var startLine = 0
         var endLine = -1
         var endOffset = 0
+        /// Line and end offset of the last `touch` that reached this node. `touch` always continues
+        /// to the root, so the node's ancestors are at least as far along.
+        var touchedLine = -1
+        var touchedEnd = 0
         var listData: ListData?
         var isFenced = false
         var fenceChar: UInt16 = 0
@@ -272,6 +276,11 @@ final class MarkdownBlockParser {
         let end = lineStart + lineLength
         while let n = current, n !== root {
             let s = state(n)
+            // Already extended to this point on this line, and so are all its ancestors: stop, rather
+            // than walking the whole ancestry for every container marker (quadratic in nesting depth)
+            if s.touchedLine == lineNumber && s.touchedEnd >= end { return }
+            s.touchedLine = lineNumber
+            s.touchedEnd = end
             if s.endLine < lineNumber || s.endOffset < end {
                 s.endLine = lineNumber
                 s.endOffset = end
@@ -975,16 +984,21 @@ final class MarkdownBlockParser {
     /// Moves leading link reference definitions out of a paragraph into their own nodes.
     private func extractReferenceDefinitions(from paragraph: MarkdownNode) {
         let s = state(paragraph)
-        while s.content.chars.first == 0x5B,
-              let parsed = inlineParser.parseReference(s.content, refmap: &refmap) {
+        guard s.content.chars.first == 0x5B else { return }
+        let chars = s.content.chars, map = s.content.map
+        inlineParser.beginReferences(s.content)
+        // Definitions are consumed by offset; the remaining content is copied once at the end
+        var offset = 0
+        while offset < chars.count, chars[offset] == 0x5B,
+              let parsed = inlineParser.parseReference(at: offset, refmap: &refmap) {
             let consumed = parsed.consumed
             let def = (label: parsed.label, destination: parsed.destination, title: parsed.title,
-                       lines: max(1, s.content.chars[0..<consumed].filter { $0 == 0x0A }.count))
-            var end = consumed
-            while end > 0 && (s.content.chars[end - 1] == 0x0A || s.content.chars[end - 1] == 0x20) { end -= 1 }
-            let start = s.content.map[0]
+                       lines: max(1, chars[offset..<(offset + consumed)].filter { $0 == 0x0A }.count))
+            var end = offset + consumed
+            while end > offset && (chars[end - 1] == 0x0A || chars[end - 1] == 0x20) { end -= 1 }
+            let start = map[offset]
             let node = MarkdownNode(.linkReferenceDefinition(label: def.label, destination: def.destination, title: def.title),
-                                    range: NSRange(location: start, length: end > 0 ? s.content.map[end - 1] + 1 - start : 0))
+                                    range: NSRange(location: start, length: end > offset ? map[end - 1] + 1 - start : 0))
             node.markers = [node.range]
             let ns = state(node)
             ns.startLine = s.startLine
@@ -993,8 +1007,11 @@ final class MarkdownBlockParser {
             ns.open = false
             s.startLine += def.lines
             paragraph.insertBefore(node)
-            s.content = MarkdownInlineSource(chars: Array(s.content.chars[consumed...]), map: Array(s.content.map[consumed...]))
-            if let first = s.content.map.first { paragraph.range.location = first }
+            offset += consumed
+            if offset < map.count { paragraph.range.location = map[offset] }
+        }
+        if offset > 0 {
+            s.content = MarkdownInlineSource(chars: Array(chars[offset...]), map: Array(map[offset...]))
         }
     }
 
