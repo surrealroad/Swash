@@ -187,7 +187,7 @@ final class FolderAccessManager: ObservableObject {
     }
     
     /// Starts accessing a folder the user picked, saves its bookmark and announces the grant.
-    private func grantAccess(to selectedURL: URL, completion: @escaping (Bool) -> Void) {
+    func grantAccess(to selectedURL: URL, completion: @escaping (Bool) -> Void) {
         let stdURL = selectedURL.standardizedFileURL
         if stdURL.startAccessingSecurityScopedResource() {
             lock.lock()

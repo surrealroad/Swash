@@ -208,6 +208,10 @@ struct ContentView: View {
     }
     
     private var documentTitle: String {
+        if let fileURL {
+            // Folder windows are titled with the folder, not the file
+            return fileURL.deletingPathExtension().lastPathComponent
+        }
         if let title = window?.title, !title.isEmpty {
             let cleaned = title
                 .components(separatedBy: " — ").first?
