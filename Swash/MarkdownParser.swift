@@ -269,6 +269,8 @@ struct MarkdownParser {
             ?? load(cleanedURL.removingPercentEncoding.map { currentDir.appendingPathComponent($0).path })
     }
     
+    private static let imageLinkRegex = try! NSRegularExpression(pattern: #"!\[([^\]]*)\]\(([^)]+)\)"#)
+    
     static func unreadableRelativeFolder(in markdown: String, baseURL: URL?) -> URL? {
         guard let baseURL = baseURL else { return nil }
         let folderURL = baseURL.hasDirectoryPath ? baseURL : baseURL.deletingLastPathComponent()
@@ -276,10 +278,8 @@ struct MarkdownParser {
             return nil
         }
         
-        let pattern = #"!\[([^\]]*)\]\(([^)]+)\)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let nsString = markdown as NSString
-        let matches = regex.matches(in: markdown, range: NSRange(location: 0, length: nsString.length))
+        let matches = imageLinkRegex.matches(in: markdown, range: NSRange(location: 0, length: nsString.length))
         for match in matches {
             if match.numberOfRanges >= 3 {
                 let destWithTitle = nsString.substring(with: match.range(at: 2))
