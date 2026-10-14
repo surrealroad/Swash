@@ -9,6 +9,9 @@ struct SettingsView: View {
     @ObservedObject private var defaultAppManager = DefaultAppManager.shared
     @ObservedObject private var sparkleUpdater = SparkleUpdater.shared
     @AppStorage("markdownFlavor") private var markdownFlavor: MarkdownFlavor = .github
+    @AppStorage(QuickCaptureShortcut.defaultsKey) private var quickCaptureShortcut: QuickCaptureShortcut = QuickCaptureShortcut.defaultValue
+    @AppStorage("showMenuBarExtra") private var showMenuBarExtra = false
+    @State private var opensAtLogin = LoginItem.isEnabled
     
     var body: some View {
         Form {
@@ -84,9 +87,32 @@ struct SettingsView: View {
                 Text("Updates")
                     .font(.headline)
             }
+            
+            Divider()
+                .padding(.vertical, 8)
+            
+            Section {
+                Picker("Quick Note shortcut:", selection: $quickCaptureShortcut) {
+                    ForEach(QuickCaptureShortcut.allCases) { shortcut in
+                        Text(shortcut.title).tag(shortcut)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: quickCaptureShortcut) { _, shortcut in
+                    GlobalHotKey.shared.register(shortcut)
+                }
+                Toggle("Show Swash in the menu bar", isOn: $showMenuBarExtra)
+                Toggle("Open Swash at login", isOn: Binding(
+                    get: { opensAtLogin },
+                    set: { LoginItem.setEnabled($0); opensAtLogin = LoginItem.isEnabled }
+                ))
+            } header: {
+                Text("Quick Note")
+                    .font(.headline)
+            }
         }
         .padding(20)
-        .frame(width: 460, height: 280)
+        .frame(width: 460, height: 420)
         .onAppear {
             defaultAppManager.refreshDefaultStatus()
         }

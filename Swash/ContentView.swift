@@ -87,6 +87,8 @@ struct ContentView: View {
     @State private var dismissedFolderBanner: URL? = nil
     @AppStorage("showOutline") private var showOutline = false
     @State private var currentHeadingIndex: Int? = nil
+    @State private var conflictCount = 0
+    @State private var showConflictSheet = false
 
     private var effectiveBaseURL: URL? {
         fileURL ?? window?.representedURL ?? (window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
@@ -104,6 +106,9 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if conflictCount > 0 {
+                ConflictBanner(count: conflictCount) { showConflictSheet = true }
+            }
             if let folderURL = unreadableFolderURL {
                 folderAccessBanner(for: folderURL)
             }
@@ -259,6 +264,60 @@ struct ContentView: View {
         .onChange(of: viewMode) { oldMode, newMode in
             handleViewModeChange(from: oldMode, to: newMode)
         }
+        .onAppear {
+            // An untitled document created for a quick note or an import starts with its text
+            if fileURL == nil, document.text.isEmpty, let seed = NewDocumentSeed.take() {
+                document.text = seed
+            }
+        }
+        .onChange(of: window) { _, window in
+            if window?.isKeyWindow == true { documentWindowBecameKey() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if let window = window, notification.object as? NSWindow === window { documentWindowBecameKey() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            guard let window = window, notification.object as? NSWindow === window else { return }
+            if let url = effectiveBaseURL { RecentlyClosedDocuments.shared.push(url) }
+            if QuickCaptureController.shared.target?.window === window { QuickCaptureController.shared.target = nil }
+        }
+        .sheet(isPresented: $showConflictSheet) {
+            if let url = effectiveBaseURL {
+                ConflictResolutionSheet(url: url, onKeep: { version in
+                    showConflictSheet = false
+                    resolveConflicts(keeping: version, at: url)
+                }, onCancel: { showConflictSheet = false })
+            }
+        }
+    }
+    
+    // MARK: - Window Focus, Quick Notes & Conflicts
+    
+    /// Remembers this document as the quick-note target and checks for iCloud conflicts.
+    private func documentWindowBecameKey() {
+        QuickCaptureController.shared.target = QuickCaptureTarget(title: documentTitle, window: window) { note in
+            let updated = QuickCaptureText.appending(note, to: document.text)
+            let end = NSRange(location: (updated as NSString).length, length: 0)
+            commitEdit(updated, selection: end, actionName: "Quick Note")
+            editor.reveal(rawLocation: end.location)
+        }
+        refreshConflicts()
+    }
+    
+    private func refreshConflicts() {
+        let count = effectiveBaseURL.map { DocumentConflicts.unresolved(at: $0).count } ?? 0
+        if count != conflictCount { conflictCount = count }
+    }
+    
+    private func resolveConflicts(keeping version: NSFileVersion?, at url: URL) {
+        do {
+            if let text = try DocumentConflicts.resolve(at: url, keeping: version) {
+                commitEdit(text, selection: NSRange(location: 0, length: 0), actionName: "Keep Other Version")
+            }
+        } catch {
+            NSApp.presentError(error)
+        }
+        refreshConflicts()
     }
     
     private var documentTitle: String {
