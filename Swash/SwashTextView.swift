@@ -1022,7 +1022,9 @@ struct SwashTextView: NSViewRepresentable {
                 } else {
                     lastPublishedText = textView.string
                     parent.text = textView.string
-                    applyPlainStyle(in: textView)
+                    // Typed text takes the monospaced typing attributes; restyling the whole
+                    // storage per keystroke would invalidate the entire layout
+                    schedulePlainCodeBlockRefresh(in: textView)
                 }
             }
         }
@@ -1038,7 +1040,7 @@ struct SwashTextView: NSViewRepresentable {
                     // Defer updating selection rect until mouse is up/selection settles.
                     // This prevents SwiftUI overlays from rendering during an active click/drag gesture,
                     // which interrupts AppKit mouse tracking and causes automatic deselection.
-                    NSObject.cancelPreviousPerformRequests(withTarget: self)
+                    NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(deferredUpdateSelectionRect(_:)), object: textView)
                     self.perform(#selector(deferredUpdateSelectionRect(_:)), with: textView, afterDelay: 0.15)
                 } else {
                     updateSelectionRect(for: textView)
@@ -1060,13 +1062,17 @@ struct SwashTextView: NSViewRepresentable {
                 if !isUpdatingFromSwiftUI {
                     parent.scrollSync?.scrollViewDidScroll(scrollView)
                 }
-                updateSelectionRect(for: textView)
+                // Scrolling doesn't change what is selected: just move the rectangle
+                positionSelectionRect(around: selectionTarget, in: textView)
             }
         }
         
+        /// Storage range the bubble menu is anchored to (the selection or the link under the caret),
+        /// or nil when there is none.
+        private var selectionTarget: NSRange? = nil
+        
         private func updateSelectionRect(for textView: NSTextView?) {
-            guard let textView = textView,
-                  let scrollView = textView.enclosingScrollView else { return }
+            guard let textView = textView, textView.enclosingScrollView != nil else { return }
             
             let range = textView.selectedRange()
             logDebug("[SwashTextView] updateSelectionRect - range: \(range)")
@@ -1087,42 +1093,50 @@ struct SwashTextView: NSViewRepresentable {
                 if parent.selectedRange != rawSelection { parent.selectedRange = rawSelection }
                 
                 let targetRange = (range.length > 0) ? range : (activeLink.map { storageRange(forRaw: $0.fullRange, in: textView) } ?? range)
-                
-                if let layoutManager = textView.layoutManager,
-                   let textContainer = textView.textContainer {
-                    let glyphRange = layoutManager.glyphRange(forCharacterRange: targetRange, actualCharacterRange: nil)
-                    var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-                    
-                    // Add origin of the text container (margins)
-                    let origin = textView.textContainerOrigin
-                    rect.origin.x += origin.x
-                    rect.origin.y += origin.y
-                    
-                    // Convert from textView local coordinates to NSScrollView contentView (NSClipView) coordinates
-                    let rectInClipView = textView.convert(rect, to: scrollView.contentView)
-                    
-                    let scrollOffset = scrollView.contentView.bounds.origin
-                    let swiftUIRect = NSRect(
-                        x: rectInClipView.origin.x - scrollOffset.x,
-                        y: rectInClipView.origin.y - scrollOffset.y,
-                        width: rectInClipView.width,
-                        height: rectInClipView.height
-                    )
-                    
-                    let visibleY = rectInClipView.origin.y - scrollOffset.y
-                    let viewportHeight = scrollView.contentView.bounds.height
-                    
-                    // Only publish selection rect if it is visible inside the scroll view viewport bounds
-                    if visibleY >= 0 && visibleY + rectInClipView.height <= viewportHeight {
-                        publishSelectionRect(swiftUIRect)
-                    } else {
-                        publishSelectionRect(nil)
-                    }
-                } else {
-                    publishSelectionRect(nil)
-                }
+                selectionTarget = targetRange
+                positionSelectionRect(around: targetRange, in: textView)
             } else {
+                selectionTarget = nil
                 if parent.selectedRange != nil { parent.selectedRange = nil }
+                publishSelectionRect(nil)
+            }
+        }
+        
+        /// Publishes the rectangle around `targetRange` (storage offsets) in the scroll view's
+        /// visible coordinates, or nil when there is no target or it is scrolled out of view.
+        private func positionSelectionRect(around targetRange: NSRange?, in textView: NSTextView) {
+            guard let targetRange = targetRange, let scrollView = textView.enclosingScrollView,
+                  let layoutManager = textView.layoutManager, let textContainer = textView.textContainer,
+                  NSMaxRange(targetRange) <= (textView.textStorage?.length ?? 0) else {
+                publishSelectionRect(nil)
+                return
+            }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: targetRange, actualCharacterRange: nil)
+            var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            
+            // Add origin of the text container (margins)
+            let origin = textView.textContainerOrigin
+            rect.origin.x += origin.x
+            rect.origin.y += origin.y
+            
+            // Convert from textView local coordinates to NSScrollView contentView (NSClipView) coordinates
+            let rectInClipView = textView.convert(rect, to: scrollView.contentView)
+            
+            let scrollOffset = scrollView.contentView.bounds.origin
+            let swiftUIRect = NSRect(
+                x: rectInClipView.origin.x - scrollOffset.x,
+                y: rectInClipView.origin.y - scrollOffset.y,
+                width: rectInClipView.width,
+                height: rectInClipView.height
+            )
+            
+            let visibleY = rectInClipView.origin.y - scrollOffset.y
+            let viewportHeight = scrollView.contentView.bounds.height
+            
+            // Only publish selection rect if it is visible inside the scroll view viewport bounds
+            if visibleY >= 0 && visibleY + rectInClipView.height <= viewportHeight {
+                publishSelectionRect(swiftUIRect)
+            } else {
                 publishSelectionRect(nil)
             }
         }
@@ -2294,6 +2308,7 @@ struct SwashTextView: NSViewRepresentable {
             ], range: fullRange)
             
             textStorage.endEditing()
+            textView.typingAttributes = [.font: monospaceFont, .foregroundColor: NSColor.textColor]
             isHighlighting = false
             cachedOffsetMap = nil
             cachedStorageCodeBlocks = MarkdownParser.codeRanges(in: textView.string).blockRanges
@@ -2302,6 +2317,17 @@ struct SwashTextView: NSViewRepresentable {
             lastIsStyled = false
             lastFlavor = parent.flavor
             lastBaseURL = parent.baseURL ?? textView.window?.representedURL ?? (textView.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
+        }
+        
+        /// Source mode: re-finds code blocks (for spellcheck) once typing pauses.
+        private func schedulePlainCodeBlockRefresh(in textView: NSTextView) {
+            NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(refreshPlainCodeBlocks(_:)), object: textView)
+            perform(#selector(refreshPlainCodeBlocks(_:)), with: textView, afterDelay: 0.3)
+        }
+        
+        @objc private func refreshPlainCodeBlocks(_ textView: NSTextView) {
+            guard !parent.isStyled else { return }
+            cachedStorageCodeBlocks = MarkdownParser.codeRanges(in: textView.string).blockRanges
         }
         
         private func applyRegex(pattern: String, in text: String, action: (NSRange, NSRange) -> Void) {
