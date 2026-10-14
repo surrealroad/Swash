@@ -2230,6 +2230,7 @@ struct SwashTextView: NSViewRepresentable {
             // Leave room for the code block's padding and border
             styler.richPreviewMaxWidth = max(120, min(900, width - 48))
             styler.richPreviewMemory = richPreviewMemory
+            styler.richPreviewOwner = ObjectIdentifier(self)
         }
         
         private func collectRichPreviews(from styler: MarkdownEditorStyler, fullPass: Bool) {

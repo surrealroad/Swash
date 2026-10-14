@@ -175,6 +175,13 @@ final class MarkdownEditorStyler {
     var richPreviewMemory: [Int: RichContentRenderer.Rendered] = [:]
     /// Renders requested by this pass that were not ready: (raw block location, request).
     private(set) var pendingRichPreviews: [(location: Int, request: RichContentRenderer.Request)] = []
+    /// Identifies the editor, so a block's newer render request replaces its older queued one.
+    var richPreviewOwner: ObjectIdentifier? = nil
+
+    private struct RichPreviewSlot: Hashable {
+        let owner: ObjectIdentifier
+        let location: Int
+    }
 
     /// `storageShift`: raw offset minus storage offset for the region being styled (0 when the storage
     /// holds the raw text throughout).
@@ -236,7 +243,7 @@ final class MarkdownEditorStyler {
         var image: RichContentRenderer.Rendered? = nil
         var alpha: CGFloat = 1
         var error: String? = nil
-        switch RichContentRenderer.cachedOrRequest(request) {
+        switch RichContentRenderer.cachedOrRequest(request, owner: richPreviewOwner.map { RichPreviewSlot(owner: $0, location: location) }) {
         case .rendered(let rendered)?:
             image = rendered
             richPreviewMemory[location] = rendered
