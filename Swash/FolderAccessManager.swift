@@ -108,32 +108,7 @@ final class FolderAccessManager: ObservableObject {
                 return
             }
             
-            let stdURL = selectedURL.standardizedFileURL
-            self.lock.lock()
-            if !self.activeFolders.contains(stdURL.path), stdURL.startAccessingSecurityScopedResource() {
-                self.activeFolders.insert(stdURL.path)
-            }
-            self.failedFolders.remove(stdURL.path)
-            
-            // Save security-scoped bookmark
-            if let bookmarkData = try? stdURL.bookmarkData(
-                options: .withSecurityScope,
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            ) {
-                var dict = self.bookmarks
-                dict[stdURL.path] = bookmarkData
-                self.cachedBookmarks = dict
-                UserDefaults.standard.set(dict, forKey: self.bookmarksDefaultsKey)
-            }
-            self.lock.unlock()
-            ImageCache.shared.removeAll()
-            
-            DispatchQueue.main.async {
-                self.accessGrantedTrigger = UUID()
-                NotificationCenter.default.post(name: NSNotification.Name("SwashFolderAccessGranted"), object: nil, userInfo: ["url": stdURL])
-                completion(true)
-            }
+            self.grantAccess(to: selectedURL, completion: completion)
         }
         
         if let window = window {
@@ -145,5 +120,35 @@ final class FolderAccessManager: ObservableObject {
         #else
         completion(false)
         #endif
+    }
+
+    /// Starts accessing a folder the user picked, saves its bookmark and announces the grant.
+    func grantAccess(to selectedURL: URL, completion: @escaping (Bool) -> Void) {
+        let stdURL = selectedURL.standardizedFileURL
+        lock.lock()
+        if !activeFolders.contains(stdURL.path), stdURL.startAccessingSecurityScopedResource() {
+            activeFolders.insert(stdURL.path)
+        }
+        failedFolders.remove(stdURL.path)
+        
+        // Save security-scoped bookmark
+        if let bookmarkData = try? stdURL.bookmarkData(
+            options: .withSecurityScope,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ) {
+            var dict = bookmarks
+            dict[stdURL.path] = bookmarkData
+            cachedBookmarks = dict
+            UserDefaults.standard.set(dict, forKey: bookmarksDefaultsKey)
+        }
+        lock.unlock()
+        ImageCache.shared.removeAll()
+        
+        DispatchQueue.main.async {
+            self.accessGrantedTrigger = UUID()
+            NotificationCenter.default.post(name: NSNotification.Name("SwashFolderAccessGranted"), object: nil, userInfo: ["url": stdURL])
+            completion(true)
+        }
     }
 }
