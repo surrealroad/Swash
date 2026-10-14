@@ -1,5 +1,23 @@
 # swash
 
+## 1.10.1
+
+### Patch Changes
+
+- 85ea2e0: Remove the "Metadata extraction skipped" build warnings from the QuickLook, Share and Thumbnail extensions by skipping App Intents metadata extraction for targets that don't use App Intents.
+
+## 1.10.0
+
+### Minor Changes
+
+- 0fadaf6: Move Markdown flavor switching from the toolbar dropdown to Format ▸ Markdown Flavor. When switching changes the text, Swash asks whether to keep the formatting (rewriting the Markdown for the new flavor) or keep the raw text unchanged. Switching flavor, including the rewrite, can be undone with Edit ▸ Undo.
+
+## 1.9.0
+
+### Minor Changes
+
+- 9afcba8: Redesign the Settings window in the modern macOS style. It now has General and Updates tabs in the toolbar, and each tab uses grouped form sections with explanatory footers. The Updates tab also shows the current version.
+
 ## 1.8.6
 
 ### Patch Changes
