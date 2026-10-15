@@ -1,5 +1,20 @@
 # swash
 
+## 1.10.3
+
+### Patch Changes
+
+- 1f0b69a: Performance: typing does less work per keystroke. The editor parses each revision once and shares that parse with styling, link detection, the bubble menu and Backspace/Enter handling, and it skips rebuilding the document when SwiftUI only echoes back its own edit. Tables cache their Markdown. Images are cached by path and modification date instead of being reread and rescaled on every restyle, so typing next to an image is about 4× faster. Backspace in an ordinary paragraph no longer parses the whole document. Saved folder permissions are resolved when first needed, once each, which fixes access handles accumulating with every render. The scroll position is only restored after full restyles, so it no longer fights autoscroll while typing.
+- 1f0b69a: Performance: an unsaved window no longer looks up its document on every update.
+- 1f0b69a: Performance: the window no longer checks the folder permissions of every linked image on every keystroke (it rechecks once typing pauses, and straight away when the file moves or access is granted), the share icon is drawn once, and finding the document's title stops at its first heading.
+- 1f0b69a: Performance: the Split view preview no longer rebuilds and re-measures the whole document on every keystroke. It updates once typing pauses, and only the blocks that changed are re-rendered, which uses about 4.5× less CPU while typing on a 900-line document.
+- 1f0b69a: Performance: Quick Look previews read at most the first 256 KB of a file, noting when a preview is cut short, and decode and parse it in the background. They show math and Mermaid source instead of starting WebKit, so the Quick Look extension no longer bundles KaTeX, Mermaid and their fonts (about 6 MB). Finder thumbnails read only the first 4 KB of a file.
+- 1f0b69a: Performance: typing inside a formula or Mermaid diagram no longer queues a render of every intermediate state, since each block's newest request replaces its older queued one. Renders for views that have gone away are dropped, and finished renders are announced in batches rather than one at a time, so opening a document with many formulas restyles it a few times instead of once per formula.
+- 1f0b69a: Performance: scrolling no longer looks up links or recomputes the selection on every frame; it just moves the bubble menu. In Source and Split modes, typing no longer restyles the whole document on every keystroke.
+- 1f0b69a: Performance: Slack-formatted documents are restyled once typing pauses (after about 0.1 s) instead of after every keystroke, since Slack styling always covers the whole document.
+- 1f0b69a: Performance: editing a table cell no longer makes the next keystroke restyle the whole document, rebuild every table and reload every image.
+- 1f0b69a: Add a performance audit (`docs/PERFORMANCE_AUDIT.md`) covering per-keystroke editor work, the preview, image loading, the Markdown parser, math and Mermaid rendering, and the extensions, with a phased improvement plan.
+
 ## 1.10.2
 
 ### Patch Changes
