@@ -123,6 +123,17 @@ final class SwashEditorController {
     private var cachedOutline: (text: String, outline: MarkdownOutline)?
     private var cachedStatistics: (text: String, statistics: MarkdownStatistics)?
 
+    private var cachedCodeRanges: (text: String, ranges: MarkdownParser.CodeRanges)?
+    
+    /// Code blocks and spans of `text`, reused until the text changes. The bubble menu asks for
+    /// them several times per update (code format, context, code block checks).
+    func codeRanges(for text: String) -> MarkdownParser.CodeRanges {
+        if let cached = cachedCodeRanges, cached.text == text { return cached.ranges }
+        let ranges = MarkdownParser.codeRanges(in: text)
+        cachedCodeRanges = (text, ranges)
+        return ranges
+    }
+    
     /// Heading outline of `text`, reused until the text changes.
     func outline(for text: String) -> MarkdownOutline {
         if let cached = cachedOutline, cached.text == text { return cached.outline }

@@ -962,7 +962,12 @@ struct MarkdownParser {
 
     /// Returns the fenced code block (``` or ~~~) containing the given raw-markdown range, if any.
     static func fencedCodeBlock(containing range: NSRange, in text: String) -> FencedCodeBlock? {
-        codeRanges(in: text).fencedBlocks.first { block in
+        fencedCodeBlock(containing: range, in: codeRanges(in: text))
+    }
+    
+    /// As above, for code ranges the caller has already computed.
+    static func fencedCodeBlock(containing range: NSRange, in ranges: CodeRanges) -> FencedCodeBlock? {
+        ranges.fencedBlocks.first { block in
             range.location >= block.fullRange.location &&
             range.location + range.length <= block.fullRange.location + block.fullRange.length
         }
