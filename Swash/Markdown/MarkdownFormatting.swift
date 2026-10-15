@@ -48,6 +48,11 @@ struct MarkdownFormatting {
     let text: String
     let document: MarkdownDocument
     private let ns: NSString
+    /// Values derived from the document on first use (the struct itself is immutable).
+    private final class Derived {
+        var codeBlockRanges: [NSRange]?
+    }
+    private let derived = Derived()
 
     init(text: String, document: MarkdownDocument? = nil) {
         self.text = text
@@ -384,15 +389,33 @@ struct MarkdownFormatting {
         return lines
     }
 
-    /// Lines inside fenced or indented code are never rewritten by block formats.
-    private func isCodeLine(_ line: NSRange) -> Bool {
-        var inside = false
+    /// Ranges of all code blocks, sorted. Code blocks never contain each other, so they don't overlap.
+    private var codeBlockRanges: [NSRange] {
+        if let cached = derived.codeBlockRanges { return cached }
+        var ranges: [NSRange] = []
         document.root.walk { node in
-            if !inside, case .codeBlock = node.kind, contains(node.range, line) {
-                inside = true
+            if case .codeBlock = node.kind { ranges.append(node.range) }
+        }
+        ranges.sort { $0.location < $1.location }
+        derived.codeBlockRanges = ranges
+        return ranges
+    }
+    
+    /// Lines inside fenced or indented code are never rewritten by block formats. A binary search
+    /// over the code blocks, instead of a tree walk per selected line (§5.3 of the performance audit).
+    private func isCodeLine(_ line: NSRange) -> Bool {
+        let ranges = codeBlockRanges
+        var low = 0, high = ranges.count - 1, candidate = -1
+        while low <= high {
+            let mid = (low + high) / 2
+            if ranges[mid].location <= line.location {
+                candidate = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
             }
         }
-        return inside
+        return candidate >= 0 && contains(ranges[candidate], line)
     }
 
     /// The block format shared by every non-blank selected line, if any.
