@@ -119,6 +119,27 @@ func run() async {
     async let b = renderer.render(shared)
     let (ra, rb) = await (a, b)
     check("duplicate requests coalesce", ra.rendered != nil && rb.rendered != nil && renderer.renderCount == countBefore + 1)
+    // Formulas queued together are typeset as one batch and snapshotted once; each cropped image
+    // matches the size of the same formula rendered on its own (here, in the other appearance)
+    let batchSources = ["\\frac{a}{b}", "x^{2}+y^{2}", "\\sum_{k=1}^{n} k", "\\sqrt{2}", "e^{i\\theta}", "\\int_0^1 f"]
+    var alone: [CGSize] = []
+    for source in batchSources {
+        alone.append(await renderer.render(.init(kind: .displayMath, source: source, dark: false, fontSize: 16)).rendered?.image.size ?? .zero)
+    }
+    let batchCount = renderer.renderCount
+    let batched = await withTaskGroup(of: (Int, CGSize).self) { group -> [CGSize] in
+        for (index, source) in batchSources.enumerated() {
+            group.addTask { @MainActor in
+                (index, await renderer.render(.init(kind: .displayMath, source: source, dark: true, fontSize: 16)).rendered?.image.size ?? .zero)
+            }
+        }
+        var sizes = [CGSize](repeating: .zero, count: batchSources.count)
+        for await (index, size) in group { sizes[index] = size }
+        return sizes
+    }
+    let sameSizes = zip(alone, batched).allSatisfy { abs($0.width - $1.width) <= 1 && abs($0.height - $1.height) <= 1 && $1.width > 0 }
+    check("formulas queued together share snapshots", renderer.renderCount - batchCount <= 2, "\(renderer.renderCount - batchCount) snapshots for \(batchSources.count) formulas")
+    check("batched formulas match their single renders", sameSizes, "\(alone) vs \(batched)")
     // Typing in a formula: a newer request from the same slot replaces the older queued one, so
     // only the state already rendering and the latest one are snapshotted
     let typedCount = renderer.renderCount

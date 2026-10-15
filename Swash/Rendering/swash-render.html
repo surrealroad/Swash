@@ -9,8 +9,12 @@
   html, body { margin: 0; padding: 0; background: transparent; }
   body { font-family: -apple-system, "Helvetica Neue", sans-serif; }
   #stage { position: absolute; left: 0; top: 0; display: inline-block; width: max-content; padding: 2px; }
-  #stage .katex { font-size: 1.1em; }
-  #stage .katex-display { margin: 0; }
+  #stage .katex, #batch .katex { font-size: 1.1em; }
+  #stage .katex-display, #batch .katex-display { margin: 0; }
+  /* Batches: one formula per row, each sized like #stage, snapshotted together and cropped apart */
+  #batch { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+  #batch .item { display: inline-block; width: max-content; padding: 2px; }
+  .baseline { display: inline-block; width: 0; height: 0; }
   #stage svg { display: block; max-width: none !important; }
   #baseline { display: inline-block; width: 0; height: 0; }
 </style>
@@ -19,6 +23,7 @@
 </head>
 <body>
 <div id="stage"></div>
+<div id="batch"></div>
 <script>
   // KaTeX fonts load lazily on first use, after fonts.ready may already have resolved:
   // load every face up front so the first snapshot has all its glyphs (∫, big delimiters…)
@@ -46,8 +51,56 @@
     return { ok: true, width: Math.ceil(rect.width), height: Math.ceil(rect.height), baseline: baseline };
   }
 
+  // Typesets several formulas at once, one per row of #batch, and reports each row's rectangle
+  // (CSS px, relative to #batch), so the app can take one snapshot and crop the formulas apart.
+  // items: [{ kind: "inline" | "display", source, dark, fontSize }]
+  async function swashRenderBatch(items) {
+    document.getElementById("stage").innerHTML = "";
+    const batch = document.getElementById("batch");
+    batch.innerHTML = "";
+    const rows = items.map(item => {
+      const row = document.createElement("div");
+      row.className = "item";
+      row.style.fontSize = item.fontSize + "px";
+      row.style.color = item.dark ? "rgba(255,255,255,0.88)" : "rgba(0,0,0,0.85)";
+      batch.appendChild(row);
+      try {
+        katex.render(item.source, row, {
+          displayMode: item.kind === "display",
+          throwOnError: true,
+          output: "html",
+          trust: false,
+          strict: "ignore",
+        });
+        const marker = document.createElement("span");
+        marker.className = "baseline";
+        (row.querySelector(".katex-html") || row).appendChild(marker);
+        return { row, marker };
+      } catch (error) {
+        row.innerHTML = "";
+        return { row, error: String(error && error.message ? error.message : error) };
+      }
+    });
+    await fontsLoaded;
+    batch.getBoundingClientRect();
+    await document.fonts.ready;
+    const origin = batch.getBoundingClientRect();
+    const results = rows.map(({ row, marker, error }) => {
+      if (error) return { ok: false, error };
+      const rect = row.getBoundingClientRect();
+      return {
+        ok: true,
+        x: rect.left - origin.left, y: rect.top - origin.top,
+        width: Math.ceil(rect.width), height: Math.ceil(rect.height),
+        baseline: marker.getBoundingClientRect().top - rect.top,
+      };
+    });
+    return { width: Math.ceil(origin.width), height: Math.ceil(origin.height), items: results };
+  }
+
   // kind: "inline" | "display" | "mermaid"
   async function swashRender(kind, source, dark, fontSize) {
+    document.getElementById("batch").innerHTML = "";
     const stage = document.getElementById("stage");
     stage.innerHTML = "";
     stage.style.fontSize = fontSize + "px";
