@@ -1210,7 +1210,19 @@ struct SwashTextView: NSViewRepresentable {
                     onCaretMove(rawRange(forStorage: textView.selectedRange(), in: textView).location)
                 }
                 let isMouseDown = NSEvent.pressedMouseButtons & 1 != 0
-                if isMouseDown {
+                // A caret that moved because the text changed means typing: the link lookup behind
+                // the bubble menu (a whole-document parse or scan) waits for a pause, and the menu
+                // stays hidden meanwhile, instead of running on every keystroke
+                let length = textView.textStorage?.length ?? 0
+                let typed = length != lengthAtLastSelectionChange && textView.selectedRange().length == 0
+                lengthAtLastSelectionChange = length
+                if typed && !isMouseDown {
+                    selectionTarget = nil
+                    if parent.selectedRange != nil { parent.selectedRange = nil }
+                    publishSelectionRect(nil)
+                    NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(deferredUpdateSelectionRect(_:)), object: textView)
+                    self.perform(#selector(deferredUpdateSelectionRect(_:)), with: textView, afterDelay: 0.3)
+                } else if isMouseDown {
                     // Defer updating selection rect until mouse is up/selection settles.
                     // This prevents SwiftUI overlays from rendering during an active click/drag gesture,
                     // which interrupts AppKit mouse tracking and causes automatic deselection.
@@ -1222,6 +1234,9 @@ struct SwashTextView: NSViewRepresentable {
             }
         }
         
+        /// Text length when the selection last changed, to tell typing apart from caret movement.
+        private var lengthAtLastSelectionChange = -1
+
         @objc func deferredUpdateSelectionRect(_ textView: NSTextView) {
             logDebug("[SwashTextView] deferredUpdateSelectionRect (mouse released/settled)")
             updateSelectionRect(for: textView)
