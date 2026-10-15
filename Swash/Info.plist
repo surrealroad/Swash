@@ -21,6 +21,11 @@
 				<string>markdown</string>
 				<string>mdown</string>
 				<string>mkdn</string>
+				<string>mkd</string>
+				<string>mdwn</string>
+				<string>mdtext</string>
+				<string>mdtxt</string>
+				<string>rmd</string>
 				<string>txt</string>
 			</array>
 			<key>LSItemContentTypes</key>
@@ -51,6 +56,11 @@
 					<string>markdown</string>
 					<string>mdown</string>
 					<string>mkdn</string>
+					<string>mkd</string>
+					<string>mdwn</string>
+					<string>mdtext</string>
+					<string>mdtxt</string>
+					<string>rmd</string>
 				</array>
 			</dict>
 		</dict>
@@ -74,6 +84,11 @@
 					<string>markdown</string>
 					<string>mdown</string>
 					<string>mkdn</string>
+					<string>mkd</string>
+					<string>mdwn</string>
+					<string>mdtext</string>
+					<string>mdtxt</string>
+					<string>rmd</string>
 				</array>
 			</dict>
 		</dict>

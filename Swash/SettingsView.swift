@@ -32,6 +32,9 @@ struct SettingsView: View {
 private struct GeneralSettingsView: View {
     @ObservedObject private var defaultAppManager = DefaultAppManager.shared
     @AppStorage("markdownFlavor") private var markdownFlavor: MarkdownFlavor = .github
+    @AppStorage(QuickCaptureShortcut.defaultsKey) private var quickCaptureShortcut: QuickCaptureShortcut = QuickCaptureShortcut.defaultValue
+    @AppStorage("showMenuBarExtra") private var showMenuBarExtra = false
+    @State private var opensAtLogin = LoginItem.isEnabled
 
     var body: some View {
         Form {
@@ -67,6 +70,27 @@ private struct GeneralSettingsView: View {
                 }
             } header: {
                 Text("File Associations")
+            }
+
+            Section {
+                Picker("Quick Note shortcut", selection: $quickCaptureShortcut) {
+                    ForEach(QuickCaptureShortcut.allCases) { shortcut in
+                        Text(shortcut.title).tag(shortcut)
+                    }
+                }
+                .onChange(of: quickCaptureShortcut) { _, shortcut in
+                    GlobalHotKey.shared.register(shortcut)
+                }
+                Toggle("Show Swash in the menu bar", isOn: $showMenuBarExtra)
+                Toggle("Open Swash at login", isOn: Binding(
+                    get: { opensAtLogin },
+                    set: { LoginItem.setEnabled($0); opensAtLogin = LoginItem.isEnabled }
+                ))
+            } header: {
+                Text("Quick Note")
+            } footer: {
+                Text("The shortcut opens a floating note from any app. Save it as a new document or add it to the last document you used.")
+                    .settingsFooterStyle()
             }
         }
         .formStyle(.grouped)
