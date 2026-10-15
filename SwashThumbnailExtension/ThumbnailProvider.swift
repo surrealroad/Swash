@@ -13,7 +13,13 @@ class ThumbnailProvider: QLThumbnailProvider {
         
         let reply = QLThumbnailReply(contextSize: size) { context -> Bool in
             let fileURL = request.fileURL
-            let textContent = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
+            // Only ~500 characters are drawn, so read just the start of the file
+            let head = (try? FileHandle(forReadingFrom: fileURL)).flatMap { handle -> Data? in
+                defer { try? handle.close() }
+                return try? handle.read(upToCount: 4096)
+            } ?? Data()
+            // A character cut at the end of the 4 KB lies past the 500 drawn (at most 4 bytes each)
+            let textContent = String(decoding: head, as: UTF8.self)
             
             // Draw background paper
             let bounds = CGRect(origin: .zero, size: size)

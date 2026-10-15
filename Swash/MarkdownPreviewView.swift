@@ -119,6 +119,9 @@ final class NestedScrollRouter {
 
 struct PreviewScrollView<Content: View>: NSViewRepresentable {
     var scrollSync: ScrollSync?
+    /// Identifies the content: the hosting view is only updated and re-measured when it (or the
+    /// width) changes, not on every update of the enclosing view.
+    var contentKey: AnyHashable? = nil
     @ViewBuilder let content: () -> Content
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -141,22 +144,37 @@ struct PreviewScrollView<Content: View>: NSViewRepresentable {
         )
         scrollSync?.register(scrollView)
         context.coordinator.router = NestedScrollRouter(scrollView: scrollView)
+        context.coordinator.scrollView = scrollView
+        context.coordinator.observeAsynchronousContent()
 
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-        context.coordinator.scrollSync = scrollSync
-        if let hostingView = nsView.documentView as? NSHostingView<Content> {
+        let coordinator = context.coordinator
+        coordinator.scrollSync = scrollSync
+        guard let hostingView = nsView.documentView as? NSHostingView<Content> else { return }
+        let width = nsView.contentSize.width
+        if contentKey == nil || contentKey != coordinator.lastContentKey {
             hostingView.rootView = content()
-            let currentWidth = nsView.contentSize.width
-            if currentWidth > 0 {
-                hostingView.frame.size.width = currentWidth
-            }
-            let targetHeight = hostingView.fittingSize.height
-            if hostingView.frame.height != targetHeight || hostingView.frame.width != currentWidth {
-                hostingView.frame = NSRect(x: 0, y: 0, width: currentWidth, height: max(targetHeight, nsView.contentSize.height))
-            }
+            coordinator.lastContentKey = contentKey
+        } else if width == coordinator.lastWidth {
+            return
+        }
+        coordinator.lastWidth = width
+        Self.fit(hostingView, in: nsView)
+    }
+    
+    /// Sizes the hosting view to its content at the scroll view's width (a synchronous layout of
+    /// the whole preview, so it only runs when something changed).
+    static func fit(_ hostingView: NSView, in scrollView: NSScrollView) {
+        let currentWidth = scrollView.contentSize.width
+        if currentWidth > 0 {
+            hostingView.frame.size.width = currentWidth
+        }
+        let targetHeight = hostingView.fittingSize.height
+        if hostingView.frame.height != targetHeight || hostingView.frame.width != currentWidth {
+            hostingView.frame = NSRect(x: 0, y: 0, width: currentWidth, height: max(targetHeight, scrollView.contentSize.height))
         }
     }
 
@@ -171,9 +189,37 @@ struct PreviewScrollView<Content: View>: NSViewRepresentable {
     class Coordinator: NSObject {
         var scrollSync: ScrollSync?
         var router: NestedScrollRouter?
+        weak var scrollView: NSScrollView?
+        var lastContentKey: AnyHashable?
+        var lastWidth: CGFloat = -1
+        private var refitScheduled = false
 
         init(scrollSync: ScrollSync?) {
             self.scrollSync = scrollSync
+        }
+        
+        /// Formulas, diagrams and images that become readable change the content's height without
+        /// a new content key; re-measure when they land.
+        func observeAsynchronousContent() {
+            NotificationCenter.default.addObserver(self, selector: #selector(contentMayHaveResized), name: RichContentRenderer.didRender, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(contentMayHaveResized), name: NSNotification.Name("SwashFolderAccessGranted"), object: nil)
+        }
+        
+        @objc private func contentMayHaveResized() {
+            guard !refitScheduled else { return }
+            refitScheduled = true
+            // Let SwiftUI apply the new state first
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                guard let self = self else { return }
+                self.refitScheduled = false
+                if let scrollView = self.scrollView, let hostingView = scrollView.documentView {
+                    PreviewScrollView.fit(hostingView, in: scrollView)
+                }
+            }
+        }
+        
+        deinit {
+            NotificationCenter.default.removeObserver(self)
         }
 
         @objc func scrollViewDidScroll(_ notification: Notification) {
@@ -191,16 +237,32 @@ struct MarkdownPreviewView: View {
     /// Reuses the last parse while the text is unchanged; the view is re-evaluated whenever
     /// `ContentView` updates (selection changes, banners), not only when the text changes.
     @State private var parseCache = ParseCache()
+    /// The text being shown. Edits are picked up once typing pauses, so the preview isn't rebuilt
+    /// and re-measured on every keystroke; nil until the first render, which shows `text` directly.
+    @State private var renderedText: String? = nil
+    @State private var revision = 0
     
-    init(text: String, flavor: MarkdownFlavor, baseURL: URL? = nil, scrollSync: ScrollSync? = nil) {
+    static let updateDelay: Duration = .milliseconds(200)
+    
+    /// `preparsed`: the parse of `text`, made off the main thread by the caller (Quick Look).
+    init(text: String, flavor: MarkdownFlavor, baseURL: URL? = nil, scrollSync: ScrollSync? = nil, preparsed: MarkdownDocument? = nil) {
         self.text = text
         self.flavor = flavor
         self.baseURL = baseURL
         self.scrollSync = scrollSync
+        if let preparsed = preparsed {
+            _parseCache = State(initialValue: ParseCache(text: text, flavor: flavor, document: preparsed))
+        }
+    }
+    
+    private struct ContentKey: Hashable {
+        let revision: Int
+        let flavor: MarkdownFlavor
+        let baseURL: URL?
     }
     
     var body: some View {
-        let document = parseCache.document(for: text, flavor: flavor)
+        let document = parseCache.document(for: renderedText ?? text, flavor: flavor)
         let blocks = document.root.children.filter {
             switch $0.kind {
             case .footnoteDefinition, .linkReferenceDefinition: return false
@@ -209,7 +271,7 @@ struct MarkdownPreviewView: View {
         }
         let context = MarkdownRenderContext(document: document, baseURL: baseURL)
         
-        PreviewScrollView(scrollSync: scrollSync) {
+        PreviewScrollView(scrollSync: scrollSync, contentKey: ContentKey(revision: revision, flavor: flavor, baseURL: baseURL)) {
             VStack(alignment: .leading, spacing: 14) {
                 if blocks.isEmpty {
                     Text("Nothing to preview yet. Start typing on the left!")
@@ -230,6 +292,17 @@ struct MarkdownPreviewView: View {
             .textSelection(.enabled)
         }
         .background(Color(NSColor.windowBackgroundColor).opacity(0.8))
+        .task(id: text) {
+            guard let shown = renderedText else {
+                renderedText = text
+                return
+            }
+            guard shown != text else { return }
+            try? await Task.sleep(for: MarkdownPreviewView.updateDelay)
+            guard !Task.isCancelled else { return }
+            renderedText = text
+            revision += 1
+        }
     }
     
     /// Slack mrkdwn is converted to GFM first; everything else is parsed directly.
@@ -241,6 +314,13 @@ struct MarkdownPreviewView: View {
     final class ParseCache {
         private var key: (text: String, flavor: MarkdownFlavor)? = nil
         private var cached: MarkdownDocument? = nil
+        
+        init() {}
+        
+        init(text: String, flavor: MarkdownFlavor, document: MarkdownDocument) {
+            key = (text, flavor)
+            cached = document
+        }
         
         func document(for text: String, flavor: MarkdownFlavor) -> MarkdownDocument {
             if let key = key, let cached = cached, key.flavor == flavor, key.text == text {
@@ -263,12 +343,13 @@ struct MarkdownBlockList: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: spacing) {
-            ForEach(Array(MarkdownBlockList.group(nodes).enumerated()), id: \.offset) { _, item in
-                switch item {
+            // Blocks are identified by their source, so an edit only re-renders the blocks it changed
+            ForEach(MarkdownBlockList.identified(MarkdownBlockList.group(nodes), source: context.document.source), id: \.id) { entry in
+                switch entry.item {
                 case .block(let node):
-                    AnyView(MarkdownBlockView(node: node, context: context))
+                    MarkdownBlockView(node: node, context: context).equatable()
                 case .details(let summary, let open, let content):
-                    AnyView(MarkdownDetailsView(summary: summary, initiallyOpen: open, content: content, context: context))
+                    MarkdownDetailsView(summary: summary, initiallyOpen: open, content: content, context: context)
                 }
             }
         }
@@ -277,6 +358,28 @@ struct MarkdownBlockList: View {
     enum Item {
         case block(MarkdownNode)
         case details(summary: String, open: Bool, content: [MarkdownNode])
+    }
+    
+    /// Stable identities: a hash of each item's source plus how many identical items precede it.
+    static func identified(_ items: [Item], source: String) -> [(id: String, item: Item)] {
+        let ns = source as NSString
+        var seen: [Int: Int] = [:]
+        return items.map { item in
+            let range: NSRange
+            switch item {
+            case .block(let node): range = node.range
+            case .details(_, _, let content):
+                range = content.isEmpty ? NSRange(location: 0, length: 0) : NSUnionRange(content[0].range, content[content.count - 1].range)
+            }
+            let valid = NSIntersectionRange(range, NSRange(location: 0, length: ns.length))
+            var hasher = Hasher()
+            if case .details(let summary, _, _) = item { hasher.combine(summary) }
+            hasher.combine(ns.substring(with: valid))
+            let hash = hasher.finalize()
+            let occurrence = seen[hash, default: 0]
+            seen[hash] = occurrence + 1
+            return ("\(hash)-\(occurrence)", item)
+        }
     }
     
     private static func isDetailsOpen(_ node: MarkdownNode) -> Bool {
@@ -435,6 +538,22 @@ struct MarkdownFlowLayout: Layout {
 struct MarkdownRenderContext {
     let document: MarkdownDocument
     let baseURL: URL?
+    /// Changes when anything outside a block can change how it renders: link reference
+    /// definitions and footnote numbering.
+    let signature: Int
+    
+    init(document: MarkdownDocument, baseURL: URL?) {
+        self.document = document
+        self.baseURL = baseURL
+        var hasher = Hasher()
+        hasher.combine(document.footnoteOrder)
+        for label in document.linkReferences.keys.sorted() {
+            hasher.combine(label)
+            hasher.combine(document.linkReferences[label]?.destination)
+            hasher.combine(document.linkReferences[label]?.title)
+        }
+        self.signature = hasher.finalize()
+    }
     
     func footnoteNumber(_ label: String) -> Int? {
         document.footnoteOrder.firstIndex(of: MarkdownSyntax.normalizeLabel(label)).map { $0 + 1 }
@@ -442,9 +561,22 @@ struct MarkdownRenderContext {
 }
 
 /// Renders one block node (recursively for containers).
-struct MarkdownBlockView: View {
+struct MarkdownBlockView: View, Equatable {
     let node: MarkdownNode
     let context: MarkdownRenderContext
+    
+    /// Same source, base URL and document-wide definitions render the same, even from a new parse.
+    static func == (lhs: MarkdownBlockView, rhs: MarkdownBlockView) -> Bool {
+        if lhs.node === rhs.node { return lhs.context.signature == rhs.context.signature && lhs.context.baseURL == rhs.context.baseURL }
+        guard lhs.context.signature == rhs.context.signature, lhs.context.baseURL == rhs.context.baseURL,
+              lhs.node.range.length == rhs.node.range.length else { return false }
+        return lhs.source == rhs.source
+    }
+    
+    private var source: String {
+        let ns = context.document.source as NSString
+        return ns.substring(with: NSIntersectionRange(node.range, NSRange(location: 0, length: ns.length)))
+    }
     
     var body: some View {
         content

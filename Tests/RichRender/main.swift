@@ -119,6 +119,25 @@ func run() async {
     async let b = renderer.render(shared)
     let (ra, rb) = await (a, b)
     check("duplicate requests coalesce", ra.rendered != nil && rb.rendered != nil && renderer.renderCount == countBefore + 1)
+    // Typing in a formula: a newer request from the same slot replaces the older queued one, so
+    // only the state already rendering and the latest one are snapshotted
+    let typedCount = renderer.renderCount
+    let states = ["a", "a+", "a+b", "a+b^", "a+b^2"].map { RichContentRenderer.Request(kind: .displayMath, source: "\\sqrt{\($0)}", dark: false) }
+    for state in states { _ = RichContentRenderer.cachedOrRequest(state, owner: "typing-slot") }
+    _ = await renderer.render(states[states.count - 1])
+    check("typing in a formula skips intermediate states", renderer.renderCount - typedCount <= 2 && renderer.cached(states[2]) == nil,
+          "\(renderer.renderCount - typedCount) renders")
+    // A cancelled wait drops its queued render
+    let blocker = RichContentRenderer.Request(kind: .mermaid, source: "graph TD\n  P --> Q\n  Q --> R\n  R --> S", dark: false)
+    let abandoned = RichContentRenderer.Request(kind: .displayMath, source: "\\frac{abandoned}{1}", dark: false)
+    let blockerTask = Task { await renderer.render(blocker) }
+    let abandonedTask = Task { await renderer.render(abandoned) }
+    for _ in 0..<5 { await Task.yield() }   // both are queued; the blocker is rendering
+    abandonedTask.cancel()
+    _ = await blockerTask.value
+    _ = await abandonedTask.value
+    try? await Task.sleep(for: .milliseconds(300))
+    check("cancelled requests are not rendered", renderer.cached(abandoned) == nil)
 
     // MARK: Edit Text
     let source = "# Math\n\n$$\n\\sum_{i=1}^n i\n$$\n\nText after\n\n```mermaid\ngraph LR\n  A --> B\n```\n\nEnd\n"

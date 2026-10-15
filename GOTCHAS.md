@@ -98,6 +98,10 @@
 - **Issue**: `MARKETING_VERSION` is `1.0` in the project; `Build & Release` passes the changesets version (`MARKETING_VERSION=…`) on the `xcodebuild` command line. Extension `Info.plist` files that hard-coded `CFBundleShortVersionString` stayed at `1.0` and triggered "must match that of its containing parent app" warnings.
 - **Solution**: Every target's `Info.plist` must use `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)` so the command-line override reaches the app and all extensions.
 
-## 20. "Metadata extraction skipped" Warnings From App Extensions
+## 25. "Metadata extraction skipped" Warnings From App Extensions
 - **Issue**: Xcode runs `ExtractAppIntentsMetadata` for every Swift target. Extensions that don't link AppIntents (QuickLook, Share, Thumbnail) log `appintentsmetadataprocessor warning: Metadata extraction skipped, no AppIntents.framework dependency found` on every build, including CI. `LM_FILTER_WARNINGS = YES` (`--quiet-warnings`) does **not** silence it.
 - **Solution**: Set `LM_SKIP_METADATA_EXTRACTION = YES` on those extension targets (Debug and Release) so the step doesn't run. Leave it unset on `Swash` and `SwashWidgetExtension`, which do use App Intents. A new extension that adopts App Intents must remove the setting, or Shortcuts won't see its intents.
+
+## 26. Images Go Through `ImageCache`
+- **Issue**: Loading and scaling images directly (`NSImage(contentsOfFile:)` plus `scaleImageForEditor`) in a styling pass or a SwiftUI `body` re-reads the file on every keystroke near the image and on every preview render.
+- **Solution**: Resolve images with `MarkdownParser.resolveImageFile`, which checks candidate paths cheaply and loads through `ImageCache.shared`; scale with `ImageCache.shared.editorImage(_:path:maxWidth:)`. Entries are validated by modification date and size. Folder access is started once per folder per session by `FolderAccessManager.ensureAccess`; don't call `startAccessingSecurityScopedResource()` elsewhere.

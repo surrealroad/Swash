@@ -14,6 +14,59 @@ struct MarkdownTableData: Equatable {
     var rows: [[String]]
 }
 
+/// Decoded local images by path, and their editor-sized copies by path and width. Entries are
+/// checked against the file's modification date and size, so edited images are picked up.
+final class ImageCache {
+    static let shared = ImageCache()
+    
+    private final class Entry {
+        let image: NSImage
+        let stamp: String
+        init(image: NSImage, stamp: String) { self.image = image; self.stamp = stamp }
+    }
+    
+    private let images = NSCache<NSString, Entry>()
+    private let scaled = NSCache<NSString, Entry>()
+    
+    private init() {
+        images.countLimit = 200
+        scaled.countLimit = 200
+    }
+    
+    /// Modification date and size of the file at `path`, or nil when there is no readable file.
+    private func stamp(forPath path: String) -> String? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              (attributes[.type] as? FileAttributeType) != .typeDirectory else { return nil }
+        let date = (attributes[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0
+        let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        return "\(date)|\(size)"
+    }
+    
+    func image(atPath path: String) -> NSImage? {
+        guard let stamp = stamp(forPath: path) else { return nil }
+        if let entry = images.object(forKey: path as NSString), entry.stamp == stamp { return entry.image }
+        guard let image = NSImage(contentsOfFile: path) else { return nil }
+        images.setObject(Entry(image: image, stamp: stamp), forKey: path as NSString)
+        return image
+    }
+    
+    /// `image` (loaded from `path`) scaled down to `maxWidth` for the editor, made once per width.
+    func editorImage(_ image: NSImage, path: String, maxWidth: CGFloat) -> NSImage {
+        guard image.size.width > maxWidth else { return image }
+        let stamp = self.stamp(forPath: path) ?? ""
+        let key = "\(path)|\(Int(maxWidth.rounded()))" as NSString
+        if let entry = scaled.object(forKey: key), entry.stamp == stamp { return entry.image }
+        let result = MarkdownParser.scaleImageForEditor(image, maxWidth: maxWidth)
+        scaled.setObject(Entry(image: result, stamp: stamp), forKey: key)
+        return result
+    }
+    
+    func removeAll() {
+        images.removeAllObjects()
+        scaled.removeAllObjects()
+    }
+}
+
 struct MarkdownParser {
     static func parseTableCells(_ line: String) -> [String] {
         var trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -164,27 +217,32 @@ struct MarkdownParser {
     }
     
     static func resolveImage(urlString: String, baseURL: URL? = nil, windowURL: URL? = nil) -> NSImage? {
+        resolveImageFile(urlString: urlString, baseURL: baseURL, windowURL: windowURL)?.image
+    }
+    
+    /// The local image a Markdown image destination refers to, and the file it was loaded from.
+    /// Candidate paths are checked with a cheap existence test, and images come from `ImageCache`,
+    /// so restyling or re-rendering a block doesn't read the file again.
+    static func resolveImageFile(urlString: String, baseURL: URL? = nil, windowURL: URL? = nil) -> (image: NSImage, path: String)? {
         let (cleanedURL, _) = cleanImageURLAndTitle(urlString)
         guard !cleanedURL.isEmpty else { return nil }
         
+        func load(_ path: String?) -> (image: NSImage, path: String)? {
+            guard let path = path, !path.isEmpty, let image = ImageCache.shared.image(atPath: path) else { return nil }
+            return (image, path)
+        }
+        
         // 1. Direct path check
         if cleanedURL.hasPrefix("file://") {
-            if let fileURL = URL(string: cleanedURL), fileURL.isFileURL {
-                if let direct = NSImage(contentsOf: fileURL) {
-                    return direct
-                }
+            if let fileURL = URL(string: cleanedURL), fileURL.isFileURL, let found = load(fileURL.path) {
+                return found
             }
-            let directPath = cleanedURL.replacingOccurrences(of: "file://", with: "")
-            if let direct = NSImage(contentsOfFile: directPath) {
-                return direct
+            if let found = load(cleanedURL.replacingOccurrences(of: "file://", with: "")) {
+                return found
             }
         } else if cleanedURL.hasPrefix("/") {
-            if let direct = NSImage(contentsOfFile: cleanedURL) {
-                return direct
-            }
-            if let decoded = cleanedURL.removingPercentEncoding,
-               let direct = NSImage(contentsOfFile: decoded) {
-                return direct
+            if let found = load(cleanedURL) ?? load(cleanedURL.removingPercentEncoding) {
+                return found
             }
         }
         
@@ -200,45 +258,26 @@ struct MarkdownParser {
             documentURL = mainWin.representedURL ?? NSDocumentController.shared.document(for: mainWin)?.fileURL
         }
         if documentURL == nil {
-            for doc in NSDocumentController.shared.documents {
-                if let docURL = doc.fileURL {
-                    documentURL = docURL
-                    break
-                }
-            }
+            documentURL = NSDocumentController.shared.documents.lazy.compactMap(\.fileURL).first
         }
         
         // 3. Resolve strictly relative to document folder
         if let docURL = documentURL {
             let folderURL = docURL.hasDirectoryPath ? docURL : docURL.deletingLastPathComponent()
             _ = FolderAccessManager.shared.ensureAccess(for: folderURL)
-            let targetURL = folderURL.appendingPathComponent(cleanedURL)
-            if let img = NSImage(contentsOfFile: targetURL.path) ?? NSImage(contentsOf: targetURL) {
-                return img
-            }
-            if let decoded = cleanedURL.removingPercentEncoding {
-                let decodedTarget = folderURL.appendingPathComponent(decoded)
-                if let img = NSImage(contentsOfFile: decodedTarget.path) ?? NSImage(contentsOf: decodedTarget) {
-                    return img
-                }
+            if let found = load(folderURL.appendingPathComponent(cleanedURL).path)
+                ?? load(cleanedURL.removingPercentEncoding.map { folderURL.appendingPathComponent($0).path }) {
+                return found
             }
         }
         
         // 4. Fallback relative to current working directory
-        let currentDir = FileManager.default.currentDirectoryPath
-        let cwdURL = URL(fileURLWithPath: currentDir).appendingPathComponent(cleanedURL)
-        if let img = NSImage(contentsOfFile: cwdURL.path) {
-            return img
-        }
-        if let decoded = cleanedURL.removingPercentEncoding {
-            let decodedCwd = URL(fileURLWithPath: currentDir).appendingPathComponent(decoded)
-            if let img = NSImage(contentsOfFile: decodedCwd.path) {
-                return img
-            }
-        }
-        
-        return nil
+        let currentDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        return load(currentDir.appendingPathComponent(cleanedURL).path)
+            ?? load(cleanedURL.removingPercentEncoding.map { currentDir.appendingPathComponent($0).path })
     }
+    
+    private static let imageLinkRegex = try! NSRegularExpression(pattern: #"!\[([^\]]*)\]\(([^)]+)\)"#)
     
     static func unreadableRelativeFolder(in markdown: String, baseURL: URL?) -> URL? {
         guard let baseURL = baseURL else { return nil }
@@ -247,10 +286,8 @@ struct MarkdownParser {
             return nil
         }
         
-        let pattern = #"!\[([^\]]*)\]\(([^)]+)\)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let nsString = markdown as NSString
-        let matches = regex.matches(in: markdown, range: NSRange(location: 0, length: nsString.length))
+        let matches = imageLinkRegex.matches(in: markdown, range: NSRange(location: 0, length: nsString.length))
         for match in matches {
             if match.numberOfRanges >= 3 {
                 let destWithTitle = nsString.substring(with: match.range(at: 2))

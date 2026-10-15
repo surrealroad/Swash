@@ -868,7 +868,9 @@ final class TableAttachmentCell: NSTextAttachmentCell {
 final class TableTextAttachment: NSTextAttachment {
     static let fileTypeIdentifier = "com.surrealroad.swash.table"
     
-    var tableData: MarkdownTableData
+    var tableData: MarkdownTableData {
+        didSet { cachedRawMarkdown = nil }
+    }
     var flavor: MarkdownFlavor
     var onUpdate: ((MarkdownTableData) -> Void)?
     var cell: TableAttachmentCell
@@ -877,11 +879,20 @@ final class TableTextAttachment: NSTextAttachment {
     let originalMarkdown: String?
     private let originalTableData: MarkdownTableData
 
+    /// Serialised once per change of `tableData`: it is read for every raw-Markdown rebuild and
+    /// offset map, several times per keystroke.
+    private var cachedRawMarkdown: String?
+    
     var rawMarkdown: String {
+        if let cached = cachedRawMarkdown { return cached }
+        let markdown: String
         if let original = originalMarkdown, tableData == originalTableData {
-            return original
+            markdown = original
+        } else {
+            markdown = MarkdownParser.tableToMarkdown(headers: tableData.headers, alignments: tableData.alignments, rows: tableData.rows)
         }
-        return MarkdownParser.tableToMarkdown(headers: tableData.headers, alignments: tableData.alignments, rows: tableData.rows)
+        cachedRawMarkdown = markdown
+        return markdown
     }
 
     init(tableData: MarkdownTableData, flavor: MarkdownFlavor, originalMarkdown: String? = nil, onUpdate: ((MarkdownTableData) -> Void)?) {
