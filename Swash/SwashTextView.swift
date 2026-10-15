@@ -1064,8 +1064,13 @@ struct SwashTextView: NSViewRepresentable {
         
         /// Applies a whole-document rewrite as the smallest equivalent edit on the live text view,
         /// registering it with the undo manager and restoring `rawSelection` afterwards.
+        /// Set while `applyEdit` changes the text, so its own change isn't treated as typing.
+        private var isApplyingEdit = false
+        
         func applyEdit(in textView: NSTextView, newRawText: String, rawSelection: NSRange?, actionName: String) {
             guard let storage = textView.textStorage else { return }
+            isApplyingEdit = true
+            defer { isApplyingEdit = false }
             let oldRaw = (parent.isStyled ? buildRawMarkdown(from: storage) : textView.string) as NSString
             let newRaw = newRawText as NSString
             guard oldRaw != newRaw else {
@@ -1368,6 +1373,19 @@ struct SwashTextView: NSViewRepresentable {
         }
         
         func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            if (replacementString == "{" || replacementString == "}"), !isApplyingEdit, !isHighlighting, !isUpdatingFromSwiftUI,
+               let storage = textView.textStorage {
+                // Brace pairing inside math (in every mode)
+                let raw = parent.isStyled ? buildRawMarkdown(from: storage) : textView.string
+                let selection = rawRange(forStorage: affectedCharRange, in: textView)
+                if let edit = MarkdownEditingCommands.mathBrace(replacementString!, text: raw, selection: selection, document: cachedDocument(for: raw)) {
+                    DispatchQueue.main.async { [weak self, weak textView] in
+                        guard let self = self, let textView = textView else { return }
+                        self.applyEdit(in: textView, newRawText: edit.text, rawSelection: edit.selection, actionName: "Typing")
+                    }
+                    return false
+                }
+            }
             guard parent.isStyled, replacementString == "/", affectedCharRange.length == 0, !isHighlighting,
                   let storage = textView.textStorage else { return true }
             let raw = buildRawMarkdown(from: storage)
@@ -1548,6 +1566,19 @@ struct SwashTextView: NSViewRepresentable {
         private func cachedDocument(for text: String) -> MarkdownDocument? {
             guard let cached = sharedFormatting, cached.text == text else { return nil }
             return cached.document
+        }
+        
+        // MARK: TeX completion
+        
+        /// After a backslash inside math, completion (Esc or ⌥Esc) offers KaTeX commands.
+        func textView(_ textView: NSTextView, completions words: [String], forPartialWordRange charRange: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
+            guard charRange.location > 0, let storage = textView.textStorage,
+                  (storage.string as NSString).character(at: charRange.location - 1) == 0x5C else { return words }
+            let raw = parent.isStyled ? buildRawMarkdown(from: storage) : textView.string
+            let rawLocation = rawRange(forStorage: NSRange(location: charRange.location, length: 0), in: textView).location
+            guard MarkdownMath.isEditingMath(in: formatting(for: raw).document, at: rawLocation) else { return words }
+            index?.pointee = 0
+            return MarkdownMath.completions(for: (storage.string as NSString).substring(with: charRange))
         }
         
         // Disable spellcheck inside code blocks

@@ -35,6 +35,7 @@ Swash combines the raw speed of AppKit's native text engine with the rich, fluid
 *   **⚡️ Quick Note** – Press ⌃⌥⌘N anywhere (configurable), or use the optional menu bar item or Shortcuts, to jot a note into a new document or append it to the last document you used.
 *   **📥 Import & Reopen** – File ▸ Import… converts Word, RTF, HTML and OpenDocument files to Markdown. Reopen Closed Document is ⇧⌘T. Files that can't be opened get a specific explanation, and legacy encodings (UTF-16, Windows Latin 1) are read correctly.
 *   **☁️ iCloud Conflicts & VoiceOver** – A banner offers to resolve conflicting versions saved on other devices. VoiceOver Headings, Links and Tables rotors make long documents easy to navigate.
+*   **∑ Math-Friendly Editing** – Inside `$…$`, `$$` and math blocks, typing `{` adds the closing brace, and typing `}` steps over it. After a backslash, completion (Esc or ⌥Esc) offers KaTeX commands such as `\frac`, `\alpha` and `\rightarrow`.
 *   **🛠️ Full macOS Integration** – Leverages system-level spellchecking, autocorrect options, undo/redo handling, and native keyboard navigation.
 
 ---
