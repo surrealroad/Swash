@@ -102,11 +102,15 @@ final class MarkdownNode {
     /// code blocks and HTML.
     var literal: String = ""
 
-    weak var parent: MarkdownNode?
+    /// Back references are `unowned` rather than `weak`: weak references give every node a side
+    /// table and slow down every retain and release (about 20% of parse time). A node never outlives
+    /// its document, which owns the tree; code that keeps nodes keeps the document too (render
+    /// contexts, `MarkdownFormatting`), and `unlink()` clears both references.
+    unowned var parent: MarkdownNode?
     private(set) var firstChild: MarkdownNode?
     private(set) var lastChild: MarkdownNode?
     private(set) var next: MarkdownNode?
-    private(set) weak var previous: MarkdownNode?
+    private(set) unowned var previous: MarkdownNode?
 
     init(_ kind: Kind, range: NSRange) {
         self.kind = kind

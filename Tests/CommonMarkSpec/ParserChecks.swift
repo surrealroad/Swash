@@ -370,6 +370,51 @@ enum ParserChecks {
             if !ok { failures += 1 }
             print(String(format: "  %@ %-20@ %7.1f ms", ok ? "✓" : "❌", name as NSString, ms))
         }
+        failures += runGrowth()
+        return failures
+    }
+
+    /// Parse time must grow roughly linearly: quadrupling the input may cost at most ~6× (a
+    /// quadratic path costs ~16×). Patterns from the performance audit (§5).
+    private static func runGrowth() -> Int {
+        func best(_ input: String) -> Double {
+            var best = Double.infinity
+            for _ in 0..<3 {
+                let start = Date()
+                _ = MarkdownDocument.parse(input)
+                best = min(best, Date().timeIntervalSince(start) * 1000)
+            }
+            return best
+        }
+        let patterns: [(String, (Int) -> String)] = [
+            ("emphasis text runs", { String(repeating: "*a ", count: $0) }),
+            ("open brackets", { String(repeating: "[", count: $0) }),
+            ("intraword underscores", { String(repeating: "a_ b", count: $0) }),
+            ("entities", { String(repeating: "&amp; ", count: $0) }),
+            ("angle brackets", { String(repeating: "< ", count: $0) }),
+            ("brackets then links", { String(repeating: "[", count: $0 / 2) + String(repeating: "[a](b)", count: $0 / 2) }),
+            ("reference definitions", { (0..<($0 / 4)).map { "[r\($0)]: /u\($0)" }.joined(separator: "\n") + "\n\ntext" }),
+            ("nested quotes", { String(repeating: ">", count: $0 / 10) + " a" }),
+        ]
+        var failures = 0
+        for (name, make) in patterns {
+            let small = best(make(5000))
+            let large = best(make(20000))
+            let ratio = large / max(small, 0.01)
+            // Below a few milliseconds timing noise dominates, so only the ratio of slow cases counts
+            let ok = large < 5 || ratio < 6
+            if !ok { failures += 1 }
+            print(String(format: "  %@ growth %-22@ 5k %6.1f ms  20k %6.1f ms  ×%.1f", ok ? "✓" : "❌", name as NSString, small, large, ratio))
+        }
+        // activeBlockFormat on a long selection walked the tree once per selected line (§5.3)
+        let lines = (0..<400).map { "Line \($0) of a long selection with **bold** text" }.joined(separator: "\n\n")
+        let formatting = MarkdownFormatting(text: lines)
+        let start = Date()
+        _ = formatting.activeBlockFormat(selection: NSRange(location: 0, length: (lines as NSString).length))
+        let ms = Date().timeIntervalSince(start) * 1000
+        let ok = ms < 15
+        if !ok { failures += 1 }
+        print(String(format: "  %@ activeBlockFormat, 400 lines selected %6.1f ms", ok ? "✓" : "❌", ms))
         return failures
     }
 }

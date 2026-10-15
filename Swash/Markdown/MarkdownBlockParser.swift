@@ -41,6 +41,10 @@ final class MarkdownBlockParser {
         var startLine = 0
         var endLine = -1
         var endOffset = 0
+        /// Line and end offset of the last `touch` that reached this node. `touch` always continues
+        /// to the root, so the node's ancestors are at least as far along.
+        var touchedLine = -1
+        var touchedEnd = 0
         var listData: ListData?
         var isFenced = false
         var fenceChar: UInt16 = 0
@@ -272,6 +276,11 @@ final class MarkdownBlockParser {
         let end = lineStart + lineLength
         while let n = current, n !== root {
             let s = state(n)
+            // Already extended to this point on this line, and so are all its ancestors: stop, rather
+            // than walking the whole ancestry for every container marker (quadratic in nesting depth)
+            if s.touchedLine == lineNumber && s.touchedEnd >= end { return }
+            s.touchedLine = lineNumber
+            s.touchedEnd = end
             if s.endLine < lineNumber || s.endOffset < end {
                 s.endLine = lineNumber
                 s.endOffset = end
@@ -738,18 +747,17 @@ final class MarkdownBlockParser {
         guard !delimiterCells.cells.isEmpty else { return 0 }
         var alignments: [TableAlignment] = []
         for cell in delimiterCells.cells {
-            let text = String(utf16CodeUnits: cell.chars, count: cell.chars.count)
-            guard text.range(of: "^:?-+:?$", options: .regularExpression) != nil else { return 0 }
-            let left = text.hasPrefix(":"), right = text.hasSuffix(":")
-            alignments.append(left && right ? .center : right ? .right : left ? .left : .defaultAlignment)
+            guard let alignment = Self.delimiterAlignment(cell.chars) else { return 0 }
+            alignments.append(alignment)
         }
-        // Header row = the paragraph's last line
+        // Header row = the paragraph's last line, found by scanning back in place
         let ps = state(container)
-        var content = ps.content
-        if content.chars.last == 0x0A { content.chars.removeLast(); content.map.removeLast() }
-        var headerStart = content.chars.count
-        while headerStart > 0 && content.chars[headerStart - 1] != 0x0A { headerStart -= 1 }
-        let header = MarkdownInlineSource(chars: Array(content.chars[headerStart...]), map: Array(content.map[headerStart...]))
+        let chars = ps.content.chars
+        var contentEnd = chars.count
+        if chars.last == 0x0A { contentEnd -= 1 }
+        var headerStart = contentEnd
+        while headerStart > 0 && chars[headerStart - 1] != 0x0A { headerStart -= 1 }
+        let header = MarkdownInlineSource(chars: Array(chars[headerStart..<contentEnd]), map: Array(ps.content.map[headerStart..<contentEnd]))
         let headerRow = splitRow(header)
         guard headerRow.cells.count == alignments.count, delimiterCells.hasPipe || headerRow.hasPipe else { return 0 }
 
@@ -780,6 +788,17 @@ final class MarkdownBlockParser {
         return 2
     }
 
+    /// Alignment of a delimiter-row cell matching `:?-+:?`, or nil when it isn't one.
+    private static func delimiterAlignment(_ cell: [UInt16]) -> TableAlignment? {
+        var lo = 0, hi = cell.count
+        let left = lo < hi && cell[lo] == 0x3A
+        if left { lo += 1 }
+        let right = hi > lo && cell[hi - 1] == 0x3A
+        if right { hi -= 1 }
+        guard hi > lo, cell[lo..<hi].allSatisfy({ $0 == 0x2D }) else { return nil }
+        return left && right ? .center : right ? .right : left ? .left : .defaultAlignment
+    }
+    
     private struct SplitRow {
         var cells: [MarkdownInlineSource] = []
         var pipes: [Int] = []
@@ -936,11 +955,17 @@ final class MarkdownBlockParser {
             }
             block.literal = String(utf16CodeUnits: content.chars, count: content.chars.count)
         case .htmlBlock:
-            var text = String(utf16CodeUnits: s.content.chars, count: s.content.chars.count)
-            if let range = text.range(of: "(\\n *)+$", options: .regularExpression) {
-                text.removeSubrange(range)
+            // Drop trailing blank lines (a newline followed by spaces, repeated)
+            let chars = s.content.chars
+            var end = chars.count, i = end
+            while i > 0 {
+                var j = i
+                while j > 0 && chars[j - 1] == 0x20 { j -= 1 }
+                guard j > 0 && chars[j - 1] == 0x0A else { break }
+                i = j - 1
+                end = i
             }
-            block.literal = text
+            block.literal = String(utf16CodeUnits: Array(chars[0..<end]), count: end)
         case .list:
             var tight = true
             var item = block.firstChild
@@ -975,16 +1000,21 @@ final class MarkdownBlockParser {
     /// Moves leading link reference definitions out of a paragraph into their own nodes.
     private func extractReferenceDefinitions(from paragraph: MarkdownNode) {
         let s = state(paragraph)
-        while s.content.chars.first == 0x5B,
-              let parsed = inlineParser.parseReference(s.content, refmap: &refmap) {
+        guard s.content.chars.first == 0x5B else { return }
+        let chars = s.content.chars, map = s.content.map
+        inlineParser.beginReferences(s.content)
+        // Definitions are consumed by offset; the remaining content is copied once at the end
+        var offset = 0
+        while offset < chars.count, chars[offset] == 0x5B,
+              let parsed = inlineParser.parseReference(at: offset, refmap: &refmap) {
             let consumed = parsed.consumed
             let def = (label: parsed.label, destination: parsed.destination, title: parsed.title,
-                       lines: max(1, s.content.chars[0..<consumed].filter { $0 == 0x0A }.count))
-            var end = consumed
-            while end > 0 && (s.content.chars[end - 1] == 0x0A || s.content.chars[end - 1] == 0x20) { end -= 1 }
-            let start = s.content.map[0]
+                       lines: max(1, chars[offset..<(offset + consumed)].filter { $0 == 0x0A }.count))
+            var end = offset + consumed
+            while end > offset && (chars[end - 1] == 0x0A || chars[end - 1] == 0x20) { end -= 1 }
+            let start = map[offset]
             let node = MarkdownNode(.linkReferenceDefinition(label: def.label, destination: def.destination, title: def.title),
-                                    range: NSRange(location: start, length: end > 0 ? s.content.map[end - 1] + 1 - start : 0))
+                                    range: NSRange(location: start, length: end > offset ? map[end - 1] + 1 - start : 0))
             node.markers = [node.range]
             let ns = state(node)
             ns.startLine = s.startLine
@@ -993,8 +1023,11 @@ final class MarkdownBlockParser {
             ns.open = false
             s.startLine += def.lines
             paragraph.insertBefore(node)
-            s.content = MarkdownInlineSource(chars: Array(s.content.chars[consumed...]), map: Array(s.content.map[consumed...]))
-            if let first = s.content.map.first { paragraph.range.location = first }
+            offset += consumed
+            if offset < map.count { paragraph.range.location = map[offset] }
+        }
+        if offset > 0 {
+            s.content = MarkdownInlineSource(chars: Array(chars[offset...]), map: Array(map[offset...]))
         }
     }
 

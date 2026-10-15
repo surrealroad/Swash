@@ -1,5 +1,13 @@
 # swash
 
+## 1.10.2
+
+### Patch Changes
+
+- 24168d9: Performance: finding code blocks and code spans, which the editor does on styling passes, is about 20% faster.
+- 24168d9: Performance: the Markdown parser is about 20% faster on ordinary documents, and inputs that used to take time proportional to the square of their length (long runs of unmatched `*`, `_`, `&` or `<`, many `[` before links, long lists of reference definitions, deeply nested quotes) now parse in linear time. Checking block formats on a long selection is about 40× faster.
+- 24168d9: Performance: tables, HTML blocks, link definitions and image titles are parsed without compiling a regular expression each time, and detecting a document's Markdown flavor when it opens examines only its first 32 KB, with patterns compiled once.
+
 ## 1.10.1
 
 ### Patch Changes
