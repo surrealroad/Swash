@@ -10,6 +10,6 @@
     "changeset:status": "changeset status --since=origin/main"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.1"
+    "@changesets/cli": "^3.0.3"
   }
 }
