@@ -444,7 +444,9 @@ struct ContentView: View {
                     },
                     onRemoveLink: {
                         removeLink(activeLink: activeLink)
-                    }
+                    },
+                    translatableText: cellSelectionRect == nil && bubbleContext != .codeBlock ? selectedPlainText : nil,
+                    onReplaceWithTranslation: { replaceSelection(with: $0) }
                 )
                 .background(
                     GeometryReader { menuGeo in
@@ -1690,6 +1692,34 @@ struct ContentView: View {
         
         let newText = document.text.replacingCharacters(in: replaceRange, with: link.text)
         commitEdit(newText, selection: NSRange(location: link.fullRange.location, length: (link.text as NSString).length), actionName: "Remove Link")
+    }
+    
+    /// The selection as readers see it (Markdown syntax removed), for Translate.
+    private var selectedPlainText: String? {
+        let ns = document.text as NSString
+        guard let range = selectedRange, range.length > 0, NSMaxRange(range) <= ns.length else { return nil }
+        let selected = MarkdownDocument.parse(ns.substring(with: range))
+        var paragraphs: [String] = []
+        selected.root.walk { node in
+            switch node.kind {
+            case .paragraph, .heading, .tableCell:
+                paragraphs.append(node.plainText)
+            case .codeBlock:
+                paragraphs.append(node.literal)
+            default:
+                break
+            }
+        }
+        let text = paragraphs.joined(separator: "\n\n")
+        return text.isEmpty ? nil : text
+    }
+    
+    /// Replaces the selection with `text` (a translation), as one undoable edit.
+    private func replaceSelection(with text: String) {
+        let ns = document.text as NSString
+        guard let range = selectedRange, NSMaxRange(range) <= ns.length else { return }
+        let updated = ns.replacingCharacters(in: range, with: text)
+        commitEdit(updated, selection: NSRange(location: range.location, length: (text as NSString).length), actionName: "Translate")
     }
     
     /// Statistics of the selected text, or nil without a selection.
