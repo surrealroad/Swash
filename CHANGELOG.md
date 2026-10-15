@@ -1,5 +1,20 @@
 # swash
 
+## 1.11.0
+
+### Minor Changes
+
+- 6b144c8: Editor: the system find bar (⌘F, with incremental search) is now enabled. Writing Tools leaves code, math, HTML, front matter, tables and images untouched, and Swash holds off restyling and saving until a rewrite finishes. VoiceOver gets Headings, Links and Tables rotors for moving around a document.
+- 6b144c8: Outline and statistics: a heading outline sidebar (View ▸ Show Outline, ⌃⌘S) follows the caret and jumps to a heading when you click it. The status bar now counts only the text readers see. Click the count to switch between words, characters, characters without spaces, paragraphs and reading time; with text selected it shows "selected of total". Format ▸ Insert Table of Contents adds a linked list of headings. The Edit menu gains Copy Heading Link (⌃⌘C), Copy as Markdown Link and Copy File Path.
+- 6b144c8: Quick Note, importing and safer opening:
+  
+  - **Quick Note:** a floating panel opened with a global shortcut (⌃⌥⌘N by default, changeable in Settings), an optional menu bar item, or the Quick Note shortcut. It saves a note as a new document or appends it to the last document you used. Settings can also turn on Open at Login.
+  - **Import:** File ▸ Import… (⇧⌘I) converts Word, RTF, HTML and OpenDocument files into new Markdown documents.
+  - **Reopen:** File ▸ Reopen Closed Document (⇧⌘T) brings back recently closed files.
+  - **Opening files:** requests are gathered together, and Swash asks before opening more than ten at once. A file that can't be opened gets a specific reason: missing, a folder, no permission, too large, or not text.
+  - **File types:** `.mkd`, `.mdwn`, `.mdtext`, `.mdtxt` and `.rmd` now open as Markdown, and UTF-16 and legacy-encoded files are decoded instead of rejected.
+  - **iCloud conflicts:** a banner offers to choose which conflicting version to keep, and keeping another version can be undone.
+
 ## 1.10.3
 
 ### Patch Changes
