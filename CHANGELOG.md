@@ -1,5 +1,18 @@
 # swash
 
+## 1.12.0
+
+### Minor Changes
+
+- 93b031e: Math editing: inside `$…$`, `$$` blocks and math code blocks, typing `{` inserts a matching `}` (wrapping any selection), and typing `}` steps over an existing one. After a backslash, the system completion shortcut (Esc or ⌥Esc) lists KaTeX commands such as `\frac`, `\alpha` and `\rightarrow`.
+- 93b031e: Translate: the formatting bubble has a Translate button for selected text. It opens the system translation popover, and Replace puts the translation into the document as a single undoable edit. Markdown syntax in the selection isn't sent for translation, and formatting within the replaced text isn't kept.
+
+### Patch Changes
+
+- 93b031e: Performance: formulas waiting to render are typeset together and captured in one snapshot (up to 16 at a time) instead of one snapshot each, so documents with a lot of math show their formulas sooner.
+- 93b031e: Performance: the formatting bubble finds code blocks and code spans once per document change, instead of rescanning the document several times each time it updates.
+- 93b031e: Performance: while you type, Swash no longer looks for a link under the caret after every keystroke. That check scanned the whole document and was the main cost of typing in Source and Slack modes. The bubble menu for a link now appears once typing pauses.
+
 ## 1.11.0
 
 ### Minor Changes
