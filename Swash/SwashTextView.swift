@@ -106,6 +106,8 @@ final class SwashEditorController {
     
     /// Parsed formatting state for `text`, reused until the text changes.
     func formatting(for text: String) -> MarkdownFormatting {
+        // Share the editor's parse when it has one for this text
+        if let coordinator = coordinator { return coordinator.formatting(for: text) }
         if let cached = cachedFormatting, cached.text == text { return cached }
         let formatting = MarkdownFormatting(text: text)
         cachedFormatting = formatting
@@ -797,13 +799,22 @@ struct SwashTextView: NSViewRepresentable {
         controller?.textView = textView
         controller?.coordinator = context.coordinator
         
-        let currentRawText = isStyled ? context.coordinator.buildRawMarkdown(from: textView.textStorage ?? NSTextStorage()) : textView.string
-        let normalizedTextView = currentRawText.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        let normalizedBinding = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        
-        // Trim whitespaces and newlines for comparison to ignore trivial formatting differences
-        let textChanged = (context.coordinator.lastStyledText != text) &&
-                          (normalizedTextView.trimmingCharacters(in: .whitespacesAndNewlines) != normalizedBinding.trimmingCharacters(in: .whitespacesAndNewlines))
+        // The binding usually just echoes what the editor published from its last edit: skip
+        // rebuilding and normalising the whole document in that case
+        let textChanged: Bool
+        if text == context.coordinator.lastPublishedText || text == context.coordinator.lastStyledText {
+            textChanged = false
+        } else {
+            let currentRawText = isStyled ? context.coordinator.buildRawMarkdown(from: textView.textStorage ?? NSTextStorage()) : textView.string
+            if currentRawText == text {
+                textChanged = false
+            } else {
+                let normalizedTextView = currentRawText.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+                let normalizedBinding = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+                // Trim whitespaces and newlines for comparison to ignore trivial formatting differences
+                textChanged = normalizedTextView.trimmingCharacters(in: .whitespacesAndNewlines) != normalizedBinding.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
         
         let isFirstResponder = textView.window?.firstResponder == textView
         let hasSelection = textView.selectedRange().length > 0
@@ -816,6 +827,7 @@ struct SwashTextView: NSViewRepresentable {
                 context.coordinator.lastKnownScrollOrigin = origin
             }
             textView.string = text
+            context.coordinator.lastPublishedText = text
             context.coordinator.invalidateOffsetMap()
             if let origin = context.coordinator.lastKnownScrollOrigin, let clipView = textView.enclosingScrollView?.contentView {
                 clipView.scroll(to: origin)
@@ -878,6 +890,8 @@ struct SwashTextView: NSViewRepresentable {
         var didAutoSelect = false
         
         var lastStyledText: String? = nil
+        /// The raw Markdown most recently written to the binding from the editor.
+        var lastPublishedText: String? = nil
         var lastIsStyled: Bool? = nil
         var lastFlavor: MarkdownFlavor? = nil
         var lastBaseURL: URL? = nil
@@ -949,6 +963,7 @@ struct SwashTextView: NSViewRepresentable {
             if removed {
                 forceFullRestyle = true
                 let updatedText = buildRawMarkdown(from: textStorage)
+                lastPublishedText = updatedText
                 self.parent.text = updatedText
                 highlightMarkdown(in: textView)
                 
@@ -975,13 +990,14 @@ struct SwashTextView: NSViewRepresentable {
         
         // MARK: - Storage ↔ Raw Offsets
         
-        private var cachedLinkFormatting: MarkdownFormatting?
+        private var sharedFormatting: MarkdownFormatting?
         
-        /// Parsed document used to detect the link under the caret; reused until the text changes.
-        private func linkFormatting(for text: String) -> MarkdownFormatting {
-            if let cached = cachedLinkFormatting, cached.text == text { return cached }
+        /// The parse of `text`, shared by styling, the link under the caret, structural editing and
+        /// (through `SwashEditorController`) the bubble menu, so each revision is parsed once.
+        func formatting(for text: String) -> MarkdownFormatting {
+            if let cached = sharedFormatting, cached.text == text { return cached }
             let formatting = MarkdownFormatting(text: text)
-            cachedLinkFormatting = formatting
+            sharedFormatting = formatting
             return formatting
         }
         
@@ -1159,18 +1175,27 @@ struct SwashTextView: NSViewRepresentable {
             }
             if !isUpdatingFromSwiftUI {
                 if parent.isStyled, let textStorage = textView.textStorage {
-                    parent.text = buildRawMarkdown(from: textStorage)
+                    let raw = buildRawMarkdown(from: textStorage)
+                    lastPublishedText = raw
+                    parent.text = raw
                     editGeneration += 1
                     let generation = editGeneration
-                    DispatchQueue.main.async { [weak self, weak textView] in
+                    // Slack mrkdwn has no incremental path: each pass restyles the whole document,
+                    // so it waits for a short pause in typing and only the latest edit is styled
+                    let isSlack = parent.flavor == .slack
+                    DispatchQueue.main.asyncAfter(deadline: .now() + (isSlack ? 0.12 : 0)) { [weak self, weak textView] in
                         guard let self = self, let textView = textView else { return }
                         // Skip if a synchronous pass (e.g. a bubble-menu edit) already styled this revision
                         guard self.highlightedGeneration < generation else { return }
+                        if isSlack && generation != self.editGeneration { return }
                         self.highlightMarkdown(in: textView)
                     }
                 } else {
+                    lastPublishedText = textView.string
                     parent.text = textView.string
-                    applyPlainStyle(in: textView)
+                    // Typed text takes the monospaced typing attributes; restyling the whole
+                    // storage per keystroke would invalidate the entire layout
+                    schedulePlainCodeBlockRefresh(in: textView)
                 }
             }
         }
@@ -1189,7 +1214,7 @@ struct SwashTextView: NSViewRepresentable {
                     // Defer updating selection rect until mouse is up/selection settles.
                     // This prevents SwiftUI overlays from rendering during an active click/drag gesture,
                     // which interrupts AppKit mouse tracking and causes automatic deselection.
-                    NSObject.cancelPreviousPerformRequests(withTarget: self)
+                    NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(deferredUpdateSelectionRect(_:)), object: textView)
                     self.perform(#selector(deferredUpdateSelectionRect(_:)), with: textView, afterDelay: 0.15)
                 } else {
                     updateSelectionRect(for: textView)
@@ -1211,13 +1236,17 @@ struct SwashTextView: NSViewRepresentable {
                 if !isUpdatingFromSwiftUI {
                     parent.scrollSync?.scrollViewDidScroll(scrollView)
                 }
-                updateSelectionRect(for: textView)
+                // Scrolling doesn't change what is selected: just move the rectangle
+                positionSelectionRect(around: selectionTarget, in: textView)
             }
         }
         
+        /// Storage range the bubble menu is anchored to (the selection or the link under the caret),
+        /// or nil when there is none.
+        private var selectionTarget: NSRange? = nil
+        
         private func updateSelectionRect(for textView: NSTextView?) {
-            guard let textView = textView,
-                  let scrollView = textView.enclosingScrollView else { return }
+            guard let textView = textView, textView.enclosingScrollView != nil else { return }
             
             let range = textView.selectedRange()
             logDebug("[SwashTextView] updateSelectionRect - range: \(range)")
@@ -1227,7 +1256,7 @@ struct SwashTextView: NSViewRepresentable {
             let activeLink: (fullRange: NSRange, url: String)?
             if parent.flavor == .slack {
                 activeLink = LinkDetector.findLink(at: rawSelection, in: parent.text, flavor: .slack).map { ($0.fullRange, $0.url) }
-            } else if let node = linkFormatting(for: parent.text).link(at: rawSelection),
+            } else if let node = formatting(for: parent.text).link(at: rawSelection),
                       case .link(let destination, _, let kind) = node.kind, kind != .extendedAutolink {
                 activeLink = (node.range, destination)
             } else {
@@ -1238,42 +1267,50 @@ struct SwashTextView: NSViewRepresentable {
                 if parent.selectedRange != rawSelection { parent.selectedRange = rawSelection }
                 
                 let targetRange = (range.length > 0) ? range : (activeLink.map { storageRange(forRaw: $0.fullRange, in: textView) } ?? range)
-                
-                if let layoutManager = textView.layoutManager,
-                   let textContainer = textView.textContainer {
-                    let glyphRange = layoutManager.glyphRange(forCharacterRange: targetRange, actualCharacterRange: nil)
-                    var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-                    
-                    // Add origin of the text container (margins)
-                    let origin = textView.textContainerOrigin
-                    rect.origin.x += origin.x
-                    rect.origin.y += origin.y
-                    
-                    // Convert from textView local coordinates to NSScrollView contentView (NSClipView) coordinates
-                    let rectInClipView = textView.convert(rect, to: scrollView.contentView)
-                    
-                    let scrollOffset = scrollView.contentView.bounds.origin
-                    let swiftUIRect = NSRect(
-                        x: rectInClipView.origin.x - scrollOffset.x,
-                        y: rectInClipView.origin.y - scrollOffset.y,
-                        width: rectInClipView.width,
-                        height: rectInClipView.height
-                    )
-                    
-                    let visibleY = rectInClipView.origin.y - scrollOffset.y
-                    let viewportHeight = scrollView.contentView.bounds.height
-                    
-                    // Only publish selection rect if it is visible inside the scroll view viewport bounds
-                    if visibleY >= 0 && visibleY + rectInClipView.height <= viewportHeight {
-                        publishSelectionRect(swiftUIRect)
-                    } else {
-                        publishSelectionRect(nil)
-                    }
-                } else {
-                    publishSelectionRect(nil)
-                }
+                selectionTarget = targetRange
+                positionSelectionRect(around: targetRange, in: textView)
             } else {
+                selectionTarget = nil
                 if parent.selectedRange != nil { parent.selectedRange = nil }
+                publishSelectionRect(nil)
+            }
+        }
+        
+        /// Publishes the rectangle around `targetRange` (storage offsets) in the scroll view's
+        /// visible coordinates, or nil when there is no target or it is scrolled out of view.
+        private func positionSelectionRect(around targetRange: NSRange?, in textView: NSTextView) {
+            guard let targetRange = targetRange, let scrollView = textView.enclosingScrollView,
+                  let layoutManager = textView.layoutManager, let textContainer = textView.textContainer,
+                  NSMaxRange(targetRange) <= (textView.textStorage?.length ?? 0) else {
+                publishSelectionRect(nil)
+                return
+            }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: targetRange, actualCharacterRange: nil)
+            var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            
+            // Add origin of the text container (margins)
+            let origin = textView.textContainerOrigin
+            rect.origin.x += origin.x
+            rect.origin.y += origin.y
+            
+            // Convert from textView local coordinates to NSScrollView contentView (NSClipView) coordinates
+            let rectInClipView = textView.convert(rect, to: scrollView.contentView)
+            
+            let scrollOffset = scrollView.contentView.bounds.origin
+            let swiftUIRect = NSRect(
+                x: rectInClipView.origin.x - scrollOffset.x,
+                y: rectInClipView.origin.y - scrollOffset.y,
+                width: rectInClipView.width,
+                height: rectInClipView.height
+            )
+            
+            let visibleY = rectInClipView.origin.y - scrollOffset.y
+            let viewportHeight = scrollView.contentView.bounds.height
+            
+            // Only publish selection rect if it is visible inside the scroll view viewport bounds
+            if visibleY >= 0 && visibleY + rectInClipView.height <= viewportHeight {
+                publishSelectionRect(swiftUIRect)
+            } else {
                 publishSelectionRect(nil)
             }
         }
@@ -1451,22 +1488,22 @@ struct SwashTextView: NSViewRepresentable {
                     onCommit()
                     return true
                 }
-                return applyStructuralEdit(in: textView, actionName: "New Line") { MarkdownEditingCommands.newline(text: $0, selection: $1) }
+                return applyStructuralEdit(in: textView, actionName: "New Line") { MarkdownEditingCommands.newline(text: $0, selection: $1, document: self.cachedDocument(for: $0)) }
             } else if commandSelector == #selector(NSResponder.insertTab(_:)) {
                 if let onNextCell = parent.onNextCell {
                     onNextCell()
                     return true
                 }
-                return applyStructuralEdit(in: textView, actionName: "Indent") { MarkdownEditingCommands.indent(text: $0, selection: $1) }
+                return applyStructuralEdit(in: textView, actionName: "Indent") { MarkdownEditingCommands.indent(text: $0, selection: $1, document: self.cachedDocument(for: $0)) }
             } else if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
                 if let onPrevCell = parent.onPrevCell {
                     onPrevCell()
                     return true
                 }
-                return applyStructuralEdit(in: textView, actionName: "Outdent") { MarkdownEditingCommands.outdent(text: $0, selection: $1) }
+                return applyStructuralEdit(in: textView, actionName: "Outdent") { MarkdownEditingCommands.outdent(text: $0, selection: $1, document: self.cachedDocument(for: $0)) }
             } else if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
                 let hidden = parent.isStyled
-                return applyStructuralEdit(in: textView, actionName: "Delete") { MarkdownEditingCommands.backspace(text: $0, selection: $1, markersHidden: hidden) }
+                return applyStructuralEdit(in: textView, actionName: "Delete") { MarkdownEditingCommands.backspace(text: $0, selection: $1, markersHidden: hidden, document: self.cachedDocument(for: $0)) }
             }
             return false
         }
@@ -1479,6 +1516,12 @@ struct SwashTextView: NSViewRepresentable {
             guard let edit = command(raw, rawSelection) else { return false }
             applyEdit(in: textView, newRawText: edit.text, rawSelection: edit.selection, actionName: actionName)
             return true
+        }
+        
+        /// The shared parse of `text` if it is already available (no parse is started for it).
+        private func cachedDocument(for text: String) -> MarkdownDocument? {
+            guard let cached = sharedFormatting, cached.text == text else { return nil }
+            return cached.document
         }
         
         // Disable spellcheck inside code blocks
@@ -1568,7 +1611,7 @@ struct SwashTextView: NSViewRepresentable {
             var styledCodeRanges: [NSRange]? = nil
             if parent.flavor != .slack {
                 // CommonMark / GFM: style from the shared Markdown AST
-                let document = MarkdownDocument.parse(text)
+                let document = formatting(for: text).document
                 let styler = MarkdownEditorStyler(storage: textStorage, document: document)
                 configureRichPreviews(styler, for: textView)
                 styler.style()
@@ -1769,7 +1812,7 @@ struct SwashTextView: NSViewRepresentable {
                         } else if line.hasPrefix("> ") || line == ">" {
                             let quoteContent = line.hasPrefix("> ") ? String(line.dropFirst(2)) : ""
                             let alertPattern = "^\\[\\!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\\]"
-                            if let alertRegex = try? NSRegularExpression(pattern: alertPattern, options: [.caseInsensitive]),
+                            if let alertRegex = Coordinator.regex(alertPattern, [.caseInsensitive]),
                                let match = alertRegex.firstMatch(in: quoteContent, options: [], range: NSRange(location: 0, length: (quoteContent as NSString).length)) {
                                 let typeStr = (quoteContent as NSString).substring(with: match.range(at: 1)).lowercased()
                                 let calloutColor: NSColor
@@ -1820,7 +1863,7 @@ struct SwashTextView: NSViewRepresentable {
                         } else {
                             activeAlertColor = nil
                             let taskPattern = "^[-*+]\\s+\\[([ xX])\\]\\s*"
-                            if let taskRegex = try? NSRegularExpression(pattern: taskPattern),
+                            if let taskRegex = Coordinator.regex(taskPattern),
                                let taskMatch = taskRegex.firstMatch(in: trimmedLine, options: [], range: NSRange(location: 0, length: (trimmedLine as NSString).length)) {
                                 let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
                                 let fullMarkerLen = taskMatch.range(at: 0).length
@@ -1872,7 +1915,7 @@ struct SwashTextView: NSViewRepresentable {
                                 textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             
                                 textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: "•", indent: indent), range: rawMarkerRange)
-                            } else if let fnDefMatch = try? NSRegularExpression(pattern: "^ {0,3}\\[\\^([^\\]]+)\\]:\\s*(.*)$").firstMatch(in: trimmedLine, options: [], range: NSRange(location: 0, length: (trimmedLine as NSString).length)) {
+                            } else if let fnDefMatch = Coordinator.regex("^ {0,3}\\[\\^([^\\]]+)\\]:\\s*(.*)$")?.firstMatch(in: trimmedLine, options: [], range: NSRange(location: 0, length: (trimmedLine as NSString).length)) {
                                 let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
                                 let fullPrefixLen = fnDefMatch.range(at: 0).length - fnDefMatch.range(at: 2).length
                             
@@ -1949,7 +1992,7 @@ struct SwashTextView: NSViewRepresentable {
                 styleCodeSpans()
             
                 // Slack Links: <url|text>
-                if let linkWithPipeRegex = try? NSRegularExpression(pattern: "(<(https?://[^>|\\n]+)\\|)([^>|\\n]+)(>)", options: []) {
+                if let linkWithPipeRegex = Coordinator.regex("(<(https?://[^>|\\n]+)\\|)([^>|\\n]+)(>)") {
                     let nsString = text as NSString
                     let matches = linkWithPipeRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
                     for match in matches {
@@ -1981,7 +2024,7 @@ struct SwashTextView: NSViewRepresentable {
                 }
             
                 // Slack Links: <url>
-                if let linkRegex = try? NSRegularExpression(pattern: "(<)(https?://[^>|\\n]+)(>)", options: []) {
+                if let linkRegex = Coordinator.regex("(<)(https?://[^>|\\n]+)(>)") {
                     let nsString = text as NSString
                     let matches = linkRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
                     for match in matches {
@@ -2003,7 +2046,7 @@ struct SwashTextView: NSViewRepresentable {
 
                 // Bare URLs, www. domains, and emails
                 let urlPattern = "(?:https?://|www\\.)[^\\s<>\"'\\)]+|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
-                if let bareUrlRegex = try? NSRegularExpression(pattern: urlPattern, options: []) {
+                if let bareUrlRegex = Coordinator.regex(urlPattern, []) {
                     let nsString = text as NSString
                     let matches = bareUrlRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
                     for match in matches {
@@ -2065,7 +2108,7 @@ struct SwashTextView: NSViewRepresentable {
             
                 // Scan for Inline Images: ![alt](url)
                 let inlineImgPattern = "!\\[(.*?)\\]\\((.*?)\\)"
-                if let regex = try? NSRegularExpression(pattern: inlineImgPattern) {
+                if let regex = Coordinator.regex(inlineImgPattern) {
                     let nsText = text as NSString
                     let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
                     for match in matches {
@@ -2080,7 +2123,7 @@ struct SwashTextView: NSViewRepresentable {
             
                 // Scan for Reference-Style Images: ![alt][ref]
                 let refImgPattern = "!\\[(.*?)\\]\\[(.*?)\\]"
-                if let regex = try? NSRegularExpression(pattern: refImgPattern) {
+                if let regex = Coordinator.regex(refImgPattern) {
                     let nsText = text as NSString
                     let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
                     for match in matches {
@@ -2098,7 +2141,7 @@ struct SwashTextView: NSViewRepresentable {
             
                 // Scan for Shortcut Reference-Style Images: ![alt]
                 let shortcutImgPattern = "!\\[([^\\]\\^]+)\\](?![\\(\\[:])"
-                if let regex = try? NSRegularExpression(pattern: shortcutImgPattern) {
+                if let regex = Coordinator.regex(shortcutImgPattern) {
                     let nsText = text as NSString
                     let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
                     for match in matches {
@@ -2121,7 +2164,7 @@ struct SwashTextView: NSViewRepresentable {
             isHighlighting = false
             
             let exclusions = styledCodeRanges ?? codeRanges.blockRanges
-            finishStyling(in: textView, rawText: text, exclusions: exclusions, savedRawSelection: savedRawSelection, savedScrollOrigin: savedScrollOrigin)
+            finishStyling(in: textView, rawText: text, exclusions: exclusions, savedRawSelection: savedRawSelection, savedScrollOrigin: savedScrollOrigin, fullPass: true)
         }
         
         // MARK: Shared styling steps
@@ -2170,11 +2213,7 @@ struct SwashTextView: NSViewRepresentable {
                         var attachment: TableTextAttachment? = nil
                         attachment = TableTextAttachment(tableData: tableData, flavor: parent.flavor, originalMarkdown: source) { [weak self, weak textView] updatedData in
                             guard let self = self, let textView = textView, let textStorage = textView.textStorage, let attachment = attachment else { return }
-                            attachment.tableData = updatedData
-                            // The table's raw length may have changed
-                            self.cachedOffsetMap = nil
-                            self.forceFullRestyle = true
-                            self.parent.text = self.buildRawMarkdown(from: textStorage)
+                            self.tableCellEdited(attachment, data: updatedData, in: textView, storage: textStorage)
                         }
                         if let validAttachment = attachment {
                             let attrAttachment = NSMutableAttributedString(attachment: validAttachment)
@@ -2190,10 +2229,10 @@ struct SwashTextView: NSViewRepresentable {
                     if validRange.length > 0 {
                         let cleaned = MarkdownParser.cleanImageURLAndTitle(urlString)
                         let winURL = textView.window?.representedURL ?? (textView.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
-                        let resolved = MarkdownParser.resolveImage(urlString: cleaned.url, baseURL: parent.baseURL, windowURL: winURL)
+                        let resolved = MarkdownParser.resolveImageFile(urlString: cleaned.url, baseURL: parent.baseURL, windowURL: winURL)
                         let displayImage: NSImage
-                        if let realImage = resolved {
-                            displayImage = MarkdownParser.scaleImageForEditor(realImage, maxWidth: min(550, width ?? 550))
+                        if let (realImage, path) = resolved {
+                            displayImage = ImageCache.shared.editorImage(realImage, path: path, maxWidth: min(550, width ?? 550))
                         } else {
                             displayImage = MarkdownParser.placeholderImage(alt: alt)
                         }
@@ -2210,7 +2249,9 @@ struct SwashTextView: NSViewRepresentable {
         }
         
         /// Bookkeeping after a styling pass: spellcheck exclusions, selection, scroll position, state.
-        private func finishStyling(in textView: NSTextView, rawText: String, exclusions: [NSRange], savedRawSelection: NSRange, savedScrollOrigin: NSPoint?) {
+        /// `fullPass`: the storage was rebuilt, so layout may settle late and the scroll position is
+        /// restored again shortly after. Incremental passes skip that, so it can't fight autoscroll.
+        private func finishStyling(in textView: NSTextView, rawText: String, exclusions: [NSRange], savedRawSelection: NSRange, savedScrollOrigin: NSPoint?, fullPass: Bool) {
             cachedOffsetMap = nil
             highlightedGeneration = editGeneration
             
@@ -2225,11 +2266,11 @@ struct SwashTextView: NSViewRepresentable {
                 clipView.scroll(to: origin)
                 textView.enclosingScrollView?.reflectScrolledClipView(clipView)
                 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak textView] in
+                if fullPass { DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak textView] in
                     guard let clipView = textView?.enclosingScrollView?.contentView else { return }
                     clipView.scroll(to: origin)
                     textView?.enclosingScrollView?.reflectScrolledClipView(clipView)
-                }
+                } }
             }
             
             lastStyledText = rawText
@@ -2283,7 +2324,7 @@ struct SwashTextView: NSViewRepresentable {
             
             let rawText = buildRawMarkdown(from: storage)
             let raw = rawText as NSString
-            let document = MarkdownDocument.parse(rawText)
+            let document = formatting(for: rawText).document
             let blocks = document.root.children
             let current = Coordinator.blockSummaries(document, raw: raw)
             
@@ -2340,10 +2381,56 @@ struct SwashTextView: NSViewRepresentable {
             lastRawLength = raw.length
             incrementalPassCount += 1
             finishStyling(in: textView, rawText: rawText, exclusions: MarkdownEditorStyler.spellcheckExclusions(in: document),
-                          savedRawSelection: savedRawSelection, savedScrollOrigin: savedScrollOrigin)
+                          savedRawSelection: savedRawSelection, savedScrollOrigin: savedScrollOrigin, fullPass: false)
             return true
         }
         
+        /// A table cell edit changes only that table's source. Splice it into the published text and
+        /// shift the block bookkeeping after it, so the next keystroke stays incremental instead of
+        /// rebuilding every table and image. Falls back to a full rebuild when anything doesn't line up.
+        func tableCellEdited(_ attachment: TableTextAttachment, data: MarkdownTableData, in textView: NSTextView, storage: NSTextStorage) {
+            let oldSource = attachment.rawMarkdown
+            let map = offsetMap(for: textView)
+            var storageIndex: Int? = nil
+            storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length), options: []) { value, range, stop in
+                if (value as AnyObject?) === attachment { storageIndex = range.location; stop.pointee = true }
+            }
+            attachment.tableData = data
+            let newSource = attachment.rawMarkdown
+            cachedOffsetMap = nil
+
+            var spliced: String? = nil
+            if let index = storageIndex, let published = lastPublishedText {
+                let ns = published as NSString
+                let oldRange = NSRange(location: map.rawLocation(forStorage: index), length: (oldSource as NSString).length)
+                if NSMaxRange(oldRange) <= ns.length, ns.substring(with: oldRange) == oldSource {
+                    spliced = ns.replacingCharacters(in: oldRange, with: newSource)
+                    if !shiftBlocks(replacing: oldSource, at: oldRange.location, with: newSource) { forceFullRestyle = true }
+                }
+            }
+            if spliced == nil { forceFullRestyle = true }
+            let raw = spliced ?? buildRawMarkdown(from: storage)
+            lastPublishedText = raw
+            parent.text = raw
+        }
+
+        /// Replaces one top-level block's recorded source and moves the blocks after it.
+        private func shiftBlocks(replacing oldSource: String, at location: Int, with newSource: String) -> Bool {
+            guard var blocks = lastBlocks,
+                  let index = blocks.firstIndex(where: { $0.range.location == location && $0.source == oldSource }) else { return false }
+            let delta = (newSource as NSString).length - (oldSource as NSString).length
+            blocks[index] = (newSource, NSRange(location: location, length: (newSource as NSString).length), false)
+            for i in (index + 1)..<blocks.count {
+                blocks[i].range.location += delta
+            }
+            lastBlocks = blocks
+            lastRawLength += delta
+            if delta != 0 {
+                richPreviewMemory = Dictionary(uniqueKeysWithValues: richPreviewMemory.map { ($0.key > location ? $0.key + delta : $0.key, $0.value) })
+            }
+            return true
+        }
+
         /// Number of incremental passes (diagnostics and tests).
         private(set) var incrementalPassCount = 0
         
@@ -2371,6 +2458,7 @@ struct SwashTextView: NSViewRepresentable {
             // Leave room for the code block's padding and border
             styler.richPreviewMaxWidth = max(120, min(900, width - 48))
             styler.richPreviewMemory = richPreviewMemory
+            styler.richPreviewOwner = ObjectIdentifier(self)
         }
         
         private func collectRichPreviews(from styler: MarkdownEditorStyler, fullPass: Bool) {
@@ -2434,6 +2522,7 @@ struct SwashTextView: NSViewRepresentable {
             ], range: fullRange)
             
             textStorage.endEditing()
+            textView.typingAttributes = [.font: monospaceFont, .foregroundColor: NSColor.textColor]
             isHighlighting = false
             cachedOffsetMap = nil
             cachedStorageCodeBlocks = MarkdownParser.codeRanges(in: textView.string).blockRanges
@@ -2444,8 +2533,30 @@ struct SwashTextView: NSViewRepresentable {
             lastBaseURL = parent.baseURL ?? textView.window?.representedURL ?? (textView.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
         }
         
+        /// Source mode: re-finds code blocks (for spellcheck) once typing pauses.
+        private func schedulePlainCodeBlockRefresh(in textView: NSTextView) {
+            NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(refreshPlainCodeBlocks(_:)), object: textView)
+            perform(#selector(refreshPlainCodeBlocks(_:)), with: textView, afterDelay: 0.3)
+        }
+        
+        @objc private func refreshPlainCodeBlocks(_ textView: NSTextView) {
+            guard !parent.isStyled else { return }
+            cachedStorageCodeBlocks = MarkdownParser.codeRanges(in: textView.string).blockRanges
+        }
+        
+        /// Compiled patterns for the Slack styling path, which used to compile them per line and per pass.
+        private static var regexCache: [String: NSRegularExpression] = [:]
+        
+        static func regex(_ pattern: String, _ options: NSRegularExpression.Options = []) -> NSRegularExpression? {
+            let key = "\(options.rawValue)|\(pattern)"
+            if let cached = regexCache[key] { return cached }
+            let compiled = try? NSRegularExpression(pattern: pattern, options: options)
+            regexCache[key] = compiled
+            return compiled
+        }
+        
         private func applyRegex(pattern: String, in text: String, action: (NSRange, NSRange) -> Void) {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return }
+            guard let regex = Coordinator.regex(pattern, []) else { return }
             let nsString = text as NSString
             let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
             for match in matches {

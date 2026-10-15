@@ -102,18 +102,22 @@
 - **Issue**: Xcode runs `ExtractAppIntentsMetadata` for every Swift target. Extensions that don't link AppIntents (QuickLook, Share, Thumbnail) log `appintentsmetadataprocessor warning: Metadata extraction skipped, no AppIntents.framework dependency found` on every build, including CI. `LM_FILTER_WARNINGS = YES` (`--quiet-warnings`) does **not** silence it.
 - **Solution**: Set `LM_SKIP_METADATA_EXTRACTION = YES` on those extension targets (Debug and Release) so the step doesn't run. Leave it unset on `Swash` and `SwashWidgetExtension`, which do use App Intents. A new extension that adopts App Intents must remove the setting, or Shortcuts won't see its intents.
 
-## 26. Test Harnesses Compile `SwashTextView.swift` for macOS 14
+## 26. Images Go Through `ImageCache`
+- **Issue**: Loading and scaling images directly (`NSImage(contentsOfFile:)` plus `scaleImageForEditor`) in a styling pass or a SwiftUI `body` re-reads the file on every keystroke near the image and on every preview render.
+- **Solution**: Resolve images with `MarkdownParser.resolveImageFile`, which checks candidate paths cheaply and loads through `ImageCache.shared`; scale with `ImageCache.shared.editorImage(_:path:maxWidth:)`. Entries are validated by modification date and size. Folder access is started once per folder per session by `FolderAccessManager.ensureAccess`; don't call `startAccessingSecurityScopedResource()` elsewhere.
+
+## 27. Test Harnesses Compile `SwashTextView.swift` for macOS 14
 - **Issue**: `run_audit.sh` (render, interact, perf) and `run_spec_tests.sh` build with `-target arm64-apple-macos14.0`, while the app targets macOS 15. macOS 15-only APIs such as the Writing Tools delegate methods (`textViewWritingToolsWillBegin`, `writingToolsIgnoredRangesInEnclosingRange`) break those builds even though Xcode succeeds.
 - **Solution**: Mark macOS 15-only members of the shared editor files `@available(macOS 15.0, *)` (delegate methods can be declared this way), or guard calls with `if #available`.
 
-## 27. The Bubble Harness Compiles `ContentView`'s Dependencies Explicitly
+## 28. The Bubble Harness Compiles `ContentView`'s Dependencies Explicitly
 - **Issue**: `run_audit.sh bubble` compiles `ContentView.swift` with a hand-written file list. Any new type that `ContentView` uses (outline sidebar, document commands, quick note, conflict banner, document opening) has to be in that list, or the harness fails with "cannot find type".
 - **Solution**: When `ContentView` starts using a new file, add it to the `bubble` `swiftc` line. Keep app-only machinery (Carbon hot keys, `SMAppService`, menu bar) in files that still compile outside the app.
 
-## 28. Writing Tools Edits the Text Storage In Place
+## 29. Writing Tools Edits the Text Storage In Place
 - **Issue**: Apple Intelligence Writing Tools rewrites `NSTextView` storage directly, with its own animation attributes. Restyling during a session (which replaces attributes, collapses tables and images into attachments, and pushes `document.text` and autosaves) fights it and can corrupt the rewrite.
 - **Solution**: `Coordinator.isWritingToolsActive` is set between `textViewWritingToolsWillBegin`/`DidEnd`. While it is set, `highlightMarkdown` and `textDidChange` do nothing; after the session one full restyle and document update runs. Code, math, HTML, front matter and attachments are reported as ignored ranges, in storage coordinates.
 
-## 29. Untitled Documents With Initial Text
+## 30. Untitled Documents With Initial Text
 - **Issue**: `DocumentGroup` creates new documents from `SwashDocument()`, so there's no direct way to open an untitled document that already has text (quick notes, imports). Writing a temporary file and opening it makes Save write into the temporary folder.
 - **Solution**: `NewDocumentSeed.createDocument(with:)` queues the text and calls `NSDocumentController.newDocument(_:)`. `ContentView.onAppear` takes the next seed when its document is untitled and empty.

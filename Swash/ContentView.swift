@@ -95,18 +95,33 @@ struct ContentView: View {
     @State private var insightsText: String? = nil
     @State private var showConflictSheet = false
 
+    /// The window's document file when SwiftUI hasn't passed `fileURL`, looked up when the window
+    /// attaches or becomes key rather than on every evaluation of `body`.
+    @State private var windowDocumentURL: URL? = nil
+    
     private var effectiveBaseURL: URL? {
-        fileURL ?? window?.representedURL ?? (window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
+        fileURL ?? windowDocumentURL
+    }
+    
+    private func refreshWindowDocumentURL() {
+        let url = window?.representedURL ?? window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL }
+        if url != windowDocumentURL { windowDocumentURL = url }
     }
 
+    /// Folder whose images can't be read, refreshed off the keystroke path (see `refreshFolderBanner`).
+    @State private var unreadableFolder: URL? = nil
+    @State private var bannerScannedText: String? = nil
+    
     private var unreadableFolderURL: URL? {
-        guard let unreadable = MarkdownParser.unreadableRelativeFolder(in: document.text, baseURL: effectiveBaseURL) else {
-            return nil
-        }
-        if dismissedFolderBanner == unreadable {
-            return nil
-        }
+        guard let unreadable = unreadableFolder, dismissedFolderBanner != unreadable else { return nil }
         return unreadable
+    }
+    
+    /// Scans for unreadable relative images (a file-system check per image) once typing pauses,
+    /// when the document's location changes and when folder access is granted.
+    private func refreshFolderBanner() {
+        let folder = MarkdownParser.unreadableRelativeFolder(in: document.text, baseURL: effectiveBaseURL)
+        if folder != unreadableFolder { unreadableFolder = folder }
     }
 
     var body: some View {
@@ -241,6 +256,10 @@ struct ContentView: View {
             }
         }
         .background(WindowAccessor(window: $window))
+        .onChange(of: window) { _, _ in refreshWindowDocumentURL() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if let window = window, notification.object as? NSWindow === window { refreshWindowDocumentURL() }
+        }
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
         .focusedSceneValue(\.documentCommandHandler, { handleDocumentCommand($0) })
         .focusedSceneValue(\.documentFileURL, effectiveBaseURL)
@@ -255,6 +274,15 @@ struct ContentView: View {
                 guard !Task.isCancelled else { return }
             }
             refreshInsights()
+        }
+        .task(id: FolderBannerInputs(text: document.text, baseURL: effectiveBaseURL, access: folderAccessManager.accessGrantedTrigger)) {
+            // Only edits wait for a pause; opening, moving the file or granting access refresh at once
+            if let scanned = bannerScannedText, scanned != document.text {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+            }
+            bannerScannedText = document.text
+            refreshFolderBanner()
         }
         .onChange(of: showOutline) { _, shown in
             if shown, let caret = editor.currentRawSelection?.location { updateCurrentHeading(caret: caret) }
@@ -331,15 +359,20 @@ struct ContentView: View {
                 return name
             }
         }
-        let lines = document.text.components(separatedBy: .newlines)
-        for line in lines {
+        // First "# " heading, stopping as soon as one is found
+        var headingTitle: String? = nil
+        document.text.enumerateLines { line, stop in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("# ") {
                 let title = trimmed.dropFirst(2).trimmingCharacters(in: .whitespaces)
                 if !title.isEmpty {
-                    return title
+                    headingTitle = title
+                    stop = true
                 }
             }
+        }
+        if let title = headingTitle {
+            return title
         }
         if let title = window?.title, !title.isEmpty {
             let cleaned = title
@@ -353,7 +386,10 @@ struct ContentView: View {
         return "Untitled"
     }
 
-    private var sharePreviewImage: Image {
+    private var sharePreviewImage: Image { ContentView.sharePreviewIcon }
+    
+    /// The Markdown document icon, drawn once rather than on every evaluation of `body`.
+    private static let sharePreviewIcon: Image = {
         let size = NSSize(width: 64, height: 64)
         let image = NSImage(size: size)
         image.isTemplate = false
@@ -365,7 +401,7 @@ struct ContentView: View {
         image.unlockFocus()
         
         return Image(nsImage: image)
-    }
+    }()
     
     // Bubble menu overlay positioned relatively in local coordinates
     @ViewBuilder
@@ -1783,4 +1819,11 @@ struct ContentView: View {
 
 #Preview {
     ContentView(document: .constant(SwashDocument()))
+}
+
+/// What the folder-access banner depends on.
+private struct FolderBannerInputs: Equatable {
+    let text: String
+    let baseURL: URL?
+    let access: UUID
 }

@@ -16,100 +16,68 @@ final class FolderAccessManager: ObservableObject {
     
     private let bookmarksDefaultsKey = "swash_security_scoped_folder_bookmarks"
     private let lock = NSLock()
-    private var activeSecurityScopedURLs: [URL: Bool] = [:]
+    /// Saved bookmarks by folder path, read from UserDefaults once.
+    private var cachedBookmarks: [String: Data]? = nil
+    /// Folders whose security-scoped access was started this session. Access is started once per
+    /// folder and kept for the app's lifetime, so repeated lookups don't stack up access counts.
+    private var activeFolders: Set<String> = []
+    /// Folders whose bookmark couldn't be resolved this session; not retried on every render.
+    private var failedFolders: Set<String> = []
     
     @Published var accessGrantedTrigger: UUID = UUID()
     
-    private init() {
-        restoreAllSavedBookmarks()
-    }
+    /// Bookmarks are resolved lazily, the first time a folder is needed, rather than all at launch.
+    private init() {}
     
-    /// Restores any previously granted security-scoped bookmarks from UserDefaults.
-    func restoreAllSavedBookmarks() {
-        guard let savedDict = UserDefaults.standard.dictionary(forKey: bookmarksDefaultsKey) as? [String: Data] else {
-            return
-        }
-        
-        var updatedDict = savedDict
-        var didUpdateStale = false
-        
-        lock.lock()
-        defer {
-            lock.unlock()
-            if didUpdateStale {
-                UserDefaults.standard.set(updatedDict, forKey: bookmarksDefaultsKey)
-            }
-        }
-        
-        for (path, bookmarkData) in savedDict {
-            var isStale = false
-            do {
-                let resolvedURL = try URL(
-                    resolvingBookmarkData: bookmarkData,
-                    options: .withSecurityScope,
-                    relativeTo: nil,
-                    bookmarkDataIsStale: &isStale
-                )
-                
-                if resolvedURL.startAccessingSecurityScopedResource() {
-                    activeSecurityScopedURLs[resolvedURL.standardizedFileURL] = true
-                }
-                
-                if isStale {
-                    if let newBookmark = try? resolvedURL.bookmarkData(
-                        options: .withSecurityScope,
-                        includingResourceValuesForKeys: nil,
-                        relativeTo: nil
-                    ) {
-                        updatedDict[path] = newBookmark
-                        didUpdateStale = true
-                    }
-                }
-            } catch {
-                // If resolving fails, keep existing dictionary intact
-            }
-        }
+    private var bookmarks: [String: Data] {
+        if let cached = cachedBookmarks { return cached }
+        let saved = (UserDefaults.standard.dictionary(forKey: bookmarksDefaultsKey) as? [String: Data]) ?? [:]
+        cachedBookmarks = saved
+        return saved
     }
     
     /// Ensures that security-scoped access is active for the given directory or any of its parent directories.
     @discardableResult
     func ensureAccess(for folderURL: URL) -> Bool {
         let stdFolder = folderURL.standardizedFileURL
-        
-        // Check if directly readable
         if FileManager.default.isReadableFile(atPath: stdFolder.path) {
             return true
         }
         
-        // Search saved bookmarks for this folder or ancestor folders
-        guard let savedDict = UserDefaults.standard.dictionary(forKey: bookmarksDefaultsKey) as? [String: Data] else {
-            return false
-        }
-        
+        lock.lock()
         var current: URL? = stdFolder
         while let candidate = current, candidate.path != "/" && candidate.path.count > 1 {
-            if let data = savedDict[candidate.path] {
+            let path = candidate.path
+            if activeFolders.contains(path) || failedFolders.contains(path) {
+                // Already started (or known to fail): nothing more to do for this ancestor
+            } else if let data = bookmarks[path] {
                 var isStale = false
-                if let resolved = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale) {
-                    if resolved.startAccessingSecurityScopedResource() {
-                        lock.lock()
-                        activeSecurityScopedURLs[resolved.standardizedFileURL] = true
-                        lock.unlock()
-                        if FileManager.default.isReadableFile(atPath: stdFolder.path) {
-                            return true
-                        }
+                if let resolved = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale),
+                   resolved.startAccessingSecurityScopedResource() {
+                    activeFolders.insert(path)
+                    if isStale, let refreshed = try? resolved.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
+                        var updated = bookmarks
+                        updated[path] = refreshed
+                        cachedBookmarks = updated
+                        UserDefaults.standard.set(updated, forKey: bookmarksDefaultsKey)
                     }
+                    if FileManager.default.isReadableFile(atPath: stdFolder.path) {
+                        lock.unlock()
+                        return true
+                    }
+                } else {
+                    failedFolders.insert(path)
                 }
             }
             current = candidate.deletingLastPathComponent()
         }
-        
+        lock.unlock()
         return FileManager.default.isReadableFile(atPath: stdFolder.path)
     }
     
-    /// Checks whether the app currently has read access to the specified folder or path.
+    /// Whether the app can read the specified folder, activating a saved bookmark for it if needed.
     func hasAccess(to folderURL: URL) -> Bool {
-        return FileManager.default.isReadableFile(atPath: folderURL.standardizedFileURL.path)
+        ensureAccess(for: folderURL)
     }
     
     /// Prompts the user with an NSOpenPanel to grant access to the specified directory.
@@ -141,11 +109,11 @@ final class FolderAccessManager: ObservableObject {
             }
             
             let stdURL = selectedURL.standardizedFileURL
-            if stdURL.startAccessingSecurityScopedResource() {
-                self.lock.lock()
-                self.activeSecurityScopedURLs[stdURL] = true
-                self.lock.unlock()
+            self.lock.lock()
+            if !self.activeFolders.contains(stdURL.path), stdURL.startAccessingSecurityScopedResource() {
+                self.activeFolders.insert(stdURL.path)
             }
+            self.failedFolders.remove(stdURL.path)
             
             // Save security-scoped bookmark
             if let bookmarkData = try? stdURL.bookmarkData(
@@ -153,10 +121,13 @@ final class FolderAccessManager: ObservableObject {
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             ) {
-                var dict = (UserDefaults.standard.dictionary(forKey: self.bookmarksDefaultsKey) as? [String: Data]) ?? [:]
+                var dict = self.bookmarks
                 dict[stdURL.path] = bookmarkData
+                self.cachedBookmarks = dict
                 UserDefaults.standard.set(dict, forKey: self.bookmarksDefaultsKey)
             }
+            self.lock.unlock()
+            ImageCache.shared.removeAll()
             
             DispatchQueue.main.async {
                 self.accessGrantedTrigger = UUID()

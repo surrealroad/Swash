@@ -312,6 +312,30 @@ struct InteractionRunner {
                 expect: "path=\(expectIncremental ? "incremental" : "full") matchesFull=true")
         }
         
+        // A table cell edit (changing the table's length) keeps the next keystroke incremental
+        do {
+            let b = TextBox(base); let tv = makeEditor(b)
+            let coordinator = tv.delegate as! SwashTextView.Coordinator
+            var table: TableTextAttachment? = nil
+            tv.textStorage!.enumerateAttribute(.attachment, in: NSRange(location: 0, length: tv.textStorage!.length), options: []) { v, _, stop in
+                if let t = v as? TableTextAttachment { table = t; stop.pointee = true }
+            }
+            var data = table!.tableData
+            data.rows[0][0] = "longer cell"
+            table!.onUpdate?(data); pump(0.2)
+            let textAfterCell = b.text
+            caretAfter("Last paragraph.", in: tv)
+            let before = coordinator.incrementalPassCount
+            tv.insertText("!", replacementRange: tv.selectedRange()); pump(0.3)
+            let usedIncremental = coordinator.incrementalPassCount > before
+            let incremental = fingerprint(tv)
+            coordinator.forceFullRestyle = true
+            coordinator.highlightMarkdown(in: tv); pump(0.1)
+            log("incremental-after-table-cell-edit", "cell 1 → \"longer cell\", then type",
+                "path=\(usedIncremental ? "incremental" : "full") matchesFull=\(incremental == fingerprint(tv)) cellSaved=\(textAfterCell.contains("| longer cell |")) typed=\(b.text.hasSuffix("Last paragraph.!"))",
+                expect: "path=incremental matchesFull=true cellSaved=true typed=true")
+        }
+
         // 20. Enter on an empty item leaves the list; Backspace with the caret before the hidden marker
         do { let b = TextBox("- a\n- b"); let tv = makeEditor(b); caretAfter("b", in: tv)
              tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump()

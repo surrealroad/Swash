@@ -75,10 +75,13 @@ final class RichContentRenderer: NSObject {
         MainActor.assumeIsolated { shared.cached(request) }
     }
 
-    nonisolated static func cachedOrRequest(_ request: Request) -> Outcome? {
+    /// `owner` identifies the requester's slot (say, a formula block in one editor). A newer
+    /// request from the same owner replaces its older one if that hasn't started rendering, so
+    /// typing inside a formula doesn't queue a render of every intermediate state.
+    nonisolated static func cachedOrRequest(_ request: Request, owner: AnyHashable? = nil) -> Outcome? {
         MainActor.assumeIsolated {
             if let outcome = shared.cached(request) { return outcome }
-            if isAvailable { shared.render(request) { _ in } }
+            if isAvailable { shared.requestSpeculatively(request, owner: owner) }
             return nil
         }
     }
@@ -91,7 +94,12 @@ final class RichContentRenderer: NSObject {
 
     private var cache: [Request: Outcome] = [:]
     private var cacheOrder: [Request] = []
-    private var waiters: [Request: [(Outcome) -> Void]] = [:]
+    private var waiters: [Request: [(id: Int, callback: (Outcome) -> Void)]] = [:]
+    private var nextWaiterID = 0
+    /// Owners of fire-and-forget requests, and the latest request of each owner.
+    private var requestOwners: [Request: Set<AnyHashable>] = [:]
+    private var ownerRequests: [AnyHashable: Request] = [:]
+    private var didRenderScheduled = false
     private var queue: [Request] = []
     private var current: Request?
     private var currentToken = 0
@@ -111,27 +119,84 @@ final class RichContentRenderer: NSObject {
 
     /// Renders (or returns the cached result) and calls back on the main thread.
     func render(_ request: Request, completion: @escaping (Outcome) -> Void) {
+        _ = addWaiter(request, completion)
+    }
+    
+    /// Queues `request` with a waiter; returns the waiter's id, or nil when it completed at once.
+    private func addWaiter(_ request: Request, _ completion: @escaping (Outcome) -> Void) -> Int? {
         if let outcome = cache[request] {
             completion(outcome)
-            return
+            return nil
         }
         guard Self.isAvailable, !gaveUp else {
             completion(.failed(gaveUp ? "Renderer unavailable" : "Rendering resources are not bundled"))
-            return
+            return nil
         }
-        if waiters[request] != nil {
-            waiters[request]?.append(completion)
-            return
-        }
-        waiters[request] = [completion]
+        nextWaiterID += 1
+        let id = nextWaiterID
+        waiters[request, default: []].append((id, completion))
+        enqueue(request)
+        return id
+    }
+    
+    private func enqueue(_ request: Request) {
+        guard current != request, !queue.contains(request) else { return }
         queue.append(request)
         pump()
     }
-
-    func render(_ request: Request) async -> Outcome {
-        await withCheckedContinuation { continuation in
-            render(request) { continuation.resume(returning: $0) }
+    
+    /// Queues a render nobody waits on (the caller re-reads the cache after `didRender`).
+    private func requestSpeculatively(_ request: Request, owner: AnyHashable?) {
+        guard !gaveUp else { return }
+        if let owner = owner {
+            if let previous = ownerRequests[owner], previous != request {
+                requestOwners[previous]?.remove(owner)
+                dropIfUnwanted(previous)
+            }
+            ownerRequests[owner] = request
+            requestOwners[request, default: []].insert(owner)
         }
+        enqueue(request)
+    }
+    
+    /// Removes a queued (not yet started) request that no waiter or owner wants any more.
+    private func dropIfUnwanted(_ request: Request) {
+        guard current != request, waiters[request]?.isEmpty ?? true, requestOwners[request]?.isEmpty ?? true,
+              let index = queue.firstIndex(of: request) else { return }
+        queue.remove(at: index)
+        waiters[request] = nil
+        requestOwners[request] = nil
+    }
+
+    /// Awaits the render. If the awaiting task is cancelled (its view went away or now shows
+    /// something else), a render that hasn't started is dropped.
+    func render(_ request: Request) async -> Outcome {
+        let state = WaiterState()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(returning: cache[request] ?? .failed("Cancelled"))
+                    return
+                }
+                state.request = request
+                state.id = addWaiter(request) { continuation.resume(returning: $0) }
+            }
+        } onCancel: {
+            Task { @MainActor in self.cancelWaiter(state) }
+        }
+    }
+    
+    private final class WaiterState: @unchecked Sendable {
+        var request: Request?
+        var id: Int?
+    }
+    
+    private func cancelWaiter(_ state: WaiterState) {
+        guard let request = state.request, let id = state.id, current != request,
+              let index = waiters[request]?.firstIndex(where: { $0.id == id }) else { return }
+        let waiter = waiters[request]!.remove(at: index)
+        waiter.callback(.failed("Cancelled"))
+        dropIfUnwanted(request)
     }
 
     /// Starts loading the page ahead of the first request.
@@ -231,16 +296,37 @@ final class RichContentRenderer: NSObject {
         if shouldCache {
             cache[request] = outcome
             cacheOrder.append(request)
-            if cacheOrder.count > Self.cacheLimit {
-                let evicted = cacheOrder.removeFirst()
-                cache[evicted] = nil
+            if cacheOrder.count > Self.cacheLimit + Self.cacheLimit / 4 {
+                // Evict in batches: removeFirst on the order array is O(n)
+                for evicted in cacheOrder.prefix(cacheOrder.count - Self.cacheLimit) { cache[evicted] = nil }
+                cacheOrder.removeFirst(cacheOrder.count - Self.cacheLimit)
             }
         }
         current = nil
         let callbacks = waiters.removeValue(forKey: request) ?? []
-        for callback in callbacks { callback(outcome) }
-        NotificationCenter.default.post(name: Self.didRender, object: self)
+        for owner in requestOwners.removeValue(forKey: request) ?? [] where ownerRequests[owner] == request {
+            ownerRequests[owner] = nil
+        }
+        for waiter in callbacks { waiter.callback(outcome) }
+        postDidRender()
         pump()
+    }
+    
+    /// Observers restyle or re-render on `didRender`, so a burst of renders (a document with many
+    /// formulas) is announced every 150 ms and once the queue empties, not once per render.
+    private func postDidRender() {
+        if queue.isEmpty && current == nil {
+            didRenderScheduled = false
+            NotificationCenter.default.post(name: Self.didRender, object: self)
+            return
+        }
+        guard !didRenderScheduled else { return }
+        didRenderScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self = self, self.didRenderScheduled else { return }
+            self.didRenderScheduled = false
+            NotificationCenter.default.post(name: Self.didRender, object: self)
+        }
     }
 
     private func resetWebView() {
