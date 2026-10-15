@@ -357,9 +357,22 @@ Measured with `run_audit.sh perf` (before Phase B → after):
 | Split preview, 10 quick keystrokes, 900 lines (CPU) | 521 ms | 114 ms |
 | Slack full restyle, 900 lines | 36 ms | 33 ms (one pass per typing pause instead of per keystroke) |
 
-### Phase C: parser hardening
+### Phase C: parser hardening — done (#25)
 
-Fix in this order: `mergeText` (§5.1), `activeBlockFormat` (§5.3), node references or an arena (§5.2), link openers (§5.4), reference definitions (§5.5), `touch()` (§5.6), regexes (§5.7).
+| § | Status |
+|---|---|
+| 5.1 `mergeText` | Done |
+| 5.2 node references | Done with `unowned` (traps instead of undefined behaviour): 15.0 → 12.0 ms at 5,400 lines. No arena |
+| 5.3 `activeBlockFormat` | Done: binary search over cached code-block ranges, 23 → 0.5 ms for 400 selected lines. Tree walks are not yet pruned |
+| 5.4 link openers | Done |
+| 5.5 reference definitions | Done |
+| 5.6 `touch()` | Done |
+| 5.7 regexes | Done in the parser and in `MarkdownParser` (table delimiters, HTML trailing lines, flavor detection, link definitions, image titles) |
+| 5.8 per-node allocations | Footnote order only |
+| 5.9 `codeRanges` | Byte-level fast rejection: 1.63 → 1.26 ms |
+| 6.3 flavor detection | Done: static patterns, first 32 KB only |
+
+`ParserChecks` checks that the pathological patterns grow linearly (20k vs 5k must cost under 6×). Before Phase C, 7 of the 9 checks failed (×8 to ×16); after it, all fall between ×3.6 and ×4.5.
 
 ## Next steps
 
