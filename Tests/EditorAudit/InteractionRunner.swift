@@ -336,6 +336,17 @@ struct InteractionRunner {
                 expect: "path=incremental matchesFull=true cellSaved=true typed=true")
         }
 
+        // Braces pair inside math and the closing one is stepped over; outside math they don't pair
+        do {
+            let b = TextBox("Energy $E=mc^$ here, {plain}"); let tv = makeEditor(b)
+            caretAfter("mc^", in: tv)
+            for ch in ["{", "2", "}"] { tv.insertText(ch, replacementRange: tv.selectedRange()); pump(0.2) }
+            tv.insertText("!", replacementRange: tv.selectedRange()); pump(0.2)
+            caretAfter("{plain", in: tv)
+            tv.insertText("{", replacementRange: tv.selectedRange()); pump(0.2)
+            log("math-brace-pairing", "type { 2 } ! inside $…$, then { outside", b.text, expect: "Energy $E=mc^{2}!$ here, {plain{}")
+        }
+
         // 20. Enter on an empty item leaves the list; Backspace with the caret before the hidden marker
         do { let b = TextBox("- a\n- b"); let tv = makeEditor(b); caretAfter("b", in: tv)
              tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump()

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Translation
 
 enum FormatAction: Hashable {
     case bold
@@ -99,8 +100,13 @@ struct BubbleMenuView: View {
     let onSelectHeadingLevel: (Int) -> Void
     let onApplyLink: (String) -> Void
     let onRemoveLink: () -> Void
+    /// Plain text of the selection, offered to Translate (nil hides the button).
+    var translatableText: String? = nil
+    /// Replaces the selection with a translation chosen in the Translate popover.
+    var onReplaceWithTranslation: ((String) -> Void)? = nil
     
     @State private var isPresentingLinkPopover = false
+    @State private var isPresentingTranslation = false
     
     var body: some View {
         HStack(spacing: 4) {
@@ -209,6 +215,17 @@ struct BubbleMenuView: View {
                         .padding(.horizontal, 2)
                     
                     BubbleButton(systemImage: "tablecells", textLabel: nil, tooltip: "Remove Table", isActive: true, action: { onAction(.table) })
+                }
+                
+                if let text = translatableText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Divider()
+                        .frame(height: 16)
+                        .padding(.horizontal, 2)
+                    
+                    BubbleButton(systemImage: "translate", textLabel: nil, tooltip: "Translate", isActive: false, action: {
+                        isPresentingTranslation = true
+                    })
+                    .modifier(TranslationPopover(isPresented: $isPresentingTranslation, text: text, onReplace: onReplaceWithTranslation))
                 }
             }
         }
@@ -442,5 +459,27 @@ struct BubbleButton: View {
             }
         }
         .help(tooltip)
+    }
+}
+
+/// The system Translate popover (macOS 14.4 and later), with "Replace" writing the translation
+/// back into the document.
+private struct TranslationPopover: ViewModifier {
+    @Binding var isPresented: Bool
+    let text: String
+    let onReplace: ((String) -> Void)?
+    
+    func body(content: Content) -> some View {
+        if #available(macOS 14.4, *) {
+            if let onReplace = onReplace {
+                content.translationPresentation(isPresented: $isPresented, text: text, arrowEdge: .bottom) { translated in
+                    onReplace(translated)
+                }
+            } else {
+                content.translationPresentation(isPresented: $isPresented, text: text, arrowEdge: .bottom)
+            }
+        } else {
+            content
+        }
     }
 }

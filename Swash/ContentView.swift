@@ -444,7 +444,9 @@ struct ContentView: View {
                     },
                     onRemoveLink: {
                         removeLink(activeLink: activeLink)
-                    }
+                    },
+                    translatableText: cellSelectionRect == nil && bubbleContext != .codeBlock ? selectedPlainText : nil,
+                    onReplaceWithTranslation: { replaceSelection(with: $0) }
                 )
                 .background(
                     GeometryReader { menuGeo in
@@ -1526,7 +1528,7 @@ struct ContentView: View {
     
     private func isSelectionInsideCodeBlock() -> (inside: Bool, language: String?) {
         guard let range = selectedRange,
-              let block = MarkdownParser.fencedCodeBlock(containing: range, in: document.text) else { return (false, nil) }
+              let block = MarkdownParser.fencedCodeBlock(containing: range, in: editor.codeRanges(for: document.text)) else { return (false, nil) }
         return (true, block.language)
     }
     
@@ -1558,7 +1560,7 @@ struct ContentView: View {
         
         // Check if the selection is (or is inside) a code span
         let trimmedRange = trimmedInlineRange(range)
-        let spans = MarkdownParser.codeRanges(in: fullText).spans
+        let spans = editor.codeRanges(for: fullText).spans
         if spans.contains(where: { span in
             (trimmedRange.location >= span.content.location && trimmedRange.location + trimmedRange.length <= span.content.location + span.content.length) ||
             NSEqualRanges(span.full, trimmedRange)
@@ -1586,14 +1588,14 @@ struct ContentView: View {
         }
         
         // Case 2: Selection is inside a fenced block (``` or ~~~)
-        if let block = MarkdownParser.fencedCodeBlock(containing: range, in: fullText),
+        if let block = MarkdownParser.fencedCodeBlock(containing: range, in: editor.codeRanges(for: fullText)),
            let blockRange = Range(block.fullRange, in: fullText) {
             return (nsText.substring(with: block.contentRange), blockRange)
         }
         
         // Case 3: Selection is, or is inside, a code span
         let trimmedRange = trimmedInlineRange(range)
-        for span in MarkdownParser.codeRanges(in: fullText).spans {
+        for span in editor.codeRanges(for: fullText).spans {
             let insideContent = trimmedRange.location >= span.content.location &&
                 trimmedRange.location + trimmedRange.length <= span.content.location + span.content.length
             if insideContent || NSEqualRanges(span.full, trimmedRange), let spanRange = Range(span.full, in: fullText) {
@@ -1690,6 +1692,34 @@ struct ContentView: View {
         
         let newText = document.text.replacingCharacters(in: replaceRange, with: link.text)
         commitEdit(newText, selection: NSRange(location: link.fullRange.location, length: (link.text as NSString).length), actionName: "Remove Link")
+    }
+    
+    /// The selection as readers see it (Markdown syntax removed), for Translate.
+    private var selectedPlainText: String? {
+        let ns = document.text as NSString
+        guard let range = selectedRange, range.length > 0, NSMaxRange(range) <= ns.length else { return nil }
+        let selected = MarkdownDocument.parse(ns.substring(with: range))
+        var paragraphs: [String] = []
+        selected.root.walk { node in
+            switch node.kind {
+            case .paragraph, .heading, .tableCell:
+                paragraphs.append(node.plainText)
+            case .codeBlock:
+                paragraphs.append(node.literal)
+            default:
+                break
+            }
+        }
+        let text = paragraphs.joined(separator: "\n\n")
+        return text.isEmpty ? nil : text
+    }
+    
+    /// Replaces the selection with `text` (a translation), as one undoable edit.
+    private func replaceSelection(with text: String) {
+        let ns = document.text as NSString
+        guard let range = selectedRange, NSMaxRange(range) <= ns.length else { return }
+        let updated = ns.replacingCharacters(in: range, with: text)
+        commitEdit(updated, selection: NSRange(location: range.location, length: (text as NSString).length), actionName: "Translate")
     }
     
     /// Statistics of the selected text, or nil without a selection.

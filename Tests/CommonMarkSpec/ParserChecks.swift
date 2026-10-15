@@ -322,8 +322,56 @@ enum ParserChecks {
         return failures
     }
 
+    private static func runMathEditing() -> Int {
+        var failures = 0
+        // "|" marks the caret (or "[…]" a selection); expected nil means default typing
+        let cases: [(String, String, String?)] = [
+            ("Energy $E=mc^|$ here", "{", "Energy $E=mc^{|}$ here"),
+            ("Typing $\\frac|", "{", "Typing $\\frac{|}"),
+            ("$$\nx^|\n$$", "{", "$$\nx^{|}\n$$"),
+            ("```math\na_|\n```", "{", "```math\na_{|}\n```"),
+            ("$x^{2|}$", "}", "$x^{2}|$"),
+            ("Plain {text|", "{", nil),
+            ("`$code^|$`", "{", nil),
+            ("Costs $ 5 and |", "{", nil),
+            ("Closed $x$ then |", "{", nil),
+            ("$a+[b]$", "{", "$a+{[b]}$"),
+            ("```swift\nlet x = |\n```", "{", nil),
+        ]
+        for (input, typed, expected) in cases {
+            var text = input
+            var selection: NSRange
+            if let caret = text.range(of: "|") {
+                selection = NSRange(location: text.utf16.distance(from: text.utf16.startIndex, to: caret.lowerBound.samePosition(in: text.utf16)!), length: 0)
+                text.removeSubrange(caret)
+            } else {
+                let open = (text as NSString).range(of: "["), close = (text as NSString).range(of: "]")
+                selection = NSRange(location: open.location, length: close.location - open.location - 1)
+                text = text.replacingOccurrences(of: "[", with: "").replacingOccurrences(of: "]", with: "")
+            }
+            let edit = MarkdownEditingCommands.mathBrace(typed, text: text, selection: selection)
+            let actual = edit.map { e -> String in
+                let ns = NSMutableString(string: e.text)
+                if e.selection.length > 0 {
+                    ns.insert("]", at: NSMaxRange(e.selection)); ns.insert("[", at: e.selection.location)
+                } else {
+                    ns.insert("|", at: e.selection.location)
+                }
+                return ns as String
+            }
+            if actual != expected {
+                failures += 1
+                print("❌ math brace \(typed) in \(input.debugDescription): expected \(expected.debugDescription), got \(actual.debugDescription)")
+            }
+        }
+        if MarkdownMath.completions(for: "fr").first != "frac" { failures += 1; print("❌ completion fr → \(MarkdownMath.completions(for: "fr"))") }
+        if !MarkdownMath.completions(for: "Del").contains("Delta") { failures += 1; print("❌ completion Del") }
+        print("Math editing checks: \(failures == 0 ? "all passed" : "\(failures) failed") (\(cases.count) cases)")
+        return failures
+    }
+
     static func run() -> Int {
-        var failures = runFormatting() + runEditing() + runHTML() + runOutline()
+        var failures = runFormatting() + runEditing() + runHTML() + runOutline() + runMathEditing()
         // 1. Marker ranges
         for (markdown, nodeName, expected) in markerCases {
             let document = MarkdownDocument.parse(markdown)
