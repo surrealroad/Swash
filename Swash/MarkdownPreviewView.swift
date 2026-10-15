@@ -876,7 +876,7 @@ struct MarkdownListItemView: View {
             marker
             VStack(alignment: .leading, spacing: isTight ? 4 : 10) {
                 ForEach(Array(item.children.enumerated()), id: \.offset) { _, child in
-                    AnyView(MarkdownBlockView(node: child, context: context))
+                    MarkdownBlockView(node: child, context: context).equatable()
                 }
                 if item.firstChild == nil {
                     Text(" ")
@@ -935,7 +935,7 @@ struct MarkdownFootnotesView: View {
                             .foregroundColor(.secondary)
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(Array(entry.node.children.enumerated()), id: \.offset) { _, child in
-                                AnyView(MarkdownBlockView(node: child, context: context))
+                                MarkdownBlockView(node: child, context: context).equatable()
                             }
                         }
                         .font(.system(size: 12))
