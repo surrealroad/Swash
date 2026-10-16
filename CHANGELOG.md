@@ -1,5 +1,11 @@
 # swash
 
+## 1.12.1
+
+### Patch Changes
+
+- 909c90f: Align app icon squircle to standard macOS Human Interface Guidelines (824×824 px on 1024×1024 grid) with subtle drop shadow
+
 ## 1.12.0
 
 ### Minor Changes
