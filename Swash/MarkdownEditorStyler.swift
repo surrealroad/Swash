@@ -31,11 +31,19 @@ final class IndentedTextBlock: NSTextBlock {
     }
 }
 
+/// Value of `.footnoteLink`.
+struct FootnoteLink: Hashable {
+    let label: String
+    let isDefinition: Bool
+}
+
 extension NSAttributedString.Key {
     /// Marks the first character of a fenced code block; the layout manager draws its language badge.
     static let codeBadge = NSAttributedString.Key("SwashCodeBadgeKey")
     /// Marks the first character of an alert title; the layout manager draws the alert's icon before it.
     static let alertIcon = NSAttributedString.Key("SwashAlertIconKey")
+    /// Marks a footnote reference or a definition's `[^label]:` marker; clicking it jumps to the other.
+    static let footnoteLink = NSAttributedString.Key("SwashFootnoteLinkKey")
     /// Marks the last character of a display-math or Mermaid block; the layout manager draws the
     /// rendered formula or diagram in the paragraph spacing reserved below that line.
     static let richPreview = NSAttributedString.Key("SwashRichPreviewKey")
@@ -571,6 +579,11 @@ final class MarkdownEditorStyler {
 
         case .htmlBlock:
             setParagraphStyle(paragraphStyle(context), over: node.range)
+            // A line holding just an <img> tag (what the image menu writes for a resized image) is an image
+            if case .image(let src, let alt, let width) = InlineHTMLTag(node.literal.trimmingCharacters(in: .whitespacesAndNewlines)).kind {
+                attachments.append(EditorAttachmentRequest(range: node.range, kind: .image(alt: alt, urlString: src, rawMarkdown: source(node.range), width: width.map { CGFloat($0) })))
+                break
+            }
             apply(InlineStyle(size: 14, mono: true, color: .secondaryLabelColor), to: node.range)
             codeRanges.append(node.range)
 
@@ -610,6 +623,10 @@ final class MarkdownEditorStyler {
             if let marker = node.markers.first {
                 apply(InlineStyle(size: 11, bold: true, color: .secondaryLabelColor), to: marker)
                 hideMarker(NSRange(location: marker.location + 1, length: 1))   // the ^
+                if case .footnoteDefinition(let label) = node.kind {
+                    let r = valid(marker)
+                    if r.length > 0 { storage.addAttribute(.footnoteLink, value: FootnoteLink(label: label, isDefinition: true), range: r) }
+                }
             }
             hideContinuationIndent(in: node.range, maxColumns: 4)
             for child in node.children { styleBlock(child, inner) }
@@ -704,11 +721,13 @@ final class MarkdownEditorStyler {
             apply(s, to: node.range)
             for marker in node.markers { apply(InlineStyle(size: style.size, mono: true, color: .tertiaryLabelColor), to: marker) }
             codeRanges.append(node.range)
-        case .footnoteReference:
+        case .footnoteReference(let label):
             var s = style
             s.superscript = true
             s.color = .controlAccentColor
             apply(s, to: node.range)
+            let linkRange = valid(node.range)
+            if linkRange.length > 0 { storage.addAttribute(.footnoteLink, value: FootnoteLink(label: label, isDefinition: false), range: linkRange) }
             // Show the label only: hide "[^" and "]"
             hideMarker(NSRange(location: node.range.location, length: min(2, node.range.length)))
             if node.range.length > 2 {

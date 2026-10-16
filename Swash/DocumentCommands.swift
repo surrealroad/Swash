@@ -21,7 +21,22 @@ struct DocumentFileURLKey: FocusedValueKey {
     typealias Value = URL
 }
 
+/// The focused document's view mode and a way to switch it, for the View menu.
+struct ViewModeSelection {
+    let current: ViewMode
+    let select: (ViewMode) -> Void
+}
+
+struct ViewModeSelectionKey: FocusedValueKey {
+    typealias Value = ViewModeSelection
+}
+
 extension FocusedValues {
+    var viewModeSelection: ViewModeSelection? {
+        get { self[ViewModeSelectionKey.self] }
+        set { self[ViewModeSelectionKey.self] = newValue }
+    }
+
     var documentCommandHandler: ((DocumentCommand) -> Void)? {
         get { self[DocumentCommandHandlerKey.self] }
         set { self[DocumentCommandHandlerKey.self] = newValue }
@@ -33,9 +48,10 @@ extension FocusedValues {
     }
 }
 
-/// Edit menu "Copy …" items and the View menu's outline toggle.
+/// Edit menu "Copy …" items and the View menu's view modes and outline toggle.
 struct DocumentMenuCommands: Commands {
     @FocusedValue(\.documentCommandHandler) private var handler
+    @FocusedValue(\.viewModeSelection) private var viewMode
     @FocusedValue(\.documentFileURL) private var fileURL
     @AppStorage("showOutline") private var showOutline = false
 
@@ -51,6 +67,15 @@ struct DocumentMenuCommands: Commands {
                 .disabled(handler == nil || fileURL == nil)
         }
         CommandGroup(before: .toolbar) {
+            ForEach(Array(ViewMode.menuOrder.enumerated()), id: \.element) { index, mode in
+                Toggle(mode.rawValue, isOn: Binding(
+                    get: { viewMode?.current == mode },
+                    set: { if $0 { viewMode?.select(mode) } }
+                ))
+                .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                .disabled(viewMode == nil)
+            }
+            Divider()
             Button(showOutline ? "Hide Outline" : "Show Outline") { showOutline.toggle() }
                 .keyboardShortcut("s", modifiers: [.command, .control])
             Divider()

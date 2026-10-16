@@ -23,6 +23,9 @@ enum ViewMode: String, CaseIterable, Identifiable {
         }
     }
     
+    /// Order of the View menu items (⌘1, ⌘2, ⌘3): the default view first.
+    static let menuOrder: [ViewMode] = [.preview, .edit, .split]
+
     var tooltip: String {
         switch self {
         case .edit: return "Show source"
@@ -243,6 +246,9 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .cellSelectionDidChange)) { notification in
+            // Editing a table cell ends the text selection: the bubble menu belongs to the cell now
+            if selectionRect != nil { selectionRect = nil }
+            if selectedRange != nil { selectedRange = nil }
             if let userInfo = notification.userInfo, let rect = userInfo["rect"] as? NSRect {
                 self.cellSelectionRect = rect
                 if let formats = userInfo["formats"] as? Set<FormatAction> {
@@ -263,6 +269,7 @@ struct ContentView: View {
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
         .focusedSceneValue(\.documentCommandHandler, { handleDocumentCommand($0) })
         .focusedSceneValue(\.documentFileURL, effectiveBaseURL)
+        .focusedSceneValue(\.viewModeSelection, ViewModeSelection(current: viewMode) { viewMode = $0 })
         .focusedSceneValue(\.markdownFlavorSelection, MarkdownFlavorSelection(current: document.flavor) { requestFlavorChange(to: $0) })
         .onChange(of: viewMode) { oldMode, newMode in
             handleViewModeChange(from: oldMode, to: newMode)
@@ -412,8 +419,10 @@ struct ContentView: View {
                 let activeHeadingLevel = determineActiveHeadingLevel()
                 let bubbleContext = determineBubbleMenuContext()
                 let activeLink = determineActiveLink()
+                let selectedImage = cellSelectionRect == nil ? determineSelectedImage() : nil
                 let measuredWidth = bubbleMenuSize.width > 0 ? bubbleMenuSize.width : (activeCodeFormat != nil ? 426 : 380)
                 let measuredHeight = bubbleMenuSize.height > 0 ? bubbleMenuSize.height : 40
+                let menuFrame = Self.bubbleMenuFrame(around: rect, size: CGSize(width: measuredWidth, height: measuredHeight), in: geometry.size)
                 
                 BubbleMenuView(
                     activeFormats: cellSelectionRect != nil ? cellActiveFormats : determineActiveFormats(),
@@ -445,8 +454,13 @@ struct ContentView: View {
                     onRemoveLink: {
                         removeLink(activeLink: activeLink)
                     },
-                    translatableText: cellSelectionRect == nil && bubbleContext != .codeBlock ? selectedPlainText : nil,
-                    onReplaceWithTranslation: { replaceSelection(with: $0) }
+                    translatableText: cellSelectionRect == nil && bubbleContext != .codeBlock && bubbleContext != .image ? selectedPlainText : nil,
+                    onReplaceWithTranslation: { replaceSelection(with: $0) },
+                    onSelectCalloutType: astFormatting == nil ? nil : { applyCalloutType($0) },
+                    image: selectedImage?.source,
+                    imageActions: selectedImage.map { imageMenuActions(range: $0.range, image: $0.source) },
+                    onInsertFootnote: astFormatting == nil || cellSelectionRect != nil ? nil : { insertFootnote() },
+                    footnoteActions: cellSelectionRect == nil ? footnoteMenuActions() : nil
                 )
                 .background(
                     GeometryReader { menuGeo in
@@ -459,38 +473,32 @@ struct ContentView: View {
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                .position(
-                    x: {
-                        let padding: CGFloat = 12
-                        if geometry.size.width <= measuredWidth + (padding * 2) {
-                            return geometry.size.width / 2
-                        } else {
-                            let halfWidth = measuredWidth / 2
-                            let minX = halfWidth + padding
-                            let maxX = geometry.size.width - halfWidth - padding
-                            return max(minX, min(rect.midX, maxX))
-                        }
-                    }(),
-                    y: {
-                        let spacing: CGFloat = 8
-                        let padding: CGFloat = 8
-                        let showBelow = (rect.minY - measuredHeight - spacing) < padding
-                        let calculatedY: CGFloat
-                        if showBelow {
-                            calculatedY = rect.maxY + measuredHeight / 2 + spacing
-                        } else {
-                            calculatedY = rect.minY - measuredHeight / 2 - spacing
-                        }
-                        let halfHeight = measuredHeight / 2
-                        let minY = halfHeight + padding
-                        let maxY = geometry.size.height - halfHeight - padding
-                        return max(minY, min(calculatedY, maxY))
-                    }()
-                )
+                .position(x: menuFrame.midX, y: menuFrame.midY)
+                .onAppear { editor.bubbleMenuFrame = menuFrame }
+                .onChange(of: menuFrame) { _, frame in editor.bubbleMenuFrame = frame }
+                .onDisappear { editor.bubbleMenuFrame = nil }
                 .animation(.spring(response: 0.24, dampingFraction: 0.72), value: selectionRect)
                 .animation(.spring(response: 0.24, dampingFraction: 0.72), value: activeCodeFormat)
             }
         }
+    }
+    
+    /// Where the bubble menu goes: centred above `rect` (below it when there's no room), kept
+    /// inside `container` with a small margin.
+    static func bubbleMenuFrame(around rect: NSRect, size: CGSize, in container: CGSize) -> CGRect {
+        let padding: CGFloat = 12
+        let x: CGFloat
+        if container.width <= size.width + padding * 2 {
+            x = container.width / 2
+        } else {
+            x = max(size.width / 2 + padding, min(rect.midX, container.width - size.width / 2 - padding))
+        }
+        let spacing: CGFloat = 8
+        let verticalPadding: CGFloat = 8
+        let showBelow = (rect.minY - size.height - spacing) < verticalPadding
+        let calculatedY = showBelow ? rect.maxY + size.height / 2 + spacing : rect.minY - size.height / 2 - spacing
+        let y = max(size.height / 2 + verticalPadding, min(calculatedY, container.height - size.height / 2 - verticalPadding))
+        return CGRect(x: x - size.width / 2, y: y - size.height / 2, width: size.width, height: size.height)
     }
     
     // Status panel rendering word/character count stats
@@ -846,6 +854,9 @@ struct ContentView: View {
     }
     
     private func determineBubbleMenuContext() -> BubbleMenuContext {
+        if cellSelectionRect == nil, determineSelectedImage() != nil {
+            return .image
+        }
         if determineActiveCodeFormat() != nil || isSelectionInsideCodeBlock().inside {
             return .codeBlock
         }
@@ -861,7 +872,10 @@ struct ContentView: View {
             if containers.allSatisfy(isHeading) { return .heading }
             if containers.contains(where: inList) { return .listItem }
             if containers.contains(where: isHeading) { return .heading }
-            if containers.contains(where: inQuote) { return .blockquote }
+            if containers.contains(where: inQuote) {
+                if let type = formatting.alertType(at: range) { return .callout(type) }
+                return .blockquote
+            }
             return .standard
         }
         
@@ -1057,8 +1071,104 @@ struct ContentView: View {
             }
         case .link:
             promptForLink()
+        case .callout(let type):
+            applyCalloutType(type)
+        case .footnote:
+            insertFootnote()
         }
     }
+    
+    // MARK: - Callouts, Footnotes & Images
+    
+    /// Makes the selection a callout of `type`, or a plain quote when nil.
+    private func applyCalloutType(_ type: AlertType?) {
+        guard let formatting = astFormatting, let range = selectedRange ?? editor.currentRawSelection,
+              let edit = formatting.setAlertType(type, selection: range) else { return }
+        commitEdit(edit.text, selection: edit.selection, actionName: type.map { "\($0.title) Callout" } ?? "Plain Quote")
+    }
+    
+    /// Adds a footnote after the selection and puts the caret in its definition.
+    private func insertFootnote() {
+        guard let formatting = astFormatting, let range = editor.currentRawSelection ?? selectedRange,
+              let edit = formatting.insertFootnote(selection: range) else { return }
+        commitEdit(edit.text, selection: edit.selection, actionName: "Insert Footnote")
+        editor.reveal(rawLocation: edit.selection.location)
+    }
+    
+    /// Jump and delete actions for the footnote the selection is on.
+    private func footnoteMenuActions() -> FootnoteMenuActions? {
+        guard let formatting = astFormatting, let range = selectedRange,
+              let footnote = formatting.footnote(at: range) else { return nil }
+        return FootnoteMenuActions(
+            isDefinition: footnote.isDefinition,
+            goToCounterpart: { editor.revealFootnote(footnote) },
+            delete: {
+                guard let edit = formatting.deleteFootnote(label: footnote.label, selection: range) else { return }
+                commitEdit(edit.text, selection: edit.selection, actionName: "Delete Footnote")
+            }
+        )
+    }
+    
+    /// The image whose whole source is selected (a clicked image in the Formatted view).
+    private func determineSelectedImage() -> (range: NSRange, source: MarkdownImageSource)? {
+        guard let formatting = astFormatting, let range = selectedRange, range.length > 0,
+              formatting.image(exactly: range) != nil, NSMaxRange(range) <= (document.text as NSString).length,
+              let image = MarkdownImageSource(markdown: (document.text as NSString).substring(with: range)) else { return nil }
+        return (range, image)
+    }
+    
+    private func imageMenuActions(range: NSRange, image: MarkdownImageSource) -> ImageMenuActions {
+        let text = document.text
+        func rewrite(_ actionName: String, _ change: (inout MarkdownImageSource) -> Void) {
+            guard text == document.text else { return }
+            var updated = image
+            change(&updated)
+            guard updated != image else { return }
+            let markdown = updated.markdown
+            let newText = (text as NSString).replacingCharacters(in: range, with: markdown)
+            commitEdit(newText, selection: NSRange(location: range.location, length: (markdown as NSString).length), actionName: actionName)
+        }
+        let fileURL = localImageURL(image.source)
+        return ImageMenuActions(
+            setAlt: { alt in rewrite("Edit Alt Text") { $0.alt = alt } },
+            setWidth: { width in rewrite("Resize Image") { $0.width = width } },
+            replace: {
+                chooseReplacementImage(near: fileURL) { source in rewrite("Replace Image") { $0.source = source } }
+            },
+            reveal: fileURL.map { url in { NSWorkspace.shared.activateFileViewerSelecting([url]) } },
+            copyPath: { DocumentLinkText.copy(fileURL?.path ?? image.source) }
+        )
+    }
+    
+    /// The file a local image source refers to, if it exists.
+    private func localImageURL(_ source: String) -> URL? {
+        let cleaned = MarkdownParser.cleanImageURLAndTitle(source).url
+        guard !cleaned.isEmpty, URL(string: cleaned)?.scheme.map({ $0 == "file" }) ?? true else { return nil }
+        guard let path = MarkdownParser.resolveImageFile(urlString: cleaned, baseURL: effectiveBaseURL, windowURL: window?.representedURL)?.path else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+    
+    /// Asks for a new image file and reports its source: a path relative to the document when
+    /// it is in the document's folder (or below), otherwise a file URL.
+    private func chooseReplacementImage(near current: URL?, completion: @escaping (String) -> Void) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = "Replace"
+        panel.message = "Choose an image to show instead"
+        panel.directoryURL = current?.deletingLastPathComponent() ?? effectiveBaseURL?.deletingLastPathComponent()
+        let respond: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            completion(MarkdownImageSource.source(for: url, relativeTo: effectiveBaseURL))
+        }
+        if let window = window {
+            panel.beginSheetModal(for: window, completionHandler: respond)
+        } else {
+            respond(panel.runModal())
+        }
+    }
+
     
     /// Format ▸ Markdown Flavor: asks whether to rewrite the text so its formatting carries over,
     /// or keep the raw text and read it with the new flavor's rules.

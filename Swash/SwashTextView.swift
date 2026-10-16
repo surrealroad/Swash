@@ -103,6 +103,11 @@ final class SwashEditorController {
     weak var textView: NSTextView?
     weak var coordinator: SwashTextView.Coordinator?
     private var cachedFormatting: MarkdownFormatting?
+
+    /// Where the bubble menu is drawn (overlay coordinates), so the editor shows the arrow over it.
+    var bubbleMenuFrame: NSRect? {
+        didSet { (textView as? SwashNSTextView)?.bubbleMenuFrame = bubbleMenuFrame }
+    }
     
     /// Parsed formatting state for `text`, reused until the text changes.
     func formatting(for text: String) -> MarkdownFormatting {
@@ -168,6 +173,15 @@ final class SwashEditorController {
         }
     }
 
+    /// Jumps from a footnote reference to its definition, or from the definition to its first reference.
+    func revealFootnote(_ footnote: MarkdownFormatting.Footnote) {
+        if footnote.isDefinition, let reference = footnote.references.first {
+            reveal(rawLocation: reference.location)
+        } else if let content = footnote.definitionContent {
+            reveal(rawLocation: content.location)
+        }
+    }
+
     /// Applies `newText` as a minimal edit to the live editor. Returns false when no editor is attached,
     /// in which case the caller should assign the document text directly.
     @discardableResult
@@ -182,6 +196,10 @@ struct ListMarkerInfo {
     let text: String
     let indent: CGFloat
     var color: NSColor? = nil
+    
+    /// Task items keep a ☐/☑ glyph (written out by rich-text copies) but are drawn as checkboxes.
+    var isTask: Bool { text == "☐" || text == "☑" }
+    var isChecked: Bool { text == "☑" }
 }
 
 final class SwashLayoutManager: NSLayoutManager {
@@ -233,6 +251,27 @@ final class SwashLayoutManager: NSLayoutManager {
         info.image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: info.alpha, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
     }
     
+    /// One checkbox cell, reconfigured for each task marker it draws.
+    private lazy var checkboxCell: NSButtonCell = {
+        let cell = NSButtonCell()
+        cell.setButtonType(.switch)
+        cell.title = ""
+        cell.controlSize = .small
+        cell.isEnabled = true
+        return cell
+    }()
+    
+    /// Draws a native checkbox ending just left of `contentX`, centred on the line.
+    private func drawCheckbox(checked: Bool, contentX: CGFloat, lineMidY: CGFloat) {
+        let cell = checkboxCell
+        cell.state = checked ? .on : .off
+        let size = cell.cellSize
+        let rect = NSRect(x: contentX - size.width - 6, y: lineMidY - size.height / 2, width: size.width, height: size.height)
+        if let view = firstTextView {
+            cell.draw(withFrame: rect, in: view)
+        }
+    }
+    
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         fillIndentedTextBlocks(forGlyphRange: glyphsToShow, at: origin)
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
@@ -267,6 +306,14 @@ final class SwashLayoutManager: NSLayoutManager {
             if let markerInfo = value as? ListMarkerInfo {
                 let glyphRange = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
                 let lineRect = lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+                
+                if markerInfo.isTask {
+                    let contentGlyph = min(glyphRange.location + glyphRange.length, max(0, numberOfGlyphs - 1))
+                    let contentX = lineRect.origin.x + location(forGlyphAt: contentGlyph).x
+                    drawCheckbox(checked: markerInfo.isChecked, contentX: origin.x + (contentX > 0 ? contentX : markerInfo.indent),
+                                 lineMidY: origin.y + lineRect.midY)
+                    return
+                }
                 
                 let font = NSFont.systemFont(ofSize: 13, weight: .regular)
                 let attrs: [NSAttributedString.Key: Any] = [
@@ -313,7 +360,7 @@ class SwashNSTextView: NSTextView {
         let lineCharacters = layoutManager.characterRange(forGlyphRange: lineGlyphs, actualGlyphRange: nil)
         var hit: NSRange? = nil
         storage.enumerateAttribute(.listMarker, in: lineCharacters, options: []) { value, range, stop in
-            guard let info = value as? ListMarkerInfo, info.text == "☐" || info.text == "☑" else { return }
+            guard let info = value as? ListMarkerInfo, info.isTask else { return }
             let contentGlyph = layoutManager.glyphIndexForCharacter(at: min(NSMaxRange(range), max(0, storage.length - 1)))
             let contentX = lineRect.minX + layoutManager.location(forGlyphAt: contentGlyph).x
             // The checkbox is drawn just left of the item's text
@@ -343,6 +390,69 @@ class SwashNSTextView: NSTextView {
         return hit
     }
     
+    // MARK: Cursor
+
+    /// Frame of the bubble menu in the scroll view's visible coordinates (the SwiftUI overlay's
+    /// space), or nil when it isn't shown. The I-beam is replaced by the arrow over it.
+    var bubbleMenuFrame: NSRect?
+
+    /// The cursor for `point` (view coordinates) when it isn't the text I-beam: the arrow over the
+    /// margins and the bubble menu.
+    func overrideCursor(at point: NSPoint) -> NSCursor? {
+        if let frame = bubbleMenuFrame, let clipView = enclosingScrollView?.contentView {
+            let origin = clipView.bounds.origin
+            let menu = convert(frame.offsetBy(dx: origin.x, dy: origin.y), from: clipView)
+            if menu.contains(point) { return .arrow }
+        }
+        let textMinX = textContainerOrigin.x
+        let textMaxX = textMinX + (textContainer?.size.width ?? bounds.width)
+        if point.x < textMinX || point.x > textMaxX || point.y < textContainerOrigin.y { return .arrow }
+        if footnoteLink(at: point) != nil || taskMarkerRange(at: point) != nil { return .pointingHand }
+        return nil
+    }
+
+    /// Storage index of the character drawn under `point` (view coordinates), if the point is on it.
+    private func characterIndex(under point: NSPoint) -> Int? {
+        guard let layoutManager = layoutManager, let container = textContainer, let storage = textStorage,
+              layoutManager.numberOfGlyphs > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        var fraction: CGFloat = 0
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: container, fractionOfDistanceThroughGlyph: &fraction)
+        let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: container)
+        guard glyphRect.contains(containerPoint) else { return nil }
+        let index = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        return index < storage.length ? index : nil
+    }
+
+    /// The footnote reference or definition marker under `point`, in the Formatted view.
+    func footnoteLink(at point: NSPoint) -> FootnoteLink? {
+        guard isStyled, let index = characterIndex(under: point) else { return nil }
+        return textStorage?.attribute(.footnoteLink, at: index, effectiveRange: nil) as? FootnoteLink
+    }
+
+    /// Storage location of the image attachment under `point`, if any.
+    func imageAttachmentLocation(at point: NSPoint) -> Int? {
+        guard isStyled, let index = characterIndex(under: point),
+              textStorage?.attribute(.attachment, at: index, effectiveRange: nil) is ImageTextAttachment else { return nil }
+        return index
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        if let cursor = overrideCursor(at: convert(event.locationInWindow, from: nil)) {
+            cursor.set()
+            return
+        }
+        super.mouseMoved(with: event)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if let cursor = overrideCursor(at: convert(event.locationInWindow, from: nil)) {
+            cursor.set()
+            return
+        }
+        super.cursorUpdate(with: event)
+    }
+
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if let badgeLocation = codeBadgeLocation(at: point), let coordinator = delegate as? SwashTextView.Coordinator {
@@ -353,7 +463,19 @@ class SwashNSTextView: NSTextView {
             coordinator.toggleTask(markerRange: marker, in: self)
             return
         }
+        if event.clickCount == 1, !event.modifierFlags.contains(.shift), let link = footnoteLink(at: point),
+           let coordinator = delegate as? SwashTextView.Coordinator {
+            coordinator.followFootnote(link, in: self)
+            return
+        }
+        let imageLocation = event.clickCount == 1 ? imageAttachmentLocation(at: point) : nil
         super.mouseDown(with: event)
+        // A click on an image selects it, which shows the image bubble menu. Done after the
+        // tracking loop so images can still be dragged.
+        if let location = imageLocation, selectedRange().length == 0,
+           abs(selectedRange().location - location) <= 1 {
+            setSelectedRange(NSRange(location: location, length: 1))
+        }
     }
     
     // MARK: Paste
@@ -1039,6 +1161,21 @@ struct SwashTextView: NSViewRepresentable {
             applyEdit(in: textView, newRawText: updated, rawSelection: selection, actionName: checked ? "Uncheck To-do" : "Check To-do")
         }
         
+        /// Clicking a footnote reference shows its definition; clicking a definition's label shows
+        /// the first reference to it.
+        func followFootnote(_ link: FootnoteLink, in textView: NSTextView) {
+            let footnote = formatting(for: parent.text).footnote(label: link.label, isDefinition: link.isDefinition)
+            let target = link.isDefinition ? footnote.references.first?.location : footnote.definitionContent?.location
+            guard let rawLocation = target else { return }
+            if let controller = parent.controller, controller.textView === textView {
+                controller.reveal(rawLocation: rawLocation)
+            } else {
+                let range = storageRange(forRaw: NSRange(location: rawLocation, length: 0), in: textView)
+                textView.setSelectedRange(range)
+                textView.scrollRangeToVisible(range)
+            }
+        }
+
         func invalidateOffsetMap() {
             cachedOffsetMap = nil
         }
@@ -2403,10 +2540,16 @@ struct SwashTextView: NSViewRepresentable {
             // The last unchanged leading block is restyled too: its trailing line break may have been
             // retyped or be part of its own styling (a collapsed closing fence). The region starts at the
             // beginning of that block's line, whose preceding character is untouched.
-            let firstStyled = max(0, prefix - 1)
-            let start = prefix > 0 ? raw.lineRange(for: NSRange(location: current[firstStyled].range.location, length: 0)).location : 0
+            var firstStyled = max(0, prefix - 1)
+            var start = prefix > 0 ? raw.lineRange(for: NSRange(location: current[firstStyled].range.location, length: 0)).location : 0
+            // An unchanged table just before the edit keeps its attachment: rebuilding it would
+            // re-create its view on every keystroke in the paragraph after it, and drop a cell edit
+            if prefix > 0, case .table = blocks[firstStyled].kind {
+                start = NSMaxRange(current[firstStyled].range)
+                firstStyled = prefix
+            }
             let end = suffix > 0 ? current[current.count - suffix].range.location : raw.length
-            guard end >= start else { return false }
+            guard end >= start, firstStyled <= blocks.count - suffix else { return false }
             
             let map = offsetMap(for: textView)
             let storageStart = map.storageLocation(forRaw: start, roundUp: false)
