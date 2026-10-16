@@ -459,6 +459,14 @@ struct MarkdownFormatting {
                     edits.append((NSRange(location: line.location, length: 0), isBlank ? ">" : "> "))
                 }
             }
+            // Unquoting a whole callout drops its [!TYPE] line too, rather than leaving it as text
+            if quoted, let alert = alert(containing: selection), let marker = alertMarker(of: alert),
+               let first = lines.first, let last = lines.last,
+               first.location <= NSMaxRange(ns.lineRange(for: marker)), NSMaxRange(last) >= NSMaxRange(alert.range) {
+                let removal = alertMarkerRemoval(marker)
+                edits.removeAll { $0.range.location >= removal.range.location && $0.range.location < NSMaxRange(removal.range) }
+                edits.append(removal)
+            }
             return applying(edits, selection: selection)
         }
 
@@ -488,6 +496,201 @@ struct MarkdownFormatting {
         return applying(edits, selection: selection)
     }
 
+    // MARK: - Callouts
+
+    /// Innermost callout (`> [!TYPE]` alert) containing the selection.
+    func alert(containing selection: NSRange) -> MarkdownNode? {
+        var found: MarkdownNode? = nil
+        document.root.walk { node in
+            guard case .alert = node.kind else { return }
+            if selection.location >= node.range.location && NSMaxRange(selection) <= NSMaxRange(node.range) { found = node }
+        }
+        return found
+    }
+
+    /// Innermost plain blockquote containing the selection.
+    private func blockQuote(containing selection: NSRange) -> MarkdownNode? {
+        var found: MarkdownNode? = nil
+        document.root.walk { node in
+            guard case .blockQuote = node.kind else { return }
+            if selection.location >= node.range.location && NSMaxRange(selection) <= NSMaxRange(node.range) { found = node }
+        }
+        return found
+    }
+
+    /// The type of the callout around the selection, if any.
+    func alertType(at selection: NSRange) -> AlertType? {
+        guard isValid(selection), let alert = alert(containing: selection), case .alert(let type) = alert.kind else { return nil }
+        return type
+    }
+
+    /// Source range of a callout's `[!TYPE]` marker.
+    private func alertMarker(of alert: MarkdownNode) -> NSRange? {
+        alert.markers.first { NSMaxRange($0) <= ns.length && ns.substring(with: $0).hasPrefix("[!") }
+    }
+
+    /// The edit that removes a callout marker: its whole line when nothing else is on it.
+    private func alertMarkerRemoval(_ marker: NSRange) -> (range: NSRange, replacement: String) {
+        let line = ns.lineRange(for: marker)
+        var end = NSMaxRange(marker)
+        while end < ns.length, ns.character(at: end) == 0x20 || ns.character(at: end) == 0x09 { end += 1 }
+        if end >= NSMaxRange(line) || ns.character(at: end) == 0x0A || ns.character(at: end) == 0x0D {
+            return (line, "")
+        }
+        return (NSRange(location: marker.location, length: end - marker.location), "")
+    }
+
+    /// Makes the selection a callout of `type`: changes an existing callout's type, adds a marker to a
+    /// plain quote, or quotes plain lines under a new marker. A nil `type` turns a callout back into
+    /// a plain quote.
+    func setAlertType(_ type: AlertType?, selection: NSRange) -> MarkdownEdit? {
+        guard isValid(selection) else { return nil }
+        if let alert = alert(containing: selection), let marker = alertMarker(of: alert) {
+            guard let type = type else { return applying([alertMarkerRemoval(marker)], selection: selection) }
+            return applying([(marker, Self.alertTag(type))], selection: selection)
+        }
+        guard let type = type else { return nil }
+        if let quote = blockQuote(containing: selection) {
+            let line = ns.lineRange(for: NSRange(location: quote.range.location, length: 0))
+            var prefix = Self.structure(of: ns.substring(with: line)).quotePrefix
+            if !prefix.hasSuffix(" ") && !prefix.hasSuffix("\t") { prefix += " " }
+            return applying([(NSRange(location: line.location, length: 0), prefix + Self.alertTag(type) + "\n")], selection: selection)
+        }
+        var edits: [(range: NSRange, replacement: String)] = []
+        for (index, line) in selectedLines(selection).enumerated() {
+            let isBlank = ns.substring(with: line).trimmingCharacters(in: .whitespaces).isEmpty
+            let quote = isBlank ? ">" : "> "
+            edits.append((NSRange(location: line.location, length: 0), index == 0 ? "> " + Self.alertTag(type) + "\n" + quote : quote))
+        }
+        return applying(edits, selection: selection)
+    }
+
+    static func alertTag(_ type: AlertType) -> String { "[!\(type.rawValue.uppercased())]" }
+
+    // MARK: - Images
+
+    /// The image (Markdown or `<img>`) whose source is exactly `selection`.
+    func image(exactly selection: NSRange) -> MarkdownNode? {
+        guard isValid(selection), selection.length > 0 else { return nil }
+        var found: MarkdownNode? = nil
+        document.root.walk { node in
+            guard found == nil, node.range == selection else { return }
+            switch node.kind {
+            case .image: found = node
+            case .htmlInline, .htmlBlock:
+                if case .image = InlineHTMLTag(node.literal.trimmingCharacters(in: .whitespacesAndNewlines)).kind { found = node }
+            default: break
+            }
+        }
+        return found
+    }
+
+    // MARK: - Footnotes
+
+    struct Footnote: Equatable {
+        let label: String
+        /// The whole definition block, and the part after its `[^label]:` marker.
+        let definition: NSRange?
+        let definitionContent: NSRange?
+        let references: [NSRange]
+        /// True when the selection is in the definition rather than on a reference.
+        let isDefinition: Bool
+    }
+
+    /// The footnote whose reference or definition the selection is in.
+    func footnote(at selection: NSRange) -> Footnote? {
+        guard isValid(selection) else { return nil }
+        var hit: (label: String, isDefinition: Bool)? = nil
+        document.root.walk { node in
+            switch node.kind {
+            case .footnoteReference(let label):
+                let r = node.range
+                if selection.location >= r.location && NSMaxRange(selection) <= NSMaxRange(r) { hit = (label, false) }
+            case .footnoteDefinition(let label) where hit == nil || hit?.isDefinition == true:
+                let r = node.range
+                if selection.location >= r.location && NSMaxRange(selection) <= NSMaxRange(r) { hit = (label, true) }
+            default:
+                break
+            }
+        }
+        guard let found = hit else { return nil }
+        return footnote(label: found.label, isDefinition: found.isDefinition)
+    }
+
+    /// Where the footnote `label` is defined and referenced.
+    func footnote(label: String, isDefinition: Bool = false) -> Footnote {
+        let key = MarkdownSyntax.normalizeLabel(label)
+        var definition: MarkdownNode? = nil
+        var references: [NSRange] = []
+        document.root.walk { node in
+            switch node.kind {
+            case .footnoteReference(let l) where MarkdownSyntax.normalizeLabel(l) == key:
+                references.append(node.range)
+            case .footnoteDefinition(let l) where definition == nil && MarkdownSyntax.normalizeLabel(l) == key:
+                definition = node
+            default:
+                break
+            }
+        }
+        let content = definition.map { def -> NSRange in
+            let start = def.markers.first.map { NSMaxRange($0) } ?? def.range.location
+            return NSRange(location: min(start, NSMaxRange(def.range)), length: max(0, NSMaxRange(def.range) - start))
+        }
+        return Footnote(label: label, definition: definition?.range, definitionContent: content, references: references, isDefinition: isDefinition)
+    }
+
+    /// Inserts a reference to a new footnote after the selection and its definition at the end of the
+    /// document, with the caret in the definition.
+    func insertFootnote(selection: NSRange) -> MarkdownEdit? {
+        guard isValid(selection) else { return nil }
+        var used = Set<String>()
+        document.root.walk { node in
+            switch node.kind {
+            case .footnoteReference(let label), .footnoteDefinition(let label): used.insert(MarkdownSyntax.normalizeLabel(label))
+            default: break
+            }
+        }
+        // Undefined references aren't parsed as footnotes; skip their labels too
+        let pattern = try! NSRegularExpression(pattern: "\\[\\^([^\\]\\s]+)\\]")
+        for m in pattern.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
+            used.insert(MarkdownSyntax.normalizeLabel(ns.substring(with: m.range(at: 1))))
+        }
+        var number = 1
+        while used.contains(String(number)) { number += 1 }
+        let reference = "[^\(number)]"
+
+        let trimmedEnd = text.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+        let lastLine = trimmedEnd.components(separatedBy: "\n").last ?? ""
+        let followsDefinition = lastLine.range(of: "^\\[\\^[^\\]]+\\]:", options: .regularExpression) != nil
+        var definition = text.isEmpty || text.hasSuffix("\n") ? "" : "\n"
+        if !followsDefinition { definition += "\n" }
+        definition += "[^\(number)]: "
+
+        let insertAt = NSMaxRange(selection)
+        let edits: [(range: NSRange, replacement: String)] = insertAt == ns.length
+            ? [(NSRange(location: insertAt, length: 0), reference + definition)]
+            : [(NSRange(location: insertAt, length: 0), reference), (NSRange(location: ns.length, length: 0), definition)]
+        guard let edit = applying(edits, selection: selection) else { return nil }
+        return MarkdownEdit(text: edit.text, selection: NSRange(location: (edit.text as NSString).length, length: 0))
+    }
+
+    /// Removes every reference to the footnote `label` and its definition.
+    func deleteFootnote(label: String, selection: NSRange) -> MarkdownEdit? {
+        let note = footnote(label: label)
+        var edits: [(range: NSRange, replacement: String)] = []
+        var definitionLines: NSRange? = nil
+        if let def = note.definition {
+            let lines = ns.lineRange(for: def)
+            definitionLines = lines
+            edits.append((lines, ""))
+        }
+        for ref in note.references where definitionLines.map({ NSIntersectionRange($0, ref).length == 0 }) ?? true {
+            edits.append((ref, ""))
+        }
+        let caret = NSRange(location: selection.location, length: 0)
+        return applying(edits, selection: caret)
+    }
+
     // MARK: - Edit application
 
     /// Applies non-overlapping edits and maps the selection through them.
@@ -514,5 +717,77 @@ struct MarkdownFormatting {
         let start = map(selection.location, isEnd: false)
         let end = map(NSMaxRange(selection), isEnd: true)
         return MarkdownEdit(text: result as String, selection: NSRange(location: start, length: max(0, end - start)))
+    }
+}
+
+/// An image's source (`![alt](src "title")` or `<img src alt width>`), parsed so the image bubble
+/// menu can change its alt text, file or display width and write it back.
+struct MarkdownImageSource: Equatable {
+    var source: String
+    var alt: String
+    var title: String?
+    /// Display width in points; nil shows the image at its natural size (capped to the page).
+    var width: Int?
+
+    init(source: String, alt: String, title: String? = nil, width: Int? = nil) {
+        self.source = source
+        self.alt = alt
+        self.title = title
+        self.width = width
+    }
+
+    init?(markdown: String) {
+        let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("<") {
+            guard case .image(let src, let alt, let width) = InlineHTMLTag(trimmed).kind else { return nil }
+            let attributes = trimmed.range(of: "^<img", options: [.regularExpression, .caseInsensitive]).map { String(trimmed[$0.upperBound...]) } ?? ""
+            self.init(source: src, alt: alt, title: InlineHTMLTag.attributes(attributes)["title"], width: width.map { Int($0.rounded()) })
+            return
+        }
+        var found: MarkdownNode? = nil
+        let document = MarkdownDocument.parse(trimmed)
+        document.root.walk { node in
+            if found == nil, case .image = node.kind { found = node }
+        }
+        guard let node = found, case .image(let destination, let title) = node.kind else { return nil }
+        self.init(source: destination, alt: node.plainText, title: title)
+    }
+
+    /// Markdown image syntax, or an `<img>` tag when a width is set (Markdown has no size syntax).
+    var markdown: String {
+        if let width = width {
+            var tag = "<img src=\"\(Self.attribute(source))\" alt=\"\(Self.attribute(alt))\""
+            if let title = title { tag += " title=\"\(Self.attribute(title))\"" }
+            return tag + " width=\"\(width)\">"
+        }
+        let escapedAlt = alt.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+        let needsBrackets = source.contains(where: { $0 == " " || $0 == "(" || $0 == ")" || $0 == "<" || $0 == ">" })
+        var destination = needsBrackets ? "<\(source.replacingOccurrences(of: "<", with: "%3C").replacingOccurrences(of: ">", with: "%3E"))>" : source
+        if let title = title {
+            destination += " \"\(title.replacingOccurrences(of: "\"", with: "\\\""))\""
+        }
+        return "![\(escapedAlt)](\(destination))"
+    }
+
+    /// `url` as an image source for a document at `documentURL`: a path relative to the document
+    /// when the image is in its folder (or below), otherwise a file URL.
+    static func source(for url: URL, relativeTo documentURL: URL?) -> String {
+        let path = url.standardizedFileURL.path
+        if let folder = documentURL?.deletingLastPathComponent().standardizedFileURL.path {
+            let prefix = folder.hasSuffix("/") ? folder : folder + "/"
+            if path.hasPrefix(prefix) {
+                let relative = String(path.dropFirst(prefix.count))
+                return relative.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? relative
+            }
+        }
+        return url.absoluteString
+    }
+
+    private static func attribute(_ value: String) -> String {
+        value.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "<", with: "&lt;")
     }
 }

@@ -230,7 +230,7 @@ enum MarkdownEditingCommands {
     // MARK: - "/" block menu
     
     enum BlockInsert: CaseIterable {
-        case text, heading1, heading2, heading3, bulletList, numberedList, todoList, quote, callout, codeBlock, divider, table
+        case text, heading1, heading2, heading3, bulletList, numberedList, todoList, quote, callout, codeBlock, divider, table, footnote
         
         var title: String {
             switch self {
@@ -246,6 +246,7 @@ enum MarkdownEditingCommands {
             case .codeBlock: return "Code Block"
             case .divider: return "Divider"
             case .table: return "Table"
+            case .footnote: return "Footnote"
             }
         }
         
@@ -263,6 +264,7 @@ enum MarkdownEditingCommands {
             case .codeBlock: return "curlybraces"
             case .divider: return "minus"
             case .table: return "tablecells"
+            case .footnote: return "textformat.superscript"
             }
         }
     }
@@ -283,6 +285,11 @@ enum MarkdownEditingCommands {
     static func insertBlock(_ kind: BlockInsert, text: String, slashLocation: Int) -> MarkdownEdit? {
         let ns = text as NSString
         guard slashLocation < ns.length, ns.character(at: slashLocation) == 0x2F else { return nil }
+        if kind == .footnote {
+            // A reference where the "/" was, and its definition at the end of the document
+            let withoutSlash = ns.replacingCharacters(in: NSRange(location: slashLocation, length: 1), with: "")
+            return MarkdownFormatting(text: withoutSlash).insertFootnote(selection: NSRange(location: slashLocation, length: 0))
+        }
         let current = line(at: slashLocation, in: ns)
         let s = current.structure
         // Keep the quote prefix and indentation; replace any list marker
@@ -308,6 +315,8 @@ enum MarkdownEditingCommands {
         case .table:
             let header = prefix + "| Column 1 | Column 2 |"
             lineText = header + "\n" + prefix + "| --- | --- |\n" + prefix + "|  |  |\n\n" + continuation + s.indent
+        case .footnote:
+            return nil
         }
         let edited = ns.replacingCharacters(in: current.range, with: lineText)
         let caret = current.range.location + (caretOffset ?? (lineText as NSString).length)
