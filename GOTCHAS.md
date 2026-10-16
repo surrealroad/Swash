@@ -121,3 +121,19 @@
 ## 30. Untitled Documents With Initial Text
 - **Issue**: `DocumentGroup` creates new documents from `SwashDocument()`, so there's no direct way to open an untitled document that already has text (quick notes, imports). Writing a temporary file and opening it makes Save write into the temporary folder.
 - **Solution**: `NewDocumentSeed.createDocument(with:)` queues the text and calls `NSDocumentController.newDocument(_:)`. `ContentView.onAppear` takes the next seed when its document is untitled and empty.
+
+## 31. SwiftUI Overlays Don't Change the Text View's Cursor
+- **Issue**: The bubble menu is a SwiftUI `.overlay` drawn over the `NSTextView`'s scroll view, not an `NSView` with its own cursor rects. The text view keeps setting the I-beam, including over its 20 pt inset margins.
+- **Solution**: `SwashNSTextView.overrideCursor(at:)` returns the arrow over the margins and over `bubbleMenuFrame` (in overlay coordinates, kept up to date through `SwashEditorController.bubbleMenuFrame`), and the pointing hand over checkboxes and footnote links. `mouseMoved` and `cursorUpdate` apply it. `BubbleMenuView` also sets the arrow with `onContinuousHover`.
+
+## 32. Table Attachments Are Sized From Their SwiftUI Content
+- **Issue**: `TableAttachmentCell` used to guess its height (36 pt per row). The hosting view then held content of a different height, so any state change (a cell entering edit mode, the header chevron appearing) moved the whole table. The edit cell (`NSTextView`) was also taller than the display `Text`, and had a different weight and alignment.
+- **Solution**: The cell measures `hostingView.fittingSize` (cached per table data and width). Display and edit cells share `CellTextField.lineHeight`, and the edit cell copies the header weight and the column alignment. The column menu is always laid out and only hidden. Cell parses are cached (`InlineMarkdownText`), and `.cellSelectionDidChange` is posted only when the selection actually changes.
+
+## 33. Custom Attributed-String Values Must Be `Hashable`
+- **Issue**: Storing an `Equatable`-only Swift struct as an attribute value logs "Obj-C `-hash` invoked on a Swift value … that is Equatable but not Hashable", and attribute run coalescing gets slow.
+- **Solution**: Make attribute value types (`FootnoteLink`, …) `Hashable`.
+
+## 34. An `<img>` Alone on a Line Is an HTML Block
+- **Issue**: CommonMark parses a line holding just `<img …>` as an HTML block (type 7), not inline HTML. The image menu writes exactly that when an image gets a width, and the editor used to show the tag as source.
+- **Solution**: `MarkdownEditorStyler` turns an HTML block holding a single `<img>` into an image attachment, and `MarkdownFormatting.image(exactly:)` accepts both `htmlInline` and `htmlBlock` images.

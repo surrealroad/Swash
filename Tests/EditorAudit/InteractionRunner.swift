@@ -409,6 +409,103 @@ struct InteractionRunner {
              log("preview-nested-scroll-routing", "\(nested.count) nested scroll views", "gesture=\(gesture) horizontal=\(horizontal) wheel=\(wheel)",
                  expect: "gesture=YYYYn horizontal=nn wheel=Ynn") }
 
+        // Callouts: change type, back to a plain quote, quote → callout, paragraph → callout
+        do {
+            func run(_ md: String, _ select: String, _ type: AlertType?) -> String {
+                let r = (md as NSString).range(of: select)
+                return MarkdownFormatting(text: md).setAlertType(type, selection: r)?.text ?? "nil"
+            }
+            log("callout-change-type", "> [!NOTE]\n> body", run("> [!NOTE]\n> body", "body", .warning), expect: "> [!WARNING]\n> body")
+            log("callout-to-plain-quote", "> [!TIP]\n> body", run("> [!TIP]\n> body", "body", nil), expect: "> body")
+            log("quote-to-callout", "> body", run("> body", "body", .tip), expect: "> [!TIP]\n> body")
+            log("paragraph-to-callout", "one\ntwo", run("one\ntwo", "one\ntwo", .caution), expect: "> [!CAUTION]\n> one\n> two")
+            let nested = "- item\n\n  > [!NOTE]\n  > body"
+            log("callout-in-list-change-type", nested, run(nested, "body", .important), expect: "- item\n\n  > [!IMPORTANT]\n  > body")
+            log("callout-type-detected", "> [!CAUTION]\n> body",
+                "\(MarkdownFormatting(text: "> [!CAUTION]\n> body").alertType(at: NSRange(location: 15, length: 2)).map { "\($0)" } ?? "nil")", expect: "caution")
+        }
+        // Images: alt text, width (Markdown ↔ <img>), source
+        do {
+            var image = MarkdownImageSource(markdown: "![old alt](<pics/a b.png> \"T\")")!
+            log("image-parse", "![old alt](<pics/a b.png> \"T\")", "\(image.source)|\(image.alt)|\(image.title ?? "-")|\(image.width.map(String.init) ?? "-")", expect: "pics/a b.png|old alt|T|-")
+            image.alt = "new [alt]"
+            log("image-alt", "", image.markdown, expect: "![new \\[alt\\]](<pics/a b.png> \"T\")")
+            image.width = 200
+            log("image-width", "", image.markdown, expect: "<img src=\"pics/a b.png\" alt=\"new [alt]\" title=\"T\" width=\"200\">")
+            let reparsed = MarkdownImageSource(markdown: image.markdown)!
+            log("image-width-roundtrip", "", "\(reparsed.source)|\(reparsed.alt)|\(reparsed.title ?? "-")|\(reparsed.width.map(String.init) ?? "-")", expect: "pics/a b.png|new [alt]|T|200")
+            var plain = reparsed
+            plain.width = nil
+            plain.source = "x.png"
+            log("image-original-size", "", plain.markdown, expect: "![new \\[alt\\]](x.png \"T\")")
+            let doc = "Intro\n\n<img src=\"a.png\" alt=\"A\" width=\"200\">\n\nEnd"
+            let r = (doc as NSString).range(of: "<img src=\"a.png\" alt=\"A\" width=\"200\">")
+            log("image-html-block-found", doc, MarkdownFormatting(text: doc).image(exactly: r) != nil ? "found" : "missing", expect: "found")
+            log("relative-image-source", "", MarkdownImageSource.source(for: URL(fileURLWithPath: "/docs/pics/my image.png"), relativeTo: URL(fileURLWithPath: "/docs/note.md")), expect: "pics/my%20image.png")
+        }
+        // An <img> on its own line (what resizing writes) shows as an image in the editor
+        do {
+            let b = TextBox("Intro\n\n<img src=\"missing.png\" alt=\"A\" width=\"200\">\n\nEnd"); let tv = makeEditor(b)
+            var images = 0
+            tv.textStorage!.enumerateAttribute(.attachment, in: NSRange(location: 0, length: tv.textStorage!.length), options: []) { v, _, _ in
+                if v is ImageTextAttachment { images += 1 }
+            }
+            log("image-html-block-attachment", b.text, "images=\(images) roundtrip=\(b.text.contains("width=\"200\""))", expect: "images=1 roundtrip=true")
+        }
+        // Footnotes: insert numbering, lookup, delete
+        do {
+            let text = "See this[^1] and that.\n\n[^1]: First."
+            let caret = (text as NSString).range(of: "that").location + 4
+            let inserted = MarkdownFormatting(text: text).insertFootnote(selection: NSRange(location: caret, length: 0))
+            log("footnote-insert", text, inserted.map { "\($0.text)|caret=\($0.selection.location == ($0.text as NSString).length)" } ?? "nil",
+                expect: "See this[^1] and that[^2].\n\n[^1]: First.\n[^2]: |caret=true")
+            let fresh = MarkdownFormatting(text: "Plain text").insertFootnote(selection: NSRange(location: 5, length: 0))?.text ?? "nil"
+            log("footnote-insert-first", "Plain text", fresh, expect: "Plain[^1] text\n\n[^1]: ")
+            let formatting = MarkdownFormatting(text: text)
+            let onRef = formatting.footnote(at: NSRange(location: (text as NSString).range(of: "[^1]").location + 1, length: 0))
+            let onDef = formatting.footnote(at: NSRange(location: (text as NSString).range(of: "First").location, length: 0))
+            log("footnote-lookup", text, "ref=\(onRef.map { "\($0.label):\($0.isDefinition):\($0.definitionContent.map { (text as NSString).substring(with: $0) } ?? "-")" } ?? "nil") def=\(onDef.map { "\($0.isDefinition):\($0.references.count)" } ?? "nil")",
+                expect: "ref=1:false:First. def=true:1")
+            log("footnote-delete", text, formatting.deleteFootnote(label: "1", selection: NSRange(location: 0, length: 0))?.text ?? "nil", expect: "See this and that.\n\n")
+            let slash = MarkdownEditingCommands.insertBlock(.footnote, text: "Hello /", slashLocation: 6)?.text ?? "nil"
+            log("footnote-slash-menu", "Hello /", slash, expect: "Hello [^1]\n\n[^1]: ")
+        }
+        // Clicking a footnote reference shows its definition, and the definition's label goes back
+        do {
+            let b = TextBox("See this[^1] and that.\n\n[^1]: First."); let tv = makeEditor(b)
+            let coordinator = tv.delegate as! SwashTextView.Coordinator
+            coordinator.followFootnote(FootnoteLink(label: "1", isDefinition: false), in: tv); pump()
+            let atDefinition = (tv.string as NSString).substring(from: tv.selectedRange().location).hasPrefix("First.")
+            coordinator.followFootnote(FootnoteLink(label: "1", isDefinition: true), in: tv); pump()
+            let atReference = (tv.string as NSString).substring(from: tv.selectedRange().location).hasPrefix("[^1] and")
+            var tagged = 0
+            tv.textStorage!.enumerateAttribute(.footnoteLink, in: NSRange(location: 0, length: tv.textStorage!.length), options: []) { v, _, _ in if v != nil { tagged += 1 } }
+            log("footnote-navigation", b.text, "definition=\(atDefinition) reference=\(atReference) tagged=\(tagged)", expect: "definition=true reference=true tagged=2")
+        }
+        // Tables: editing a cell ends the editor's selection; typing after a table keeps its view;
+        // the attachment is as tall as the table's content
+        do {
+            let b = TextBox("Intro text here.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nAfter table."); let tv = makeEditor(b)
+            tv.display(); pump(0.3)
+            var table: TableTextAttachment? = nil
+            tv.textStorage!.enumerateAttribute(.attachment, in: NSRange(location: 0, length: tv.textStorage!.length), options: []) { v, _, stop in
+                if let t = v as? TableTextAttachment { table = t; stop.pointee = true }
+            }
+            let hosting = table?.cell.hostingView
+            tv.setSelectedRange((tv.string as NSString).range(of: "Intro text")); pump()
+            hosting?.rootView.onBeginEditing?(); pump()
+            let collapsed = tv.selectedRange().length == 0
+            let fits = hosting.map { abs($0.frame.height - ceil(max(44, $0.fittingSize.height))) < 1 } ?? false
+            caretAfter("After table.", in: tv)
+            tv.insertText(" More", replacementRange: tv.selectedRange()); pump(0.3)
+            var after: TableTextAttachment? = nil
+            tv.textStorage!.enumerateAttribute(.attachment, in: NSRange(location: 0, length: tv.textStorage!.length), options: []) { v, _, stop in
+                if let t = v as? TableTextAttachment { after = t; stop.pointee = true }
+            }
+            log("table-cell-focus-and-reuse", b.text, "selectionCleared=\(collapsed) heightFits=\(fits) tableKept=\(after != nil && after === table)",
+                expect: "selectionCleared=true heightFits=true tableKept=true")
+        }
+
         try? out.write(toFile: CommandLine.arguments[1], atomically: true, encoding: .utf8)
         print(out)
         print(failures.isEmpty ? "INTERACTION: all expectations passed" : "INTERACTION FAILURES:\n" + failures.joined(separator: "\n"))
