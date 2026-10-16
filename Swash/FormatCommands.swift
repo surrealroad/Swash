@@ -13,6 +13,9 @@ enum FormatCommand: Equatable {
     case bold, italic, strikethrough, code, link
     case heading(Int), paragraph
     case bulletList, numberedList, taskList, quote, codeBlock
+    /// Make the selection a callout of the given type; nil turns a callout back into a plain quote.
+    case callout(AlertType?)
+    case footnote
     case tableOfContents
     
     /// Maps a key-down event to a command (key codes for digits/punctuation, so shifted keys work on any layout).
@@ -96,7 +99,17 @@ struct FormatMenuCommands: Commands {
             item("To-do List", .taskList, "9", [.command, .shift])
             item("Quote", .quote, ".", [.command, .shift])
             item("Code Block", .codeBlock, "c", [.command, .option])
+            Menu("Callout") {
+                ForEach(AlertType.allCases, id: \.self) { type in
+                    Button(type.title) { handler?(.callout(type)) }
+                }
+                Divider()
+                Button("Plain Quote") { handler?(.callout(nil)) }
+            }
+            .disabled(handler == nil)
             Divider()
+            Button("Insert Footnote") { handler?(.footnote) }
+                .disabled(handler == nil)
             Picker("Markdown Flavor", selection: Binding(
                 get: { flavorSelection?.current ?? .github },
                 set: { flavorSelection?.select($0) }

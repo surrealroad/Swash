@@ -146,6 +146,15 @@ struct PreviewScrollView<Content: View>: NSViewRepresentable {
         context.coordinator.router = NestedScrollRouter(scrollView: scrollView)
         context.coordinator.scrollView = scrollView
         context.coordinator.observeAsynchronousContent()
+        // Dragging the split divider or resizing the window doesn't always update SwiftUI; refit
+        // when the visible width changes so the content's height follows it
+        scrollView.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.clipViewFrameDidChange(_:)),
+            name: NSView.frameDidChangeNotification,
+            object: scrollView.contentView
+        )
 
         return scrollView
     }
@@ -218,6 +227,12 @@ struct PreviewScrollView<Content: View>: NSViewRepresentable {
             }
         }
         
+        @objc func clipViewFrameDidChange(_ notification: Notification) {
+            guard let scrollView = scrollView, scrollView.contentSize.width != lastWidth else { return }
+            lastWidth = scrollView.contentSize.width
+            contentMayHaveResized()
+        }
+        
         deinit {
             NotificationCenter.default.removeObserver(self)
         }
@@ -288,7 +303,7 @@ struct MarkdownPreviewView: View {
             .foregroundColor(.primary)
             .padding(.horizontal, 28)
             .padding(.vertical, 24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .textSelection(.enabled)
         }
         .background(Color(NSColor.windowBackgroundColor).opacity(0.8))
@@ -610,51 +625,41 @@ struct MarkdownBlockView: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .leading)
             
         case .blockQuote:
-            HStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.accentColor)
-                    .frame(width: 4)
-                children()
-                    .font(.system(.body, design: .serif))
-                    .italic()
-                    .foregroundColor(.secondary)
-                    .lineSpacing(4)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.accentColor.opacity(0.04))
-            }
-            .cornerRadius(4)
-            .padding(.vertical, 6)
+            children()
+                .font(.system(.body, design: .serif))
+                .italic()
+                .foregroundColor(.secondary)
+                .lineSpacing(4)
+                .padding(.vertical, 8)
+                .padding(.leading, 20)
+                .padding(.trailing, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .modifier(QuoteBox(color: .accentColor, fillOpacity: 0.04, cornerRadius: 4))
+                .padding(.vertical, 6)
             
         case .alert(let type):
             let color = MarkdownBlockView.alertColor(type)
-            HStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(color)
-                    .frame(width: 4)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Image(systemName: MarkdownBlockView.alertIcon(type))
-                            .foregroundColor(color)
-                            .font(.system(size: 13, weight: .bold))
-                        Text(type.title)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(color)
-                    }
-                    if node.firstChild != nil {
-                        children(spacing: 8)
-                            .font(.body)
-                            .lineSpacing(3)
-                            .foregroundColor(.primary)
-                    }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: MarkdownBlockView.alertIcon(type))
+                        .foregroundColor(color)
+                        .font(.system(size: 13, weight: .bold))
+                    Text(type.title)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(color)
                 }
-                .padding(.vertical, 10)
-                .padding(.horizontal, 14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(color.opacity(0.06))
+                if node.firstChild != nil {
+                    children(spacing: 8)
+                        .font(.body)
+                        .lineSpacing(3)
+                        .foregroundColor(.primary)
+                }
             }
-            .cornerRadius(6)
+            .padding(.vertical, 10)
+            .padding(.leading, 18)
+            .padding(.trailing, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(QuoteBox(color: color, fillOpacity: 0.06, cornerRadius: 6))
             .padding(.vertical, 6)
             
         case .list(_, _, _, _, let tight):
@@ -863,6 +868,27 @@ struct MarkdownTableSource {
                 break
             }
         }
+    }
+}
+
+/// The tinted box and leading bar behind quotes and callouts. The bar is an overlay, so it always
+/// spans the content's full height, and the box keeps its natural height when the preview offers
+/// it more (a short document in a tall pane).
+struct QuoteBox: ViewModifier {
+    let color: Color
+    let fillOpacity: Double
+    let cornerRadius: CGFloat
+    
+    func body(content: Content) -> some View {
+        content
+            .background(color.opacity(fillOpacity))
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(color)
+                    .frame(width: 4)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -1102,13 +1128,26 @@ struct MarkdownInlineView: View {
 }
 
 /// Inline Markdown from a raw string (table cells and other inline-only contexts).
-struct InlineMarkdownText: View {
+struct InlineMarkdownText: View, Equatable {
     let text: String
     let flavor: MarkdownFlavor
     var baseURL: URL? = nil
     
-    var body: some View {
+    /// Recent cell parses. Table cells are re-evaluated whenever the table's hover or editing
+    /// state changes; re-parsing every cell then made clicking into a cell slow.
+    @MainActor private static var parses: [String: MarkdownDocument] = [:]
+    
+    @MainActor private static func document(for text: String, flavor: MarkdownFlavor) -> MarkdownDocument {
+        let key = "\(flavor.rawValue)\u{0}\(text)"
+        if let cached = parses[key] { return cached }
+        if parses.count > 1024 { parses.removeAll(keepingCapacity: true) }
         let document = MarkdownPreviewView.parse(text, flavor: flavor)
+        parses[key] = document
+        return document
+    }
+    
+    var body: some View {
+        let document = Self.document(for: text, flavor: flavor)
         // Inline-only: use the inline content of every leaf block
         var inlines: [MarkdownNode] = []
         document.root.walk { node in

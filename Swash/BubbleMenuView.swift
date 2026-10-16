@@ -86,7 +86,48 @@ enum BubbleMenuContext: Hashable {
     case heading
     case listItem
     case blockquote
+    /// A GitHub-style callout (`> [!NOTE]`).
+    case callout(AlertType)
+    /// A selected image.
+    case image
     case standard
+
+    /// Quotes and callouts share the block buttons.
+    var isQuoteLike: Bool {
+        switch self {
+        case .blockquote, .callout: return true
+        default: return false
+        }
+    }
+}
+
+/// What the image bubble menu does to the selected image.
+struct ImageMenuActions {
+    let setAlt: (String) -> Void
+    let setWidth: (Int?) -> Void
+    let replace: () -> Void
+    /// Nil when the image isn't a local file.
+    let reveal: (() -> Void)?
+    let copyPath: () -> Void
+}
+
+/// The footnote the selection is on, and what the menu can do with it.
+struct FootnoteMenuActions {
+    let isDefinition: Bool
+    let goToCounterpart: () -> Void
+    let delete: () -> Void
+}
+
+extension AlertType {
+    var symbolName: String {
+        switch self {
+        case .note: return "info.circle"
+        case .tip: return "lightbulb"
+        case .important: return "exclamationmark.bubble"
+        case .warning: return "exclamationmark.triangle"
+        case .caution: return "exclamationmark.octagon"
+        }
+    }
 }
 
 struct BubbleMenuView: View {
@@ -104,13 +145,23 @@ struct BubbleMenuView: View {
     var translatableText: String? = nil
     /// Replaces the selection with a translation chosen in the Translate popover.
     var onReplaceWithTranslation: ((String) -> Void)? = nil
+    /// Changes the callout type of the selection; nil makes it a plain quote.
+    var onSelectCalloutType: ((AlertType?) -> Void)? = nil
+    /// The selected image, when `context` is `.image`.
+    var image: MarkdownImageSource? = nil
+    var imageActions: ImageMenuActions? = nil
+    var onInsertFootnote: (() -> Void)? = nil
+    var footnoteActions: FootnoteMenuActions? = nil
     
     @State private var isPresentingLinkPopover = false
     @State private var isPresentingTranslation = false
+    @State private var isPresentingAltPopover = false
     
     var body: some View {
         HStack(spacing: 4) {
-            if context == .codeBlock || activeFormats.contains(.code) {
+            if context == .image, let image = image, let actions = imageActions {
+                imageControls(image, actions: actions)
+            } else if context == .codeBlock || activeFormats.contains(.code) {
                 BubbleButton(
                     systemImage: "curlybraces",
                     textLabel: nil,
@@ -170,7 +221,20 @@ struct BubbleMenuView: View {
                     )
                 }
                 
-                if context == .standard || context == .heading || context == .blockquote {
+                if let footnote = footnoteActions {
+                    BubbleButton(
+                        systemImage: footnote.isDefinition ? "arrow.up.to.line" : "arrow.down.to.line",
+                        textLabel: nil,
+                        tooltip: footnote.isDefinition ? "Go to Footnote Reference" : "Go to Footnote",
+                        isActive: false,
+                        action: footnote.goToCounterpart
+                    )
+                    BubbleButton(systemImage: "trash", textLabel: nil, tooltip: "Delete Footnote", isActive: false, action: footnote.delete)
+                } else if let insertFootnote = onInsertFootnote, context != .tableCell {
+                    BubbleButton(systemImage: "textformat.superscript", textLabel: nil, tooltip: "Insert Footnote", isActive: false, action: insertFootnote)
+                }
+                
+                if context == .standard || context == .heading || context.isQuoteLike {
                     Divider()
                         .frame(height: 16)
                         .padding(.horizontal, 2)
@@ -187,8 +251,13 @@ struct BubbleMenuView: View {
                         headingLevelDropdown(currentLevel: currentLevel)
                     }
                     
-                    if context != .heading {
+                    if case .callout(let type) = context {
+                        calloutDropdown(current: type)
+                    } else if context != .heading {
                         BubbleButton(systemImage: "quote.bubble", textLabel: nil, tooltip: "Blockquote", isActive: activeFormats.contains(.quote), action: { onAction(.quote) })
+                        if context == .blockquote, onSelectCalloutType != nil {
+                            calloutDropdown(current: nil)
+                        }
                     }
                 } else if context == .listItem {
                     Divider()
@@ -198,7 +267,7 @@ struct BubbleMenuView: View {
                     BubbleButton(systemImage: "quote.bubble", textLabel: nil, tooltip: "Blockquote", isActive: activeFormats.contains(.quote), action: { onAction(.quote) })
                 }
                 
-                if context == .standard || context == .listItem || context == .blockquote {
+                if context == .standard || context == .listItem || context.isQuoteLike {
                     Divider()
                         .frame(height: 16)
                         .padding(.horizontal, 2)
@@ -244,6 +313,99 @@ struct BubbleMenuView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
         )
+        // The menu floats over the text view, whose I-beam would otherwise show through
+        .onContinuousHover { phase in
+            if case .active = phase { NSCursor.arrow.set() }
+        }
+    }
+    
+    /// Callout type menu: the five GitHub alert types, plus turning the callout back into a quote.
+    @ViewBuilder
+    private func calloutDropdown(current: AlertType?) -> some View {
+        Menu {
+            ForEach(AlertType.allCases, id: \.self) { type in
+                Button(action: { onSelectCalloutType?(type) }) {
+                    Label(type.title, systemImage: type == current ? "checkmark" : type.symbolName)
+                }
+            }
+            if current != nil {
+                Divider()
+                Button("Plain Quote") { onSelectCalloutType?(nil) }
+                Button("Remove Callout") { onAction(.quote) }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: current?.symbolName ?? "exclamationmark.bubble")
+                    .font(.system(size: 11, weight: .semibold))
+                if let current = current {
+                    Text(current.title)
+                        .font(.system(size: 10, weight: .bold))
+                }
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundColor(current != nil ? Color.accentColor : .primary.opacity(0.75))
+            .padding(.horizontal, 6)
+            .frame(height: 28)
+            .background(current != nil ? Color.accentColor.opacity(0.12) : Color.clear)
+            .cornerRadius(6)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(current != nil ? "Change callout type" : "Make this quote a callout")
+    }
+    
+    /// Image controls: alt text, display size, and the image file.
+    @ViewBuilder
+    private func imageControls(_ image: MarkdownImageSource, actions: ImageMenuActions) -> some View {
+        BubbleButton(systemImage: "text.below.photo", textLabel: nil, tooltip: "Edit Alt Text", isActive: !image.alt.isEmpty, action: {
+            isPresentingAltPopover.toggle()
+        })
+        .popover(isPresented: $isPresentingAltPopover, arrowEdge: .bottom) {
+            ImageAltTextPopoverView(initialText: image.alt, onApply: { alt in
+                isPresentingAltPopover = false
+                actions.setAlt(alt)
+            }, onCancel: { isPresentingAltPopover = false })
+        }
+        
+        Menu {
+            ForEach(ImageSizePreset.allCases, id: \.self) { preset in
+                Button(action: { actions.setWidth(preset.width) }) {
+                    if preset.width == image.width {
+                        Label(preset.title, systemImage: "checkmark")
+                    } else {
+                        Text(preset.title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(ImageSizePreset.label(for: image.width))
+                    .font(.system(size: 10, weight: .bold))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundColor(.primary.opacity(0.75))
+            .padding(.horizontal, 6)
+            .frame(height: 28)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Image size")
+        
+        Divider()
+            .frame(height: 16)
+            .padding(.horizontal, 2)
+        
+        BubbleButton(systemImage: "photo.on.rectangle.angled", textLabel: nil, tooltip: "Replace Image…", isActive: false, action: actions.replace)
+        if let reveal = actions.reveal {
+            BubbleButton(systemImage: "folder", textLabel: nil, tooltip: "Show in Finder", isActive: false, action: reveal)
+        }
+        BubbleButton(systemImage: "doc.on.doc", textLabel: nil, tooltip: "Copy Image Path", isActive: false, action: actions.copyPath)
     }
     
     @ViewBuilder
@@ -423,6 +585,72 @@ struct LinkEditorPopoverView: View {
         let trimmed = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             onApply(trimmed)
+        }
+    }
+}
+
+/// Display widths offered by the image bubble menu. The editor caps images at 550 points.
+enum ImageSizePreset: CaseIterable {
+    case small, medium, large, original
+    
+    var width: Int? {
+        switch self {
+        case .small: return 200
+        case .medium: return 360
+        case .large: return 550
+        case .original: return nil
+        }
+    }
+    
+    var title: String {
+        switch self {
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
+        case .original: return "Original Size"
+        }
+    }
+    
+    static func label(for width: Int?) -> String {
+        guard let width = width else { return "Original" }
+        return allCases.first { $0.width == width }?.title ?? "\(width) pt"
+    }
+}
+
+struct ImageAltTextPopoverView: View {
+    let onApply: (String) -> Void
+    let onCancel: () -> Void
+    @State private var text: String
+    @FocusState private var isFocused: Bool
+    
+    init(initialText: String, onApply: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        self.onApply = onApply
+        self.onCancel = onCancel
+        _text = State(initialValue: initialText)
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Alt Text")
+                .font(.system(size: 12, weight: .bold))
+            TextField("Describe the image", text: $text)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+                .focused($isFocused)
+                .onSubmit { onApply(text) }
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Update") { onApply(text) }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .controlSize(.small)
+        }
+        .padding(12)
+        .frame(width: 280)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { isFocused = true }
         }
     }
 }
