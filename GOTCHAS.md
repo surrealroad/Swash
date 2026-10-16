@@ -121,3 +121,7 @@
 ## 30. Untitled Documents With Initial Text
 - **Issue**: `DocumentGroup` creates new documents from `SwashDocument()`, so there's no direct way to open an untitled document that already has text (quick notes, imports). Writing a temporary file and opening it makes Save write into the temporary folder.
 - **Solution**: `NewDocumentSeed.createDocument(with:)` queues the text and calls `NSDocumentController.newDocument(_:)`. `ContentView.onAppear` takes the next seed when its document is untitled and empty.
+
+## 31. macOS App Icon HIG Grid Dimensions & Drop Shadow
+- **Issue**: Exporting app icons with generic or iOS squircle padding (e.g. 75% scale or 768px body with 128px margins on a 1024x1024 canvas) makes the icon appear ~6.3% smaller than surrounding apps in the macOS Dock and Launchpad. Additionally, macOS does not automatically synthesize dock drop shadows for custom icons, so icons without Apple's subtle downward drop shadow appear ungrounded and floating.
+- **Solution**: Follow Apple's macOS Human Interface Guidelines (HIG) App Icon grid specifications: the squircle body must occupy 824 × 824 px centered on a 1024 × 1024 canvas (100 px margins top/bottom/sides, ~80.5% fill). Include the standard Apple HIG downward drop shadow (offset `dy = +10`, Gaussian blur `radius = 16`, opacity `~28%`) in the asset artwork so the icon sits seamlessly on the Dock shelf alongside native system apps.
