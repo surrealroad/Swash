@@ -1,5 +1,11 @@
 # swash
 
+## 1.14.3
+
+### Patch Changes
+
+- c166ff3: Fix vertical alignment of checkboxes, bullet/numbered list markers, and alert callout icons to align accurately with the text baseline and cap height.
+
 ## 1.14.2
 
 ### Patch Changes
