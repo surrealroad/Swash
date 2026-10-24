@@ -2149,7 +2149,7 @@ struct SwashTextView: NSViewRepresentable {
                         let content = NSIntersectionRange(span.content, NSRange(location: 0, length: textStorage.length))
                         guard content.length > 0 else { continue }
                         textStorage.addAttribute(.font, value: monoFont, range: content)
-                        textStorage.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: content)
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: content)
                         hideRange(NSRange(location: span.full.location, length: span.content.location - span.full.location))
                         let contentEnd = span.content.location + span.content.length
                         hideRange(NSRange(location: contentEnd, length: span.full.location + span.full.length - contentEnd))
@@ -2366,11 +2366,13 @@ struct SwashTextView: NSViewRepresentable {
         enum PendingAttachment {
             case table(range: NSRange, source: String, headers: [String], alignments: [TableAlignment], rows: [[String]])
             case image(range: NSRange, alt: String, urlString: String, rawMarkdown: String, width: CGFloat? = nil)
+            case mermaid(range: NSRange, source: String, rawMarkdown: String)
             
             var location: Int {
                 switch self {
                 case .table(let range, _, _, _, _): return range.location
                 case .image(let range, _, _, _, _): return range.location
+                case .mermaid(let range, _, _): return range.location
                 }
             }
             
@@ -2380,6 +2382,8 @@ struct SwashTextView: NSViewRepresentable {
                     return .table(range: NSRange(location: range.location - delta, length: range.length), source: source, headers: headers, alignments: alignments, rows: rows)
                 case .image(let range, let alt, let urlString, let rawMarkdown, let width):
                     return .image(range: NSRange(location: range.location - delta, length: range.length), alt: alt, urlString: urlString, rawMarkdown: rawMarkdown, width: width)
+                case .mermaid(let range, let source, let rawMarkdown):
+                    return .mermaid(range: NSRange(location: range.location - delta, length: range.length), source: source, rawMarkdown: rawMarkdown)
                 }
             }
         }
@@ -2391,6 +2395,8 @@ struct SwashTextView: NSViewRepresentable {
                     return .table(range: request.range, source: source, headers: headers, alignments: alignments, rows: rows)
                 case .image(let alt, let urlString, let rawMarkdown, let width):
                     return .image(range: request.range, alt: alt, urlString: urlString, rawMarkdown: rawMarkdown, width: width)
+                case .mermaid(let source, let rawMarkdown):
+                    return .mermaid(range: request.range, source: source, rawMarkdown: rawMarkdown)
                 }
             }
         }
@@ -2431,6 +2437,38 @@ struct SwashTextView: NSViewRepresentable {
                             displayImage = MarkdownParser.placeholderImage(alt: alt)
                         }
                         let attachment = ImageTextAttachment(image: displayImage, alt: alt, urlString: urlString, rawMarkdown: rawMarkdown)
+                        let attrAttachment = NSMutableAttributedString(attachment: attachment)
+                        attrAttachment.addAttributes([
+                            .font: NSFont.systemFont(ofSize: 14),
+                            .foregroundColor: NSColor.textColor
+                        ], range: NSRange(location: 0, length: attrAttachment.length))
+                        textStorage.replaceCharacters(in: validRange, with: attrAttachment)
+                    }
+                case .mermaid(let range, let source, let rawMarkdown):
+                    let validRange = NSIntersectionRange(range, NSRange(location: 0, length: textStorage.length))
+                    if validRange.length > 0 {
+                        let isDark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                        let request = RichContentRenderer.Request(kind: .mermaid, source: source, dark: isDark, fontSize: 13)
+                        let outcome = RichContentRenderer.cachedOrRequest(request, owner: RichContentRenderer.RichPreviewSlot(owner: ObjectIdentifier(self), location: range.location))
+                        var displayImage: NSImage
+                        switch outcome {
+                        case .rendered(let rendered):
+                            displayImage = rendered.image
+                            richPreviewMemory[range.location] = rendered
+                        case .failed:
+                            displayImage = richPreviewMemory[range.location]?.image ?? MarkdownParser.placeholderImage(alt: "Mermaid Diagram")
+                        case nil:
+                            displayImage = richPreviewMemory[range.location]?.image ?? MarkdownParser.placeholderImage(alt: "Mermaid Diagram")
+                            pendingRichPreviews.append((range.location, request))
+                        }
+                        var maxWidth: CGFloat = 550
+                        if let container = textView.textContainer, container.size.width > 100 {
+                            maxWidth = min(550, container.size.width - container.lineFragmentPadding * 2)
+                        }
+                        if displayImage.size.width > maxWidth && maxWidth > 0 {
+                            displayImage = MarkdownParser.scaleImageForEditor(displayImage, maxWidth: maxWidth)
+                        }
+                        let attachment = ImageTextAttachment(image: displayImage, alt: "Mermaid Diagram", urlString: "", rawMarkdown: rawMarkdown)
                         let attrAttachment = NSMutableAttributedString(attachment: attachment)
                         attrAttachment.addAttributes([
                             .font: NSFont.systemFont(ofSize: 14),

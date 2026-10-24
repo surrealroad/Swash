@@ -33,6 +33,16 @@ final class RichContentRenderer: NSObject {
         }
     }
 
+    struct RichPreviewSlot: Hashable, Sendable {
+        let owner: ObjectIdentifier
+        let location: Int
+
+        init(owner: ObjectIdentifier, location: Int) {
+            self.owner = owner
+            self.location = location
+        }
+    }
+
     /// Snapshots are never mutated after rendering, so they can be handed across isolation domains.
     struct Rendered: @unchecked Sendable {
         let image: NSImage

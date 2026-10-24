@@ -108,11 +108,12 @@ struct CodeBadgeInfo {
     }
 }
 
-/// A table or image the editor should collapse into an attachment.
+/// A table, image or diagram the editor should collapse into an attachment.
 struct EditorAttachmentRequest {
     enum Kind {
         case table(source: String, headers: [String], alignments: [TableAlignment], rows: [[String]])
         case image(alt: String, urlString: String, rawMarkdown: String, width: CGFloat?)
+        case mermaid(source: String, rawMarkdown: String)
     }
     let range: NSRange
     let kind: Kind
@@ -148,7 +149,7 @@ final class MarkdownEditorStyler {
             case .bold: bold = true
             case .italic: italic = true
             case .small: smallText = true
-            case .code: mono = true; if link == nil { color = .systemPurple }
+            case .code: mono = true; if link == nil { color = .controlAccentColor }
             }
         }
     }
@@ -186,10 +187,7 @@ final class MarkdownEditorStyler {
     /// Identifies the editor, so a block's newer render request replaces its older queued one.
     var richPreviewOwner: ObjectIdentifier? = nil
 
-    private struct RichPreviewSlot: Hashable {
-        let owner: ObjectIdentifier
-        let location: Int
-    }
+    typealias RichPreviewSlot = RichContentRenderer.RichPreviewSlot
 
     /// `storageShift`: raw offset minus storage offset for the region being styled (0 when the storage
     /// holds the raw text throughout).
@@ -533,6 +531,13 @@ final class MarkdownEditorStyler {
             }
 
         case .codeBlock(let fenced, let info):
+            let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map { String($0).lowercased() }
+            if language == "mermaid" {
+                setParagraphStyle(paragraphStyle(context), over: node.range)
+                attachments.append(EditorAttachmentRequest(range: node.range, kind: .mermaid(source: node.literal, rawMarkdown: source(node.range))))
+                codeRanges.append(node.range)
+                return
+            }
             let block = IndentedTextBlock()
             block.setFill(NSColor.textColor.withAlphaComponent(0.04), leftMargin: context.indent)
             block.setValue(100, type: .percentageValueType, for: .width)
@@ -571,10 +576,8 @@ final class MarkdownEditorStyler {
             } else {
                 hideContinuationIndent(in: node.range, maxColumns: 4, includeFirstLine: true)
             }
-            let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map { String($0).lowercased() }
             if language != "math" { highlightCode(in: node, language: language) }
             if language == "math" { addRichPreview(node, kind: .displayMath) }
-            if language == "mermaid" { addRichPreview(node, kind: .mermaid) }
             codeRanges.append(node.range)
 
         case .htmlBlock:
@@ -673,7 +676,7 @@ final class MarkdownEditorStyler {
         case .code:
             var s = style
             s.mono = true
-            if s.link == nil { s.color = .systemPurple }
+            if s.link == nil { s.color = .controlAccentColor }
             apply(s, to: node.range)
             for marker in node.markers { hideMarker(marker) }
             codeRanges.append(node.range)

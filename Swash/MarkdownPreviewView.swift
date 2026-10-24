@@ -1238,7 +1238,7 @@ enum MarkdownInlineAttributes {
             if style.math { run = run.fontDesign(.serif).italic() }
             if style.mono {
                 run = run.monospaced()
-                if style.link == nil && !style.keyboard { run = run.foregroundColor(Color(nsColor: .systemPurple)) }
+                if style.link == nil && !style.keyboard { run = run.foregroundColor(.accentColor) }
             }
             if style.small { run = run.font(.callout) }
             if style.lowered { run = run.font(.system(size: 10)).baselineOffset(-3) }
