@@ -610,10 +610,11 @@ struct MarkdownBlockView: View, Equatable {
                     .font(MarkdownBlockView.headingFont(for: level))
                     .fontWeight(.bold)
                     .foregroundColor(.primary)
+                    .lineSpacing(4)
                 if level == 1 {
-                    Divider().background(Color.secondary.opacity(0.3)).padding(.bottom, 4)
+                    Divider().opacity(0.35).padding(.bottom, 4)
                 } else if level == 2 {
-                    Divider().background(Color.secondary.opacity(0.15)).padding(.bottom, 2)
+                    Divider().opacity(0.2).padding(.bottom, 2)
                 }
             }
             .padding(.top, level == 1 ? 16 : 10)
@@ -621,7 +622,7 @@ struct MarkdownBlockView: View, Equatable {
         case .paragraph:
             // Font and colour come from the enclosing context (body, quote, footnote…)
             MarkdownInlineView(nodes: node.children, context: context)
-                .lineSpacing(4)
+                .lineSpacing(6)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
         case .blockQuote:
@@ -629,7 +630,7 @@ struct MarkdownBlockView: View, Equatable {
                 .font(.system(.body, design: .serif))
                 .italic()
                 .foregroundColor(.secondary)
-                .lineSpacing(4)
+                .lineSpacing(6)
                 .padding(.vertical, 8)
                 .padding(.leading, 20)
                 .padding(.trailing, 16)
@@ -651,7 +652,7 @@ struct MarkdownBlockView: View, Equatable {
                 if node.firstChild != nil {
                     children(spacing: 8)
                         .font(.body)
-                        .lineSpacing(3)
+                        .lineSpacing(5)
                         .foregroundColor(.primary)
                 }
             }
@@ -663,7 +664,7 @@ struct MarkdownBlockView: View, Equatable {
             .padding(.vertical, 6)
             
         case .list(_, _, _, _, let tight):
-            VStack(alignment: .leading, spacing: tight ? 4 : 10) {
+            VStack(alignment: .leading, spacing: tight ? 6 : 12) {
                 ForEach(Array(node.children.enumerated()), id: \.offset) { index, item in
                     MarkdownListItemView(item: item, index: index, context: context)
                 }
@@ -685,6 +686,7 @@ struct MarkdownBlockView: View, Equatable {
             
         case .thematicBreak:
             Divider()
+                .opacity(0.3)
                 .padding(.vertical, 12)
             
         case .table(let alignments):
@@ -900,7 +902,7 @@ struct MarkdownListItemView: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             marker
-            VStack(alignment: .leading, spacing: isTight ? 4 : 10) {
+            VStack(alignment: .leading, spacing: isTight ? 4 : 8) {
                 ForEach(Array(item.children.enumerated()), id: \.offset) { _, child in
                     MarkdownBlockView(node: child, context: context).equatable()
                 }
@@ -910,7 +912,7 @@ struct MarkdownListItemView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 1)
+        .padding(.vertical, 2)
     }
     
     private var isTight: Bool {
@@ -950,7 +952,7 @@ struct MarkdownFootnotesView: View {
         let definitions = footnoteDefinitions
         if !definitions.isEmpty {
             Divider()
-                .background(Color.secondary.opacity(0.3))
+                .opacity(0.3)
                 .padding(.top, 16)
                 .padding(.bottom, 6)
             VStack(alignment: .leading, spacing: 8) {
@@ -1342,13 +1344,13 @@ struct TableView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     
                     if colIndex < headers.count - 1 {
-                        Divider()
+                        Divider().opacity(0.3)
                     }
                 }
             }
             .background(Color.secondary.opacity(0.12))
             
-            Divider()
+            Divider().opacity(0.35)
             
             // Rows
             ForEach(0..<rows.count, id: \.self) { rowIndex in
@@ -1363,14 +1365,14 @@ struct TableView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         
                         if colIndex < headers.count - 1 {
-                            Divider()
+                            Divider().opacity(0.2)
                         }
                     }
                 }
                 .background(rowIndex % 2 == 1 ? Color.secondary.opacity(0.04) : Color.clear)
                 
                 if rowIndex < rows.count - 1 {
-                    Divider()
+                    Divider().opacity(0.2)
                 }
             }
         }
