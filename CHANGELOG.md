@@ -1,5 +1,11 @@
 # swash
 
+## 1.14.1
+
+### Patch Changes
+
+- 4c92adb: Increase text line height and reduce divider contrast in preview mode for a more comfortable and elegant reading rhythm.
+
 ## 1.14.0
 
 ### Minor Changes
