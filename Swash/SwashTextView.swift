@@ -291,9 +291,14 @@ final class SwashLayoutManager: NSLayoutManager {
             guard let icon = value as? AlertIconInfo, let image = icon.image else { return }
             let glyph = glyphIndexForCharacter(at: range.location)
             let lineRect = lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            let titleX = lineRect.origin.x + location(forGlyphAt: glyph).x
+            let glyphLoc = location(forGlyphAt: glyph)
+            let titleX = lineRect.origin.x + glyphLoc.x
+            let titleBaseline = origin.y + lineRect.origin.y + glyphLoc.y
+            let titleChar = characterIndexForGlyph(at: glyph)
+            let titleFont = (titleChar < textStorage.length ? textStorage.attribute(.font, at: titleChar, effectiveRange: nil) as? NSFont : nil) ?? NSFont.systemFont(ofSize: 13, weight: .bold)
+            let titleMidY = titleBaseline - titleFont.capHeight / 2
             let size = image.size
-            let rect = NSRect(x: origin.x + titleX - size.width - 5, y: origin.y + lineRect.midY - size.height / 2, width: size.width, height: size.height)
+            let rect = NSRect(x: origin.x + titleX - size.width - 5, y: round(titleMidY - size.height / 2), width: size.width, height: size.height)
             image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         }
         
@@ -306,16 +311,21 @@ final class SwashLayoutManager: NSLayoutManager {
             if let markerInfo = value as? ListMarkerInfo {
                 let glyphRange = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
                 let lineRect = lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+                let contentGlyph = min(glyphRange.location + glyphRange.length, max(0, numberOfGlyphs - 1))
+                let contentChar = characterIndexForGlyph(at: contentGlyph)
+                let textFont = (contentChar < textStorage.length ? textStorage.attribute(.font, at: contentChar, effectiveRange: nil) as? NSFont : nil) ?? NSFont.systemFont(ofSize: 14)
+                let glyphLoc = location(forGlyphAt: contentGlyph)
+                let baselineY = origin.y + lineRect.origin.y + glyphLoc.y
+                let contentX = lineRect.origin.x + glyphLoc.x
                 
                 if markerInfo.isTask {
-                    let contentGlyph = min(glyphRange.location + glyphRange.length, max(0, numberOfGlyphs - 1))
-                    let contentX = lineRect.origin.x + location(forGlyphAt: contentGlyph).x
+                    let lineMidY = baselineY - textFont.capHeight / 2
                     drawCheckbox(checked: markerInfo.isChecked, contentX: origin.x + (contentX > 0 ? contentX : markerInfo.indent),
-                                 lineMidY: origin.y + lineRect.midY)
+                                 lineMidY: lineMidY)
                     return
                 }
                 
-                let font = NSFont.systemFont(ofSize: 13, weight: .regular)
+                let font = NSFont.systemFont(ofSize: max(11, textFont.pointSize - 1), weight: .regular)
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: font,
                     .foregroundColor: markerInfo.color ?? NSColor.secondaryLabelColor
@@ -324,10 +334,8 @@ final class SwashLayoutManager: NSLayoutManager {
                 let markerSize = (markerInfo.text as NSString).size(withAttributes: attrs)
                 // Position the marker just left of where the item's text actually starts, so it also
                 // lines up inside quotes, alerts and other text blocks with their own padding
-                let contentGlyph = min(glyphRange.location + glyphRange.length, max(0, numberOfGlyphs - 1))
-                let contentX = lineRect.origin.x + location(forGlyphAt: contentGlyph).x
                 let x = origin.x + (contentX > 0 ? contentX : markerInfo.indent) - markerSize.width - 10
-                let y = origin.y + lineRect.origin.y + (lineRect.height - markerSize.height) / 2
+                let y = baselineY - font.ascender
                 
                 let drawRect = CGRect(x: x, y: y, width: markerSize.width + 4, height: markerSize.height)
                 (markerInfo.text as NSString).draw(in: drawRect, withAttributes: attrs)
@@ -361,10 +369,16 @@ class SwashNSTextView: NSTextView {
         var hit: NSRange? = nil
         storage.enumerateAttribute(.listMarker, in: lineCharacters, options: []) { value, range, stop in
             guard let info = value as? ListMarkerInfo, info.isTask else { return }
-            let contentGlyph = layoutManager.glyphIndexForCharacter(at: min(NSMaxRange(range), max(0, storage.length - 1)))
-            let contentX = lineRect.minX + layoutManager.location(forGlyphAt: contentGlyph).x
-            // The checkbox is drawn just left of the item's text
-            if containerPoint.x >= contentX - 30 && containerPoint.x <= contentX + 2 {
+            let contentChar = min(NSMaxRange(range), max(0, storage.length - 1))
+            let contentGlyph = layoutManager.glyphIndexForCharacter(at: contentChar)
+            let glyphLoc = layoutManager.location(forGlyphAt: contentGlyph)
+            let contentX = lineRect.minX + glyphLoc.x
+            let baselineY = lineRect.origin.y + glyphLoc.y
+            let textFont = (storage.attribute(.font, at: contentChar, effectiveRange: nil) as? NSFont) ?? NSFont.systemFont(ofSize: 14)
+            let lineMidY = baselineY - textFont.capHeight / 2
+            // The checkbox is drawn just left of the item's text, vertically centered with the text
+            if containerPoint.x >= contentX - 30 && containerPoint.x <= contentX + 2,
+               containerPoint.y >= lineMidY - 12 && containerPoint.y <= lineMidY + 12 {
                 hit = range
                 stop.pointee = true
             }
