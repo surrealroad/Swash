@@ -1,5 +1,11 @@
 # swash
 
+## 1.14.4
+
+### Patch Changes
+
+- f3af456: Restore the original thin line thickness for horizontal dividers (thematic breaks) in the formatted editor.
+
 ## 1.14.3
 
 ### Patch Changes
