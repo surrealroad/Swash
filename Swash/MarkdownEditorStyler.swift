@@ -635,7 +635,7 @@ final class MarkdownEditorStyler {
             block.setValue(1, type: .absoluteValueType, for: .height)
             var inner = context
             inner.textBlocks.append(block)
-            setParagraphStyle(paragraphStyle(inner, lineSpacing: 0, paragraphSpacing: 10, paragraphSpacingBefore: 10), over: node.range)
+            setParagraphStyle(paragraphStyle(inner, lineSpacing: 0, paragraphSpacing: 0, paragraphSpacingBefore: 0), over: node.range)
             let r = valid(node.range)
             if r.length > 0 {
                 storage.addAttribute(.foregroundColor, value: NSColor.clear, range: r)

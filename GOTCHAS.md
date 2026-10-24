@@ -141,3 +141,7 @@
 ## 35. An `<img>` Alone on a Line Is an HTML Block
 - **Issue**: CommonMark parses a line holding just `<img …>` as an HTML block (type 7), not inline HTML. The image menu writes exactly that when an image gets a width, and the editor used to show the tag as source.
 - **Solution**: `MarkdownEditorStyler` turns an HTML block holding a single `<img>` into an image attachment, and `MarkdownFormatting.image(exactly:)` accepts both `htmlInline` and `htmlBlock` images.
+
+## 36. `NSTextBlock` Background Expands Into `paragraphSpacingBefore`
+- **Issue**: Setting `paragraphSpacingBefore` on an `NSMutableParagraphStyle` that contains an `NSTextBlock` causes AppKit's text system to include the leading paragraph spacing inside the text block's bounding rectangle. Consequently, the text block's `backgroundColor` fills the entire spacing area above the line, turning a 1-2 pt horizontal divider line (`thematicBreak`) into an unexpectedly thick (12+ pt) block.
+- **Solution**: Keep `paragraphSpacingBefore = 0` (and `paragraphSpacing = 0`) on paragraph styles containing `NSTextBlock` dividers, and size the line via font height (`font = NSFont.systemFont(ofSize: 2)`) and line height metrics.

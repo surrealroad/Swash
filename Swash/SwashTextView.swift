@@ -1984,8 +1984,6 @@ struct SwashTextView: NSViewRepresentable {
                             block.setValue(1, type: .absoluteValueType, for: .height)
                             let para = NSMutableParagraphStyle()
                             para.textBlocks = [block]
-                            para.paragraphSpacing = 10
-                            para.paragraphSpacingBefore = 10
                             textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             textStorage.addAttribute(.foregroundColor, value: NSColor.clear, range: validLineRange)
                             textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 2), range: validLineRange)
