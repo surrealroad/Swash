@@ -1965,11 +1965,13 @@ struct SwashTextView: NSViewRepresentable {
                     if validLineRange.length > 0 {
                         if MarkdownParser.isThematicBreak(line) {
                             let block = NSTextBlock()
-                            block.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.4)
+                            block.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.25)
                             block.setValue(100, type: .percentageValueType, for: .width)
                             block.setValue(1, type: .absoluteValueType, for: .height)
                             let para = NSMutableParagraphStyle()
                             para.textBlocks = [block]
+                            para.paragraphSpacing = 10
+                            para.paragraphSpacingBefore = 10
                             textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             textStorage.addAttribute(.foregroundColor, value: NSColor.clear, range: validLineRange)
                             textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 2), range: validLineRange)
@@ -1983,6 +1985,11 @@ struct SwashTextView: NSViewRepresentable {
                             case 5: headingFontSize = 14
                             default: headingFontSize = 13
                             }
+                            let para = NSMutableParagraphStyle()
+                            para.lineSpacing = 4
+                            para.paragraphSpacing = heading.level == 1 ? 8 : 6
+                            para.paragraphSpacingBefore = heading.level == 1 ? 16 : 12
+                            textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: headingFontSize, weight: .bold), range: validLineRange)
                         
                             let leadingSpacesCount = line.prefix(while: { $0 == " " || $0 == "\t" }).count
@@ -2071,6 +2078,8 @@ struct SwashTextView: NSViewRepresentable {
                                 let para = NSMutableParagraphStyle()
                                 para.headIndent = indent
                                 para.firstLineHeadIndent = indent
+                                para.lineSpacing = 5
+                                para.paragraphSpacing = 6
                                 textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             
                                 let markerGlyph = isChecked ? "☑" : "☐"
@@ -2091,6 +2100,8 @@ struct SwashTextView: NSViewRepresentable {
                                 let para = NSMutableParagraphStyle()
                                 para.headIndent = indent
                                 para.firstLineHeadIndent = indent
+                                para.lineSpacing = 5
+                                para.paragraphSpacing = 6
                                 textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             
                                 textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: numberDotStr, indent: indent), range: rawMarkerRange)
@@ -2106,6 +2117,8 @@ struct SwashTextView: NSViewRepresentable {
                                 let para = NSMutableParagraphStyle()
                                 para.headIndent = indent
                                 para.firstLineHeadIndent = indent
+                                para.lineSpacing = 5
+                                para.paragraphSpacing = 6
                                 textStorage.addAttribute(.paragraphStyle, value: para, range: validLineRange)
                             
                                 textStorage.addAttribute(.listMarker, value: ListMarkerInfo(text: "•", indent: indent), range: rawMarkerRange)

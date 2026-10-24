@@ -157,6 +157,7 @@ final class MarkdownEditorStyler {
     private struct BlockContext {
         var indent: CGFloat = 0
         var listDepth = 0
+        var isTightList = false
         var textBlocks: [NSTextBlock] = []
         var inline = InlineStyle()
         /// Columns of leading indentation that belong to enclosing list items on continuation lines
@@ -360,12 +361,19 @@ final class MarkdownEditorStyler {
         }
     }
 
-    private func paragraphStyle(_ context: BlockContext, lineSpacing: CGFloat = 0) -> NSParagraphStyle {
+    private func paragraphStyle(
+        _ context: BlockContext,
+        lineSpacing: CGFloat = 5,
+        paragraphSpacing: CGFloat = 0,
+        paragraphSpacingBefore: CGFloat = 0
+    ) -> NSParagraphStyle {
         let p = NSMutableParagraphStyle()
         p.headIndent = context.indent
         p.firstLineHeadIndent = context.indent
         p.textBlocks = context.textBlocks
         p.lineSpacing = lineSpacing
+        p.paragraphSpacing = paragraphSpacing
+        p.paragraphSpacingBefore = paragraphSpacingBefore
         return p
     }
 
@@ -419,7 +427,7 @@ final class MarkdownEditorStyler {
             for child in node.children { styleBlock(child, context) }
 
         case .frontMatter:
-            setParagraphStyle(paragraphStyle(context), over: node.range)
+            setParagraphStyle(paragraphStyle(context, lineSpacing: 3, paragraphSpacing: 6), over: node.range)
             apply(InlineStyle(size: 12, mono: true, color: .secondaryLabelColor), to: node.range)
             for marker in node.markers {
                 apply(InlineStyle(size: 12, mono: true, color: .tertiaryLabelColor), to: marker)
@@ -427,7 +435,10 @@ final class MarkdownEditorStyler {
             codeRanges.append(node.range)
 
         case .paragraph:
-            setParagraphStyle(paragraphStyle(context), over: node.range)
+            let inList = context.listDepth > 0
+            let lineSpacing: CGFloat = 5
+            let paragraphSpacing: CGFloat = inList ? (context.isTightList ? 6 : 4) : 4
+            setParagraphStyle(paragraphStyle(context, lineSpacing: lineSpacing, paragraphSpacing: paragraphSpacing), over: node.range)
             apply(context.inline, to: node.range)
             hideContinuationIndent(in: node.range, maxColumns: nil)
             styleInlines(node, context.inline)
@@ -436,7 +447,31 @@ final class MarkdownEditorStyler {
             var inline = context.inline
             inline.size = Self.headingSize(level)
             inline.bold = true
-            setParagraphStyle(paragraphStyle(context), over: node.range)
+            let spacingBefore: CGFloat
+            let spacingAfter: CGFloat
+            let lineSpacing: CGFloat
+            switch level {
+            case 1:
+                spacingBefore = 18
+                spacingAfter = 8
+                lineSpacing = 4
+            case 2:
+                spacingBefore = 14
+                spacingAfter = 6
+                lineSpacing = 4
+            case 3:
+                spacingBefore = 10
+                spacingAfter = 4
+                lineSpacing = 3
+            default:
+                spacingBefore = 8
+                spacingAfter = 4
+                lineSpacing = 3
+            }
+            setParagraphStyle(
+                paragraphStyle(context, lineSpacing: lineSpacing, paragraphSpacing: spacingAfter, paragraphSpacingBefore: spacingBefore),
+                over: node.range
+            )
             apply(inline, to: node.range)
             for marker in node.markers {
                 hideMarker(marker, collapseLine: setext)
@@ -463,7 +498,7 @@ final class MarkdownEditorStyler {
             block.setWidth(10, type: .absoluteValueType, for: .padding, edge: .minX)
             inner.textBlocks.append(block)
             inner.indent = 0
-            setParagraphStyle(paragraphStyle(inner), over: node.range)
+            setParagraphStyle(paragraphStyle(inner, lineSpacing: 5, paragraphSpacing: 6, paragraphSpacingBefore: 4), over: node.range)
             apply(inner.inline, to: node.range)
             // Quote markers, and the alert's [!TYPE] marker shown as a coloured title
             for marker in node.markers {
@@ -477,15 +512,17 @@ final class MarkdownEditorStyler {
                     var titleContext = inner
                     titleContext.indent = 20
                     let titleLine = valid(text.paragraphRange(for: NSRange(location: marker.location, length: 0)))
-                    storage.addAttribute(.paragraphStyle, value: paragraphStyle(titleContext), range: titleLine)
+                    storage.addAttribute(.paragraphStyle, value: paragraphStyle(titleContext, lineSpacing: 4, paragraphSpacing: 4), range: titleLine)
                 } else {
                     hideMarker(marker)
                 }
             }
             for child in node.children { styleBlock(child, inner) }
 
-        case .list:
-            for child in node.children { styleBlock(child, context) }
+        case .list(_, _, _, _, let tight):
+            var listContext = context
+            listContext.isTightList = tight
+            for child in node.children { styleBlock(child, listContext) }
 
         case .listItem(let task):
             var inner = context
@@ -520,7 +557,8 @@ final class MarkdownEditorStyler {
                 inner.hiddenIndentColumns = contentColumn
                 hideContinuationIndent(in: node.range, maxColumns: contentColumn)
             }
-            setParagraphStyle(paragraphStyle(inner), over: node.range)
+            let itemSpacing: CGFloat = inner.isTightList ? 6 : 4
+            setParagraphStyle(paragraphStyle(inner, lineSpacing: 5, paragraphSpacing: itemSpacing), over: node.range)
             for (index, child) in node.children.enumerated() {
                 var childContext = inner
                 // A completed task's own text is dimmed; nested content keeps its colour
@@ -533,7 +571,7 @@ final class MarkdownEditorStyler {
         case .codeBlock(let fenced, let info):
             let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map { String($0).lowercased() }
             if language == "mermaid" {
-                setParagraphStyle(paragraphStyle(context), over: node.range)
+                setParagraphStyle(paragraphStyle(context, lineSpacing: 0, paragraphSpacing: 8, paragraphSpacingBefore: 8), over: node.range)
                 attachments.append(EditorAttachmentRequest(range: node.range, kind: .mermaid(source: node.literal, rawMarkdown: source(node.range))))
                 codeRanges.append(node.range)
                 return
@@ -551,7 +589,7 @@ final class MarkdownEditorStyler {
             var inner = context
             inner.textBlocks.append(block)
             inner.indent = 0
-            setParagraphStyle(paragraphStyle(inner, lineSpacing: 4), over: node.range)
+            setParagraphStyle(paragraphStyle(inner, lineSpacing: 4, paragraphSpacing: 6, paragraphSpacingBefore: 4), over: node.range)
             apply(InlineStyle(size: 14, mono: true, color: NSColor.labelColor.withAlphaComponent(0.85)), to: node.range)
             if fenced {
                 for marker in node.markers { hideMarker(marker, collapseLine: true) }
@@ -581,7 +619,7 @@ final class MarkdownEditorStyler {
             codeRanges.append(node.range)
 
         case .htmlBlock:
-            setParagraphStyle(paragraphStyle(context), over: node.range)
+            setParagraphStyle(paragraphStyle(context, lineSpacing: 4, paragraphSpacing: 4), over: node.range)
             // A line holding just an <img> tag (what the image menu writes for a resized image) is an image
             if case .image(let src, let alt, let width) = InlineHTMLTag(node.literal.trimmingCharacters(in: .whitespacesAndNewlines)).kind {
                 attachments.append(EditorAttachmentRequest(range: node.range, kind: .image(alt: alt, urlString: src, rawMarkdown: source(node.range), width: width.map { CGFloat($0) })))
@@ -592,12 +630,12 @@ final class MarkdownEditorStyler {
 
         case .thematicBreak:
             let block = NSTextBlock()
-            block.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.4)
+            block.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.25)
             block.setValue(100, type: .percentageValueType, for: .width)
             block.setValue(1, type: .absoluteValueType, for: .height)
             var inner = context
             inner.textBlocks.append(block)
-            setParagraphStyle(paragraphStyle(inner), over: node.range)
+            setParagraphStyle(paragraphStyle(inner, lineSpacing: 0, paragraphSpacing: 10, paragraphSpacingBefore: 10), over: node.range)
             let r = valid(node.range)
             if r.length > 0 {
                 storage.addAttribute(.foregroundColor, value: NSColor.clear, range: r)
@@ -605,6 +643,7 @@ final class MarkdownEditorStyler {
             }
 
         case .table(let alignments):
+            setParagraphStyle(paragraphStyle(context, lineSpacing: 0, paragraphSpacing: 8, paragraphSpacingBefore: 8), over: node.range)
             var headers: [String] = []
             var rows: [[String]] = []
             for section in node.children {
@@ -632,9 +671,11 @@ final class MarkdownEditorStyler {
                 }
             }
             hideContinuationIndent(in: node.range, maxColumns: 4)
+            setParagraphStyle(paragraphStyle(inner, lineSpacing: 4, paragraphSpacing: 4), over: node.range)
             for child in node.children { styleBlock(child, inner) }
 
         case .linkReferenceDefinition:
+            setParagraphStyle(paragraphStyle(context, lineSpacing: 3, paragraphSpacing: 3), over: node.range)
             apply(InlineStyle(size: 12, color: .tertiaryLabelColor), to: node.range)
 
         default:
