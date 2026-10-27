@@ -40,6 +40,16 @@ func previews(in tv: NSTextView) -> [(Int, RichPreviewInfo)] {
     return found
 }
 
+/// Mermaid blocks collapse into image attachments in Edit Text, like tables and images.
+@MainActor
+func diagrams(in tv: NSTextView) -> [ImageTextAttachment] {
+    var found: [ImageTextAttachment] = []
+    tv.textStorage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: tv.textStorage?.length ?? 0), options: []) { value, _, _ in
+        if let attachment = value as? ImageTextAttachment, attachment.alt == "Mermaid Diagram" { found.append(attachment) }
+    }
+    return found
+}
+
 @MainActor
 func opaquePixelFraction(_ image: NSImage) -> Double {
     guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return 0 }
@@ -175,9 +185,10 @@ func run() async {
     let tv = findTextView(in: host)!
     window.makeFirstResponder(tv)
     let coordinator = tv.delegate as! SwashTextView.Coordinator
-    let settled = await wait { previews(in: tv).count == 2 && previews(in: tv).allSatisfy { $0.1.alpha == 1 } && coordinator.pendingRichPreviews.isEmpty }
-    check("editor shows rendered math and Mermaid", settled, "\(previews(in: tv).map { "\(Int($0.1.size.width))×\(Int($0.1.size.height)) α\($0.1.alpha)" })")
-    check("rendering leaves the Markdown untouched", tv.string == source && box.text == source)
+    let settled = await wait { previews(in: tv).count == 1 && previews(in: tv).allSatisfy { $0.1.alpha == 1 } && diagrams(in: tv).count == 1 && coordinator.pendingRichPreviews.isEmpty }
+    check("editor shows rendered math and Mermaid", settled, "\(previews(in: tv).map { "\(Int($0.1.size.width))×\(Int($0.1.size.height)) α\($0.1.alpha)" }), \(diagrams(in: tv).count) diagrams")
+    check("the diagram keeps its Markdown", diagrams(in: tv).first?.rawMarkdown == "```mermaid\ngraph LR\n  A --> B\n```")
+    check("rendering leaves the Markdown untouched", box.text == source, box.text.debugDescription)
     if let (location, info) = previews(in: tv).first, let lm = tv.layoutManager {
         let style = tv.textStorage?.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle
         check("space is reserved below the formula", (style?.paragraphSpacing ?? 0) >= info.size.height, "spacing \(style?.paragraphSpacing ?? 0)")
@@ -210,8 +221,8 @@ func run() async {
     // Undo restores the source; renders never enter the undo stack
     tv.undoManager?.undo()
     tv.undoManager?.undo()
-    _ = await wait(timeout: 2) { tv.string == source }
-    check("undo returns to the original source", tv.string == source, tv.string.debugDescription)
+    _ = await wait(timeout: 2) { box.text == source }
+    check("undo returns to the original source", box.text == source, box.text.debugDescription)
 
     // MARK: Preview
     let preview = NSHostingView(rootView: MarkdownPreviewView(text: "Inline $e^{i\\pi} + 1 = 0$ math.\n\n## Heading with $x^2$\n\n" + source, flavor: .github).frame(width: 600, height: 700))

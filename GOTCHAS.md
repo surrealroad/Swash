@@ -145,3 +145,7 @@
 ## 36. `NSTextBlock` Background Expands Into `paragraphSpacingBefore`
 - **Issue**: Setting `paragraphSpacingBefore` on an `NSMutableParagraphStyle` that contains an `NSTextBlock` causes AppKit's text system to include the leading paragraph spacing inside the text block's bounding rectangle. Consequently, the text block's `backgroundColor` fills the entire spacing area above the line, turning a 1-2 pt horizontal divider line (`thematicBreak`) into an unexpectedly thick (12+ pt) block.
 - **Solution**: Keep `paragraphSpacingBefore = 0` (and `paragraphSpacing = 0`) on paragraph styles containing `NSTextBlock` dividers, and size the line via font height (`font = NSFont.systemFont(ofSize: 2)`) and line height metrics.
+
+## 37. Edit Text Display String Isn't the Markdown
+- **Issue**: Tables, images and (since 1.14.0) Mermaid blocks are replaced in the editor's text storage by an attachment character (`U+FFFC`), so `NSTextView.string` no longer equals the document. Tests that compared `tv.string` with the source started failing in `scripts/run_rich_render_tests.sh` once Mermaid became an attachment, and the PR build stayed red.
+- **Solution**: Compare the Markdown written back through the editor's text binding (`box.text` in the harnesses), and find diagrams as `ImageTextAttachment`s (alt `"Mermaid Diagram"`) rather than `.richPreview` overlays.
