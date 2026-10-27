@@ -98,6 +98,17 @@ struct ContentView: View {
     @State private var insightsText: String? = nil
     @State private var showConflictSheet = false
 
+    @AppStorage(WritingDefaults.focusMode) private var focusMode = false
+    @AppStorage(WritingDefaults.focusUnit) private var focusUnit: FocusUnit = .paragraph
+    @AppStorage(WritingDefaults.typewriterScrolling) private var typewriterScrolling = false
+    /// Full screen without the toolbar, outline or status bar, with the text in a readable column.
+    @State private var distractionFree = false
+    @State private var enteredFullScreenForWriting = false
+
+    private var writingOptions: WritingOptions {
+        WritingOptions(focus: focusMode ? focusUnit : nil, typewriter: typewriterScrolling, readableColumn: distractionFree)
+    }
+
     /// The window's document file when SwiftUI hasn't passed `fileURL`, looked up when the window
     /// attaches or becomes key rather than on every evaluation of `body`.
     @State private var windowDocumentURL: URL? = nil
@@ -132,12 +143,12 @@ struct ContentView: View {
             if conflictCount > 0 {
                 ConflictBanner(count: conflictCount) { showConflictSheet = true }
             }
-            if let folderURL = unreadableFolderURL {
+            if let folderURL = unreadableFolderURL, !distractionFree {
                 folderAccessBanner(for: folderURL)
             }
             
             HStack(spacing: 0) {
-            if showOutline {
+            if showOutline && !distractionFree {
                 DocumentOutlineView(
                     outline: outline,
                     currentIndex: currentHeadingIndex,
@@ -160,7 +171,8 @@ struct ContentView: View {
                         baseURL: effectiveBaseURL,
                         controller: editor,
                         onFormatCommand: { handleFormatCommand($0) },
-                        onCaretMove: { updateCurrentHeading(caret: $0) }
+                        onCaretMove: { updateCurrentHeading(caret: $0) },
+                        writingOptions: writingOptions
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -175,7 +187,8 @@ struct ContentView: View {
                         baseURL: effectiveBaseURL,
                         controller: editor,
                         onFormatCommand: { handleFormatCommand($0) },
-                        onCaretMove: { updateCurrentHeading(caret: $0) }
+                        onCaretMove: { updateCurrentHeading(caret: $0) },
+                        writingOptions: writingOptions
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -191,7 +204,8 @@ struct ContentView: View {
                             baseURL: effectiveBaseURL,
                             controller: editor,
                             onFormatCommand: { handleFormatCommand($0) },
-                            onCaretMove: { updateCurrentHeading(caret: $0) }
+                            onCaretMove: { updateCurrentHeading(caret: $0) },
+                            writingOptions: writingOptions
                         )
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)
@@ -206,7 +220,9 @@ struct ContentView: View {
             }
             
             // Premium Bottom Status Bar
-            statusView
+            if !distractionFree {
+                statusView
+            }
         }
         .frame(minWidth: 600, idealWidth: 800, minHeight: 600, idealHeight: 750)
         .toolbar(id: "mainToolbar") {
@@ -267,7 +283,7 @@ struct ContentView: View {
             if let window = window, notification.object as? NSWindow === window { refreshWindowDocumentURL() }
         }
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
-        .focusedSceneValue(\.documentExportActions, exportActions)
+        .modifier(exportAndWritingCommands)
         .focusedSceneValue(\.documentCommandHandler, { handleDocumentCommand($0) })
         .focusedSceneValue(\.documentFileURL, effectiveBaseURL)
         .focusedSceneValue(\.viewModeSelection, ViewModeSelection(current: viewMode) { viewMode = $0 })
@@ -392,6 +408,36 @@ struct ContentView: View {
             }
         }
         return "Untitled"
+    }
+
+    // MARK: - Distraction-Free Writing
+
+    /// Export and writing-mode menu actions, kept out of `body`'s modifier chain so it type-checks quickly.
+    private var exportAndWritingCommands: some ViewModifier {
+        ExportAndWritingCommandsModifier(
+            exportActions: exportActions,
+            distractionFree: DistractionFreeToggle(isOn: distractionFree, toggle: toggleDistractionFree),
+            window: window,
+            onExitFullScreen: {
+                // Leaving full screen (Esc, the green button) ends distraction-free writing too
+                enteredFullScreenForWriting = false
+                if distractionFree { toggleDistractionFree() }
+            }
+        )
+    }
+
+    private func toggleDistractionFree() {
+        distractionFree.toggle()
+        guard let window else { return }
+        window.toolbar?.isVisible = !distractionFree
+        let isFullScreen = window.styleMask.contains(.fullScreen)
+        if distractionFree && !isFullScreen {
+            enteredFullScreenForWriting = true
+            window.toggleFullScreen(nil)
+        } else if !distractionFree && isFullScreen && enteredFullScreenForWriting {
+            enteredFullScreenForWriting = false
+            window.toggleFullScreen(nil)
+        }
     }
 
     // MARK: - Export and Print
@@ -2016,6 +2062,23 @@ struct ContentView: View {
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             window.animator().setFrame(newFrame, display: true)
         }
+    }
+}
+
+private struct ExportAndWritingCommandsModifier: ViewModifier {
+    let exportActions: DocumentExportActions
+    let distractionFree: DistractionFreeToggle
+    let window: NSWindow?
+    let onExitFullScreen: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.documentExportActions, exportActions)
+            .focusedSceneValue(\.distractionFreeToggle, distractionFree)
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
+                guard let window, (notification.object as? NSWindow) === window else { return }
+                onExitFullScreen()
+            }
     }
 }
 
