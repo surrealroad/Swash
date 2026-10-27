@@ -2,109 +2,114 @@
 
 # <img src="Swash/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" width="40" valign="middle"> Swash
 
-### Write Markdown the way it looks.
+### *A Native, High-Performance macOS Markdown Editor with Style*
 
-[![Platform](https://img.shields.io/badge/macOS-15.7+-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/surrealroad/Swash/releases)
-[![iPhone and iPad](https://img.shields.io/badge/iPhone_%26_iPad-coming_soon-555555?style=for-the-badge&logo=apple&logoColor=white)](#-on-iphone-and-ipad)
+[![Swift Version](https://img.shields.io/badge/Swift-5.10+-F05138?style=for-the-badge&logo=swift&logoColor=white)](https://swift.org)
+[![Platform](https://img.shields.io/badge/Platform-macOS_15.0+-000000?style=for-the-badge&logo=apple&logoColor=white)](https://apple.com)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](./LICENSE)
+[![Build & Release](https://img.shields.io/badge/Release-Automated-brightgreen?style=for-the-badge&logo=github-actions&logoColor=white)](#automated-distribution)
 
 <p align="center">
-  <b>Swash</b> is a fast, native Markdown editor for the Mac. You type in formatted text, with headings, lists, tables, images, math and diagrams shown as they'll look, while your notes stay plain <code>.md</code> files you can open anywhere.
+  <b>Swash</b> is a sleek, distraction-free markdown editing workspace meticulously crafted with Swift, SwiftUI, and AppKit. Designed from the ground up for writers, developers, and note-takers who demand native macOS performance and an aesthetic writing experience.
 </p>
 
-[**Download for Mac**](https://github.com/surrealroad/Swash/releases/latest) • [Features](#-features) • [Shortcuts](#%EF%B8%8F-keyboard-shortcuts) • [Build from source](#-build-from-source)
+---
 
-<img src="Screenshot.png" alt="Swash editing a Markdown document" width="800">
+[Key Features](#-key-features) • [Premium Design](#%EF%B8%8F-premium-design) • [Quick Start](#-quick-start) • [Automated Releases](#-automated-distribution) • [License](#-license)
 
 </div>
 
 ---
 
-## ✨ Features
+## ✨ Key Features
 
-### Edit formatted text, keep plain Markdown
+Swash combines the raw speed of AppKit's native text engine with the rich, fluid layouts of SwiftUI.
 
-- **Formatted editing.** Write straight into styled text: the Markdown symbols disappear and you see headings, bold, links, quotes and lists. Switch to **Source** to see every character, or **Split** to see both side by side, scrolling together.
-- **Feels like Notion.** Press Enter to continue a list or to-do, Tab to nest it, and Backspace to undo a heading or bullet. Type **/** on an empty line to insert a heading, list, quote, callout, code block, divider or table.
-- **Formatting at your fingertips.** Select text for a floating formatting menu, or use the Format menu and familiar shortcuts like ⌘B, ⌘I and ⌘K.
-- **Paste from anywhere.** Text copied from web pages, Google Docs, Word, Pages, Confluence or Jira is turned into clean Markdown, with its headings, links, lists, tables and images.
-- **Tables you can edit.** Click into a cell and type; no lining up pipes by hand.
-- **Clickable to-do lists.** Check items off with a click.
-
-### Everything renders
-
-- **Math and diagrams.** LaTeX equations and Mermaid flowcharts, sequence diagrams and charts are drawn right in the document, even offline.
-- **Images** from your document's folder appear inline.
-- **Code blocks** with syntax colouring and a language badge you can click to change.
-- **GitHub-style extras:** alerts (Note, Tip, Warning…), footnotes, task lists, collapsible sections, keycaps and more.
-- **Fully compatible.** Swash follows the CommonMark and GitHub Flavored Markdown standards, so files look the same in Swash as they do on GitHub. It can also edit Slack-style formatting.
-
-### Built for the Mac
-
-- **Work on a whole folder.** File › Open Folder… shows all your Markdown files in a sidebar, saves as you go, and picks up changes made in other apps.
-- **Preview in Finder.** Press Space on any Markdown file for a formatted Quick Look preview, and see real thumbnails of your notes.
-- **Capture from anywhere.** Send selected text from any app to a new Swash note with the Services menu, or create notes and count words with Shortcuts.
-- **A real Mac app.** Light and Dark Mode, autosave and version history, system spellcheck (kept out of your code blocks), undo everything, and automatic updates.
-- **Private by design.** No account, no cloud and no tracking. Your files stay where you put them.
+*   **⚡ Blazing-Fast Native Engine** – Powered by an optimized `NSTextView` wrapper (`SwashTextView`) for instant rendering, smooth typing, and robust scroll performance.
+*   **🔍 Native Quick Look Extension** – Built-in macOS Quick Look preview plugin so you can preview Markdown files instantly in Finder or via spacebar preview using the exact same rich rendering logic as the Swash split view preview pane.
+*   **🫧 Floating Selection Bubble Menu with Code Dropdown** – Select text to trigger an elegant, contextual bubble overlay allowing you to style your prose instantly. When code formatting is active, an integrated dropdown selector lets you choose between multiple formats and programming languages (Inline, Plain Block, JavaScript, Swift, Python, HTML, CSS, JSON, Bash) with dynamic menu positioning.
+*   **📑 macOS Document-Based Architecture** – Full native integration with the macOS system. Benefit from automatic saving, file history, sandboxed security, and standard system menus.
+*   **🎨 Premium Styled Markdown & Code Blocks** – Implements a sophisticated, custom-crafted `MarkdownParser` to beautifully render headings, lists, bold/italic, and links. Features gorgeous block-level and inline code formatting, automatically hiding markup delimiters (` ``` ` and languages) and displaying code cleanly inside styled containers with subtle background highlight overlays. Spellchecking and grammar corrections are automatically disabled inside code blocks to keep your code pristine and free of red squiggly underlines.
+*   **🛠️ Full macOS Integration** – Leverages system-level spellchecking, autocorrect options, undo/redo handling, and native keyboard navigation.
 
 ---
 
-## ⌨️ Keyboard shortcuts
+## 🖌️ Premium Design & Typographic Details
 
-| Shortcut | Action |
-| --- | --- |
-| ⌘B / ⌘I / ⌘E | Bold / italic / inline code |
-| ⌘⇧X | Strikethrough |
-| ⌘K | Add, edit or remove a link |
-| ⌥⌘1–3 / ⌥⌘0 | Heading 1–3 / body text |
-| ⇧⌘8 / ⇧⌘7 / ⇧⌘9 | Bulleted / numbered / to-do list |
-| ⇧⌘. | Quote |
-| ⌥⌘C | Code block |
-| ⇧⌘O | Open a folder |
-| / | Insert a block (on an empty line) |
+Every detail of Swash has been fine-tuned to create a calm, delightful, and highly-productive writing environment:
 
----
+<p align="center">
+  <img src="Screenshot.png" alt="Swash Interface" width="800">
+</p>
 
-## 📱 On iPhone and iPad
-
-Swash for iPhone and iPad is on its way. It has the same formatted editor, slash menu and editable tables as the Mac, a formatting bar above the keyboard, Split view on iPad, a Quick Note widget, Shortcuts, and a **Save to Swash** share option for other apps. Until it's in the App Store you can [build it from source](#-build-from-source).
+### 📐 Ergonomic Elements
+*   **Perfect Line Spacing & Padding**: Customized text container insets provide standard 20px padding margins to keep text perfectly centered and comfortable to read.
+*   **System Color Adaptive**: Automatically respects Light & Dark mode settings, shifting colors with beautiful macOS vibrancy.
+*   **Floating Component Synchronization**: The floating selection menu is synchronized dynamically with bounds modifications and viewport scroll offsets, staying exactly where you expect it.
 
 ---
 
-## 📥 Install
+## 🚀 Quick Start
 
-1. Download **Swash-macOS.dmg** from the [latest release](https://github.com/surrealroad/Swash/releases/latest).
-2. Open it and drag Swash to your Applications folder.
-3. Open Swash. It can set itself as your default app for `.md` files in **Settings**, and it keeps itself up to date.
+### Prerequisites
+*   A Mac running **macOS 15.0+**
+*   **Xcode 16.0+** or Swift Command Line Tools
 
-> [!TIP]
-> If macOS says it can't check Swash for malicious software, Control-click the app in Applications and choose **Open**.
+### Building from Source
 
----
-
-## 🛠 Build from source
-
-You need macOS 15.7 or later and Xcode 26.
+To compile and launch the application locally:
 
 ```bash
+# Clone the repository
 git clone https://github.com/surrealroad/Swash.git
 cd Swash
+
+# Build the Release version
 xcodebuild -scheme Swash -configuration Release -derivedDataPath build CODE_SIGN_IDENTITY="-"
+
+# Run the app directly
 open build/Build/Products/Release/Swash.app
 ```
 
-For iPhone and iPad, open `Swash.xcodeproj` in Xcode, choose an iOS device or simulator, and run.
+---
 
-Contributors: see [`AGENTS.md`](./AGENTS.md) for the workflow, [`GOTCHAS.md`](./GOTCHAS.md) for known pitfalls and [`docs/RELEASING.md`](./docs/RELEASING.md) for how releases are built and signed.
+## 🤖 Automated Distribution & Code Signing
+
+Swash features a modern, automated release pipeline powered by GitHub Actions. Every push to the `main` branch automatically:
+
+1.  **Imports Apple Code Signing Certificates** securely from GitHub Secrets (if configured) or falls back gracefully to ad-hoc signatures.
+2.  **Compiles and Code Signs** the native `.app` bundle, `.zip` archive, and `.dmg` disk image binaries targeting Apple Silicon and Intel Macs.
+3.  **Packages the app** into:
+    *   A signed, installer-ready **`.dmg` Disk Image**
+    *   A signed **`.zip` Archive**
+4.  **Generates a changelog** detailing all commits and contributions since the previous release.
+5.  **Publishes a GitHub Release** with the assets attached and ready to download instantly!
+
+> [!NOTE]
+> **Code Signing is Optional**: By default, builds are ad-hoc signed (`CODE_SIGN_IDENTITY="-"`) with no certificate required. If `MACOS_CERTIFICATE` is omitted or removed from repository secrets, the workflow automatically defaults to standard ad-hoc release builds.
+>
+> If you have an Apple Developer account and wish to sign & notarize builds:
+> 1. Export your **Developer ID Application** certificate from Keychain Access as a `.p12` file.
+> 2. Convert it to Base64 (`base64 -i Certificate.p12 | pbcopy`).
+> 3. Add repository secrets in **Settings > Secrets and variables > Actions**:
+>    - `MACOS_CERTIFICATE`: Base64 string of your `.p12` certificate.
+>    - `MACOS_CERTIFICATE_PWD`: Password for the `.p12` file (leave empty if no password was set).
+>    - `KEYCHAIN_PASSWORD`: Any temporary password for the CI keychain.
+>    - `CODE_SIGN_IDENTITY` *(Optional)*: Name of your certificate (auto-detected if omitted).
+>    - `NOTARIZATION_APPLE_ID`, `NOTARIZATION_PASSWORD`, `NOTARIZATION_TEAM_ID` *(Optional for Apple Notarization)*.
+
+> [!TIP]
+> Visit the [Releases](https://github.com/surrealroad/Swash/releases) section of the repository to grab the latest built application installer (`.dmg`) instantly.
+
 
 ---
 
 ## 📝 License
 
-Swash is released under the [MIT License](./LICENSE).
+Distributed under the **MIT License**. See [`LICENSE`](./LICENSE) for more information.
 
-Swash bundles [KaTeX](https://katex.org) (MIT, © Khan Academy and contributors) for math typesetting and [Mermaid](https://mermaid.js.org) (MIT, © Knut Sveidqvist) for diagrams. Both run offline inside the app; their licenses are in [`Swash/Rendering/`](./Swash/Rendering/).
+Swash bundles [KaTeX](https://katex.org) (MIT, © Khan Academy and contributors) for math typesetting and [Mermaid](https://mermaid.js.org) (MIT, © Knut Sveidqvist) for diagrams. Both run offline from the app bundle; their licenses are in [`Swash/Rendering/`](./Swash/Rendering/).
 
 <div align="center">
-  <sub>Made by Jack James and contributors</sub>
+  <sub>Crafted with ❤️ by Jack James & Contributors</sub>
 </div>
