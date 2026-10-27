@@ -14,6 +14,9 @@ struct DocumentOutlineView: View {
     let currentIndex: Int?
     let onSelect: (MarkdownOutline.Heading) -> Void
 
+    /// The sidebar's fixed width; ContentView resizes the window by it when the outline is toggled.
+    static let width: CGFloat = 220
+
     var body: some View {
         Group {
             if outline.headings.isEmpty {
@@ -61,7 +64,7 @@ struct DocumentOutlineView: View {
                 }
             }
         }
-        .frame(width: 220)
+        .frame(width: Self.width)
         .accessibilityLabel("Outline")
     }
 }

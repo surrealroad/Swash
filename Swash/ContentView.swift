@@ -310,6 +310,7 @@ struct ContentView: View {
         }
         .onChange(of: showOutline) { _, shown in
             if shown, let caret = editor.currentRawSelection?.location { updateCurrentHeading(caret: caret) }
+            handleOutlineToggle(shown: shown)
         }
         .onAppear {
             // An untitled document created for a quick note or an import starts with its text
@@ -2027,7 +2028,16 @@ struct ContentView: View {
         }
     }
     
-    private func animateWindowWidth(to targetWidth: CGFloat, window: NSWindow) {
+    /// Showing or hiding the outline resizes the window by the sidebar's width, on the left, so the
+    /// document keeps its width and position (as switching to and from Split does).
+    private func handleOutlineToggle(shown: Bool) {
+        guard !distractionFree, let window = self.window, !window.styleMask.contains(.fullScreen) else { return }
+        let sidebarWidth = DocumentOutlineView.width + 1   // and its divider
+        let targetWidth = window.frame.width + (shown ? sidebarWidth : -sidebarWidth)
+        animateWindowWidth(to: max(600, targetWidth), window: window, keepingRightEdge: true)
+    }
+    
+    private func animateWindowWidth(to targetWidth: CGFloat, window: NSWindow, keepingRightEdge: Bool = false) {
         let currentFrame = window.frame
         var adjustedTargetWidth = targetWidth
         
@@ -2039,7 +2049,7 @@ struct ContentView: View {
         let deltaWidth = adjustedTargetWidth - currentFrame.width
         guard abs(deltaWidth) > 1 else { return }
         
-        var newOriginX = currentFrame.origin.x - (deltaWidth / 2)
+        var newOriginX = keepingRightEdge ? currentFrame.maxX - adjustedTargetWidth : currentFrame.origin.x - (deltaWidth / 2)
         
         if let screen = window.screen {
             let screenFrame = screen.visibleFrame
