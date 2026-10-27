@@ -497,6 +497,7 @@ class SwashNSTextView: NSTextView {
     /// In Edit Text, pasted rich text (HTML / RTF) is converted to Markdown; Swash's own copies paste
     /// their raw Markdown. "Paste and Match Style" and the source modes paste plain text.
     override func paste(_ sender: Any?) {
+        if insertImages(from: NSPasteboard.general) { return }
         if isStyled, let markdown = Self.markdownForPaste(from: NSPasteboard.general),
            let coordinator = delegate as? SwashTextView.Coordinator {
             coordinator.insertMarkdown(markdown, in: self)
@@ -505,6 +506,42 @@ class SwashNSTextView: NSTextView {
         super.paste(sender)
     }
     
+    // MARK: Images (drag and drop, paste)
+
+    /// Copies the images on `pasteboard` beside the document and links them at the selection.
+    /// Returns false when the pasteboard holds anything other than images.
+    @discardableResult
+    func insertImages(from pasteboard: NSPasteboard) -> Bool {
+        guard isEditable, let items = ImageInsertion.items(on: pasteboard),
+              let coordinator = delegate as? SwashTextView.Coordinator else { return false }
+        let documentURL = coordinator.parent.baseURL ?? window?.representedURL
+        ImageInsertion.insert(items, documentURL: documentURL, in: self) { [weak self, weak coordinator] markdown in
+            guard let self, let coordinator else { return }
+            coordinator.insertMarkdown(markdown, in: self, actionName: items.count == 1 ? "Add Image" : "Add Images")
+        }
+        return true
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let operation = super.draggingEntered(sender)
+        return ImageInsertion.items(on: sender.draggingPasteboard) != nil ? .copy : operation
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let operation = super.draggingUpdated(sender)
+        return ImageInsertion.items(on: sender.draggingPasteboard) != nil ? .copy : operation
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard ImageInsertion.items(on: sender.draggingPasteboard) != nil else {
+            return super.performDragOperation(sender)
+        }
+        let location = characterIndexForInsertion(at: convert(sender.draggingLocation, from: nil))
+        setSelectedRange(NSRange(location: location, length: 0))
+        window?.makeFirstResponder(self)
+        return insertImages(from: sender.draggingPasteboard)
+    }
+
     static func markdownForPaste(from pasteboard: NSPasteboard) -> String? {
         if let own = pasteboard.string(forType: .swashMarkdown) { return own }
         let plain = pasteboard.string(forType: .string)
@@ -906,6 +943,8 @@ struct SwashTextView: NSViewRepresentable {
         scrollView.autoresizingMask = [.width, .height]
         
         textView.delegate = context.coordinator
+        // Image data (screenshots, images dragged from a browser) as well as files and text
+        textView.registerForDraggedTypes(textView.registeredDraggedTypes + [.png, .tiff, .fileURL])
         textView.isRichText = false
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -1160,14 +1199,14 @@ struct SwashTextView: NSViewRepresentable {
         }
         
         /// Replaces the selection with `markdown` (an undoable edit) and places the caret after it.
-        func insertMarkdown(_ markdown: String, in textView: NSTextView) {
+        func insertMarkdown(_ markdown: String, in textView: NSTextView, actionName: String = "Paste") {
             guard let storage = textView.textStorage else { return }
             let raw = (parent.isStyled ? buildRawMarkdown(from: storage) : textView.string) as NSString
             let selection = rawRange(forStorage: textView.selectedRange(), in: textView)
             guard NSMaxRange(selection) <= raw.length else { return }
             let updated = raw.replacingCharacters(in: selection, with: markdown)
             let caret = NSRange(location: selection.location + (markdown as NSString).length, length: 0)
-            applyEdit(in: textView, newRawText: updated, rawSelection: caret, actionName: "Paste")
+            applyEdit(in: textView, newRawText: updated, rawSelection: caret, actionName: actionName)
         }
         
         /// Toggles `[ ]` ↔ `[x]` for the task marker at `markerRange` (storage offsets), keeping the selection.

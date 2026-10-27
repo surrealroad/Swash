@@ -11,10 +11,10 @@ func findTextView(in v: NSView) -> NSTextView? {
 }
 
 var windows: [NSWindow] = []
-func makeEditor(_ box: TextBox, styled: Bool = true, writing: WritingOptions = WritingOptions()) -> NSTextView {
+func makeEditor(_ box: TextBox, styled: Bool = true, writing: WritingOptions = WritingOptions(), baseURL: URL? = nil) -> NSTextView {
     let binding = Binding<String>(get: { box.text }, set: { box.text = $0 })
     let editor = SwashTextView(text: binding, selectedRange: .constant(nil), selectionRect: .constant(nil),
-                               isStyled: styled, flavor: .github, writingOptions: writing)
+                               isStyled: styled, flavor: .github, baseURL: baseURL, writingOptions: writing)
     let host = NSHostingView(rootView: editor.frame(width: 600, height: 600))
     host.frame = NSRect(x: 0, y: 0, width: 600, height: 600)
     let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -535,6 +535,40 @@ struct InteractionRunner {
              let offset = line.midY + tv.textContainerOrigin.y - clip.bounds.origin.y
              log("typewriter-centres-caret", "caret on line 70 of 120", abs(offset - clip.bounds.height / 2) < 2 ? "centred" : "offset \(offset) of \(clip.bounds.height)",
                  expect: "centred") }
+
+        // Images pasted or dropped are copied beside the document and linked relatively
+        do { let folder = FileManager.default.temporaryDirectory.appendingPathComponent("swash-images-\(UUID().uuidString)")
+             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+             let doc = folder.appendingPathComponent("Notes.md")
+             let outside = FileManager.default.temporaryDirectory.appendingPathComponent("Holiday [1].png")
+             let image = NSImage(size: NSSize(width: 2, height: 2), flipped: false) { NSColor.red.setFill(); $0.fill(); return true }
+             let png = NSBitmapImageRep(data: image.tiffRepresentation!)!.representation(using: .png, properties: [:])!
+             try? png.write(to: outside)
+             UserDefaults.standard.removeObject(forKey: ImageInsertion.folderDefaultsKey)
+
+             let b = TextBox("Before "); let tv = makeEditor(b, styled: false, baseURL: doc); caretAfter("Before ", in: tv)
+             let pb = NSPasteboard.general; pb.clearContents(); pb.setData(png, forType: .png)
+             tv.paste(nil); pump()
+             let date = DateFormatter(); date.dateFormat = "yyyy-MM-dd"
+             let pasted = b.text.hasPrefix("Before ![Pasted Image \(date.string(from: Date())) at ") && b.text.hasSuffix(".png)") && b.text.contains("](assets/Pasted%20Image%20")
+             let files = (try? FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent("assets").path)) ?? []
+             log("paste-screenshot", "Before | + PNG data", "linked=\(pasted) files=\(files.count)", expect: "linked=true files=1")
+
+             let b2 = TextBox(""); let tv2 = makeEditor(b2, styled: false, baseURL: doc)
+             pb.clearContents(); pb.writeObjects([outside as NSURL]); tv2.paste(nil); pump()
+             let copied = FileManager.default.fileExists(atPath: folder.appendingPathComponent("assets/Holiday [1].png").path)
+             log("paste-image-file", "Holiday [1].png from outside the folder", "\(b2.text) copied=\(copied)",
+                 expect: "![Holiday \\[1\\]](assets/Holiday%20%5B1%5D.png) copied=true")
+
+             let inside = folder.appendingPathComponent("diagram.png"); try? png.write(to: inside)
+             let b3 = TextBox(""); let tv3 = makeEditor(b3, styled: false, baseURL: doc)
+             pb.clearContents(); pb.writeObjects([inside as NSURL]); tv3.paste(nil); pump()
+             log("paste-image-in-folder", "diagram.png beside the document", b3.text, expect: "![diagram](diagram.png)")
+
+             pb.clearContents(); pb.setString("plain text", forType: .string)
+             log("paste-text-not-image", "string on the pasteboard", ImageInsertion.items(on: pb) == nil ? "text" : "image", expect: "text")
+             pb.clearContents()
+             try? FileManager.default.removeItem(at: folder); try? FileManager.default.removeItem(at: outside) }
 
         try? out.write(toFile: CommandLine.arguments[1], atomically: true, encoding: .utf8)
         print(out)
