@@ -64,13 +64,14 @@ struct FolderWindowView: View {
 private struct FolderBrowserView: View {
     @StateObject private var workspace: FolderWorkspace
     @State private var window: NSWindow?
+    @State private var columnVisibility = NavigationSplitViewVisibility.automatic
 
     init(folderURL: URL) {
         _workspace = StateObject(wrappedValue: FolderWorkspace(folderURL: folderURL))
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
         } detail: {
             if let file = workspace.selectedFile {
@@ -97,6 +98,10 @@ private struct FolderBrowserView: View {
         }
         .onChange(of: workspace.hasUnsavedChanges) { _, unsaved in
             window?.isDocumentEdited = unsaved
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .distractionFreeWritingDidChange)) { notification in
+            guard (notification.object as? NSWindow) === window else { return }
+            columnVisibility = notification.userInfo?["isOn"] as? Bool == true ? .detailOnly : .automatic
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             workspace.save()

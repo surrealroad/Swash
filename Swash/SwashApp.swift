@@ -92,6 +92,7 @@ struct SwashApp: App {
             }
             FormatMenuCommands()
             ExportCommands()
+            WritingModeCommands()
             OpenFolderCommands()
             CommandGroup(after: .saveItem) {
                 Button("Grant Folder Access…") {
