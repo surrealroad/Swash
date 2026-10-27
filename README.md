@@ -14,7 +14,10 @@
 
 [**Download for Mac**](https://github.com/surrealroad/Swash/releases/latest) • [Features](#-features) • [Shortcuts](#%EF%B8%8F-keyboard-shortcuts) • [Build from source](#-build-from-source)
 
-<img src="Screenshot.png" alt="Swash editing a Markdown document" width="800">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshot-dark.png">
+  <img src="docs/images/screenshot-light.png" alt="Swash editing a trip plan with an outline sidebar, a tip callout, a table, a formula and a Mermaid diagram" width="800">
+</picture>
 
 </div>
 
@@ -36,7 +39,7 @@
 ### Everything renders
 
 - **Math and diagrams.** LaTeX equations and Mermaid flowcharts, sequence diagrams and charts are drawn right in the document, even offline. Math editing closes your braces and suggests commands as you type.
-- **Images** from your document's folder appear inline. Click one to change its size, alt text or file.
+- **Images** from your document's folder appear inline. Drag one in or paste a screenshot and Swash copies it into an `assets` folder beside the document. Click an image to change its size, alt text or file.
 - **Code blocks** with syntax colouring and a language badge you can click to change.
 - **GitHub-style extras:** alerts (Note, Tip, Warning…), clickable footnotes, a table of contents you can insert, task lists, collapsible sections, keycaps and more.
 - **Fully compatible.** Swash follows the CommonMark and GitHub Flavored Markdown standards, so files look the same in Swash as they do on GitHub. It can also edit Slack-style formatting.
@@ -45,6 +48,8 @@
 
 - **Quick Note.** Press ⌃⌥⌘N in any app to jot something down, then save it as a new note or add it to the last one you used. You can also keep Swash in the menu bar.
 - **Bring your documents with you.** File › Import… turns Word, RTF, HTML and OpenDocument files into Markdown.
+- **Share it as it looks.** Export as PDF or as a single self-contained HTML file, print, or copy the whole document as rich text for Mail, Pages or Google Docs, with math, diagrams and images included.
+- **Stay in the flow.** Focus Mode dims everything but the paragraph or sentence you're writing, Typewriter Scrolling keeps your line in the middle of the window, and Distraction-Free Writing goes full screen with just your text.
 - **Preview in Finder.** Press Space on any Markdown file for a formatted Quick Look preview, and see real thumbnails of your notes.
 - **Capture from anywhere.** Send selected text from any app to a new Swash note with the Services menu, or create notes and count words with Shortcuts.
 - **A real Mac app.** Light and Dark Mode, autosave and version history, iCloud Drive with help sorting out conflicting edits, VoiceOver, system spellcheck (kept out of your code blocks), undo everything, and automatic updates.
@@ -65,6 +70,9 @@
 | ⌥⌘C | Code block |
 | ⌘1 / ⌘2 / ⌘3 | Formatted / Source / Split view |
 | ⌃⌘S | Show or hide the outline |
+| ⌘P | Print (File › Export for PDF and HTML) |
+| ⇧⌘D / ⌃⌘T | Focus Mode / Typewriter Scrolling |
+| ⌃⇧⌘F | Distraction-Free Writing |
 | ⌃⌥⌘N | Quick Note, from any app |
 | ⇧⌘I | Import a Word, RTF, HTML or OpenDocument file |
 | ⇧⌘T | Reopen the last closed document |
