@@ -21,7 +21,6 @@ struct IOSContentView: View {
     @State private var showingSettings = false
     @State private var linkPrompt: LinkPrompt?
     @State private var dismissedFolderBanner: URL?
-    @State private var exportError: String?
     @ObservedObject private var folderAccessManager = FolderAccessManager.shared
 
     /// Split needs room for two columns; in compact width it falls back to Source.
@@ -69,15 +68,6 @@ struct IOSContentView: View {
             Button("Cancel", role: .cancel) {}
         }
         .focusedSceneValue(\.formatCommandHandler, canFormat ? { handleFormatCommand($0) } : nil)
-        .focusedSceneValue(\.documentExportActions, exportActions)
-        .alert("Couldn’t Export", isPresented: Binding(
-            get: { exportError != nil },
-            set: { if !$0 { exportError = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(exportError ?? "")
-        }
         .onAppear {
             editor.onFormatCommand = { handleFormatCommand($0) }
         }
@@ -156,18 +146,6 @@ struct IOSContentView: View {
             }
         }
         ToolbarItem(placement: .secondaryAction) {
-            Menu {
-                Button("Export as PDF", systemImage: "doc.richtext") { exportActions.exportPDF() }
-                Button("Export as HTML", systemImage: "chevron.left.forwardslash.chevron.right") { exportActions.exportHTML() }
-                Button("Print", systemImage: "printer") { exportActions.print() }
-                Divider()
-                Button("Copy as Rich Text", systemImage: "doc.on.clipboard") { exportActions.copyRichText() }
-                Button("Copy as HTML", systemImage: "curlybraces") { exportActions.copyHTML() }
-            } label: {
-                Label("Export", systemImage: "square.and.arrow.up.on.square")
-            }
-        }
-        ToolbarItem(placement: .secondaryAction) {
             Button {
                 showingSettings = true
             } label: {
@@ -190,48 +168,9 @@ struct IOSContentView: View {
         )
     }
 
-    // MARK: - Export
-
-    private var exportSource: DocumentExporter.Source {
-        DocumentExporter.Source(text: document.text, flavor: document.flavor, fileURL: fileURL, title: documentTitle)
-    }
-
-    private var exportActions: DocumentExportActions {
-        DocumentExportActions(
-            exportPDF: { export(fileExtension: "pdf") { try await DocumentExporter.exportPDF($0) } },
-            exportHTML: { export(fileExtension: "html") { Data(try await DocumentExporter.standaloneHTML(for: $0).utf8) } },
-            print: {
-                let source = exportSource
-                Task {
-                    do { try await DocumentExporter.print(source) } catch { exportError = error.localizedDescription }
-                }
-            },
-            copyRichText: { DocumentExporter.copyRichText(exportSource) },
-            copyHTML: { DocumentExporter.copyHTML(exportSource) }
-        )
-    }
-
-    /// Writes the export to a temporary file and offers it in the share sheet (which includes Save to Files).
-    private func export(fileExtension: String, _ make: @escaping (DocumentExporter.Source) async throws -> Data) {
-        let source = exportSource
-        Task {
-            do {
-                let data = try await make(source)
-                let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Export-\(UUID().uuidString)", isDirectory: true)
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                let name = source.title.replacingOccurrences(of: "/", with: "-")
-                let url = folder.appendingPathComponent(name).appendingPathExtension(fileExtension)
-                try data.write(to: url)
-                presentShareSheet(items: [url])
-            } catch {
-                exportError = error.localizedDescription
-            }
-        }
-    }
-
-    /// The system share sheet, for the Markdown by default, anchored at the top trailing corner on iPad.
-    private func presentShareSheet(items: [Any]? = nil) {
-        let activity = UIActivityViewController(activityItems: items ?? [document.text], applicationActivities: nil)
+    /// The system share sheet for the Markdown, anchored at the top trailing corner on iPad.
+    private func presentShareSheet() {
+        let activity = UIActivityViewController(activityItems: [document.text], applicationActivities: nil)
         activity.setValue(documentTitle, forKey: "subject")
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         guard let window = scenes.filter({ $0.activationState == .foregroundActive }).flatMap(\.windows).first(where: \.isKeyWindow),

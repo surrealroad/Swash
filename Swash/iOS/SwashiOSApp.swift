@@ -21,7 +21,6 @@ struct SwashApp: App {
         .commands {
             // The iPadOS menu bar and hardware-keyboard shortcuts, as on the Mac
             FormatMenuCommands()
-            ExportCommands()
         }
         .onChange(of: scenePhase) { _, phase in
             // Notes saved by the share extension open when Swash comes to the front

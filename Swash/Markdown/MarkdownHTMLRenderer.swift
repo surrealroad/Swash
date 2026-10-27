@@ -15,27 +15,15 @@ struct MarkdownHTMLRenderer {
     private let document: MarkdownDocument
     private var footnoteNumbers: [String: Int] = [:]
     private var footnoteReferenceCounts: [String: Int] = [:]
-    private let options: Options
 
-    /// Output beyond the spec format, for documents exported from Swash.
-    struct Options {
-        /// Alerts as GitHub's `<div class="markdown-alert …">` with a title, rather than plain block quotes.
-        var alertMarkup = false
-        /// Rewrites each image destination (for example, to embed a local file as a data URL).
-        var imageSource: ((String) -> String)? = nil
-
-        static let spec = Options()
-    }
-
-    static func render(_ document: MarkdownDocument, options: Options = .spec) -> String {
-        var renderer = MarkdownHTMLRenderer(document: document, options: options)
+    static func render(_ document: MarkdownDocument) -> String {
+        var renderer = MarkdownHTMLRenderer(document: document)
         renderer.renderDocument()
         return renderer.buffer
     }
 
-    private init(document: MarkdownDocument, options: Options) {
+    private init(document: MarkdownDocument) {
         self.document = document
-        self.options = options
         for (index, label) in document.footnoteOrder.enumerated() {
             footnoteNumbers[label] = index + 1
         }
@@ -125,18 +113,6 @@ struct MarkdownHTMLRenderer {
         case .thematicBreak:
             cr()
             tag("hr", selfClosing: true)
-            cr()
-        case .alert(let type) where options.alertMarkup:
-            cr()
-            tag("div", [("class", "markdown-alert markdown-alert-\(type.title.lowercased())")])
-            cr()
-            tag("p", [("class", "markdown-alert-title")])
-            out(type.title)
-            tag("/p")
-            cr()
-            renderChildren(node)
-            cr()
-            tag("/div")
             cr()
         case .blockQuote, .alert:
             cr()
@@ -234,8 +210,7 @@ struct MarkdownHTMLRenderer {
             tag("/a")
         case .image(let destination, let title):
             if disableTags == 0 {
-                let source = options.imageSource?(destination) ?? MarkdownSyntax.normalizeURI(destination)
-                lit("<img src=\"" + MarkdownSyntax.escapeHTML(source) + "\" alt=\"")
+                lit("<img src=\"" + MarkdownSyntax.escapeHTML(MarkdownSyntax.normalizeURI(destination)) + "\" alt=\"")
             }
             disableTags += 1
             renderChildren(node)

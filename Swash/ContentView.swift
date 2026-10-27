@@ -222,7 +222,6 @@ struct ContentView: View {
         }
         .background(WindowAccessor(window: $window))
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
-        .focusedSceneValue(\.documentExportActions, exportActions)
         .onChange(of: documentID) {
             selectedRange = nil
             selectionRect = nil
@@ -274,67 +273,6 @@ struct ContentView: View {
             }
         }
         return "Untitled"
-    }
-
-    // MARK: - Export and Print
-
-    private var exportSource: DocumentExporter.Source {
-        DocumentExporter.Source(text: document.text, flavor: document.flavor, fileURL: effectiveBaseURL, title: documentTitle)
-    }
-
-    private var exportActions: DocumentExportActions {
-        DocumentExportActions(
-            exportPDF: { export(as: .pdf) },
-            exportHTML: { export(as: .html) },
-            print: {
-                let source = exportSource
-                Task {
-                    do { try await DocumentExporter.print(source, window: window) } catch { presentExportError(error) }
-                }
-            },
-            copyRichText: { DocumentExporter.copyRichText(exportSource) },
-            copyHTML: { DocumentExporter.copyHTML(exportSource) }
-        )
-    }
-
-    /// Asks where to save, then writes a PDF or a self-contained HTML file.
-    private func export(as type: UTType) {
-        let source = exportSource
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [type]
-        panel.canCreateDirectories = true
-        panel.isExtensionHidden = false
-        panel.nameFieldStringValue = source.title
-        let completion: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .OK, let url = panel.url else { return }
-            Task {
-                do {
-                    if type == .pdf {
-                        try await DocumentExporter.exportPDF(source, to: url)
-                    } else {
-                        try await DocumentExporter.standaloneHTML(for: source).write(to: url, atomically: true, encoding: .utf8)
-                    }
-                } catch {
-                    presentExportError(error)
-                }
-            }
-        }
-        if let window {
-            panel.beginSheetModal(for: window, completionHandler: completion)
-        } else {
-            completion(panel.runModal())
-        }
-    }
-
-    private func presentExportError(_ error: Error) {
-        let alert = NSAlert(error: error)
-        alert.messageText = "“\(documentTitle)” couldn’t be exported."
-        alert.informativeText = error.localizedDescription
-        if let window {
-            alert.beginSheetModal(for: window)
-        } else {
-            alert.runModal()
-        }
     }
 
     private var sharePreviewImage: Image {
