@@ -98,6 +98,17 @@ struct ContentView: View {
     @State private var insightsText: String? = nil
     @State private var showConflictSheet = false
 
+    @AppStorage(WritingDefaults.focusMode) private var focusMode = false
+    @AppStorage(WritingDefaults.focusUnit) private var focusUnit: FocusUnit = .paragraph
+    @AppStorage(WritingDefaults.typewriterScrolling) private var typewriterScrolling = false
+    /// Full screen without the toolbar, outline or status bar, with the text in a readable column.
+    @State private var distractionFree = false
+    @State private var enteredFullScreenForWriting = false
+
+    private var writingOptions: WritingOptions {
+        WritingOptions(focus: focusMode ? focusUnit : nil, typewriter: typewriterScrolling, readableColumn: distractionFree)
+    }
+
     /// The window's document file when SwiftUI hasn't passed `fileURL`, looked up when the window
     /// attaches or becomes key rather than on every evaluation of `body`.
     @State private var windowDocumentURL: URL? = nil
@@ -132,12 +143,12 @@ struct ContentView: View {
             if conflictCount > 0 {
                 ConflictBanner(count: conflictCount) { showConflictSheet = true }
             }
-            if let folderURL = unreadableFolderURL {
+            if let folderURL = unreadableFolderURL, !distractionFree {
                 folderAccessBanner(for: folderURL)
             }
             
             HStack(spacing: 0) {
-            if showOutline {
+            if showOutline && !distractionFree {
                 DocumentOutlineView(
                     outline: outline,
                     currentIndex: currentHeadingIndex,
@@ -160,7 +171,8 @@ struct ContentView: View {
                         baseURL: effectiveBaseURL,
                         controller: editor,
                         onFormatCommand: { handleFormatCommand($0) },
-                        onCaretMove: { updateCurrentHeading(caret: $0) }
+                        onCaretMove: { updateCurrentHeading(caret: $0) },
+                        writingOptions: writingOptions
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -175,7 +187,8 @@ struct ContentView: View {
                         baseURL: effectiveBaseURL,
                         controller: editor,
                         onFormatCommand: { handleFormatCommand($0) },
-                        onCaretMove: { updateCurrentHeading(caret: $0) }
+                        onCaretMove: { updateCurrentHeading(caret: $0) },
+                        writingOptions: writingOptions
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -191,7 +204,8 @@ struct ContentView: View {
                             baseURL: effectiveBaseURL,
                             controller: editor,
                             onFormatCommand: { handleFormatCommand($0) },
-                            onCaretMove: { updateCurrentHeading(caret: $0) }
+                            onCaretMove: { updateCurrentHeading(caret: $0) },
+                            writingOptions: writingOptions
                         )
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)
@@ -206,7 +220,9 @@ struct ContentView: View {
             }
             
             // Premium Bottom Status Bar
-            statusView
+            if !distractionFree {
+                statusView
+            }
         }
         .frame(minWidth: 600, idealWidth: 800, minHeight: 600, idealHeight: 750)
         .toolbar(id: "mainToolbar") {
@@ -267,6 +283,7 @@ struct ContentView: View {
             if let window = window, notification.object as? NSWindow === window { refreshWindowDocumentURL() }
         }
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
+        .modifier(exportAndWritingCommands)
         .focusedSceneValue(\.documentCommandHandler, { handleDocumentCommand($0) })
         .focusedSceneValue(\.documentFileURL, effectiveBaseURL)
         .focusedSceneValue(\.viewModeSelection, ViewModeSelection(current: viewMode) { viewMode = $0 })
@@ -293,6 +310,7 @@ struct ContentView: View {
         }
         .onChange(of: showOutline) { _, shown in
             if shown, let caret = editor.currentRawSelection?.location { updateCurrentHeading(caret: caret) }
+            handleOutlineToggle(shown: shown)
         }
         .onAppear {
             // An untitled document created for a quick note or an import starts with its text
@@ -391,6 +409,97 @@ struct ContentView: View {
             }
         }
         return "Untitled"
+    }
+
+    // MARK: - Distraction-Free Writing
+
+    /// Export and writing-mode menu actions, kept out of `body`'s modifier chain so it type-checks quickly.
+    private var exportAndWritingCommands: some ViewModifier {
+        ExportAndWritingCommandsModifier(
+            exportActions: exportActions,
+            distractionFree: DistractionFreeToggle(isOn: distractionFree, toggle: toggleDistractionFree),
+            window: window,
+            onExitFullScreen: {
+                // Leaving full screen (Esc, the green button) ends distraction-free writing too
+                enteredFullScreenForWriting = false
+                if distractionFree { toggleDistractionFree() }
+            }
+        )
+    }
+
+    private func toggleDistractionFree() {
+        distractionFree.toggle()
+        guard let window else { return }
+        window.toolbar?.isVisible = !distractionFree
+        let isFullScreen = window.styleMask.contains(.fullScreen)
+        if distractionFree && !isFullScreen {
+            enteredFullScreenForWriting = true
+            window.toggleFullScreen(nil)
+        } else if !distractionFree && isFullScreen && enteredFullScreenForWriting {
+            enteredFullScreenForWriting = false
+            window.toggleFullScreen(nil)
+        }
+    }
+
+    // MARK: - Export and Print
+
+    private var exportSource: DocumentExporter.Source {
+        DocumentExporter.Source(text: document.text, flavor: document.flavor, fileURL: effectiveBaseURL, title: documentTitle)
+    }
+
+    private var exportActions: DocumentExportActions {
+        DocumentExportActions(
+            exportPDF: { export(as: .pdf) },
+            exportHTML: { export(as: .html) },
+            print: {
+                let source = exportSource
+                Task {
+                    do { try await DocumentExporter.print(source, window: window) } catch { presentExportError(error) }
+                }
+            },
+            copyRichText: { DocumentExporter.copyRichText(exportSource) },
+            copyHTML: { DocumentExporter.copyHTML(exportSource) }
+        )
+    }
+
+    /// Asks where to save, then writes a PDF or a self-contained HTML file.
+    private func export(as type: UTType) {
+        let source = exportSource
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [type]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.nameFieldStringValue = source.title
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task {
+                do {
+                    if type == .pdf {
+                        try await DocumentExporter.exportPDF(source, to: url)
+                    } else {
+                        try await DocumentExporter.standaloneHTML(for: source).write(to: url, atomically: true, encoding: .utf8)
+                    }
+                } catch {
+                    presentExportError(error)
+                }
+            }
+        }
+        if let window {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            completion(panel.runModal())
+        }
+    }
+
+    private func presentExportError(_ error: Error) {
+        let alert = NSAlert(error: error)
+        alert.messageText = "“\(documentTitle)” couldn’t be exported."
+        alert.informativeText = error.localizedDescription
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
     }
 
     private var sharePreviewImage: Image { ContentView.sharePreviewIcon }
@@ -1919,7 +2028,16 @@ struct ContentView: View {
         }
     }
     
-    private func animateWindowWidth(to targetWidth: CGFloat, window: NSWindow) {
+    /// Showing or hiding the outline resizes the window by the sidebar's width, on the left, so the
+    /// document keeps its width and position (as switching to and from Split does).
+    private func handleOutlineToggle(shown: Bool) {
+        guard !distractionFree, let window = self.window, !window.styleMask.contains(.fullScreen) else { return }
+        let sidebarWidth = DocumentOutlineView.width + 1   // and its divider
+        let targetWidth = window.frame.width + (shown ? sidebarWidth : -sidebarWidth)
+        animateWindowWidth(to: max(600, targetWidth), window: window, keepingRightEdge: true)
+    }
+    
+    private func animateWindowWidth(to targetWidth: CGFloat, window: NSWindow, keepingRightEdge: Bool = false) {
         let currentFrame = window.frame
         var adjustedTargetWidth = targetWidth
         
@@ -1931,7 +2049,7 @@ struct ContentView: View {
         let deltaWidth = adjustedTargetWidth - currentFrame.width
         guard abs(deltaWidth) > 1 else { return }
         
-        var newOriginX = currentFrame.origin.x - (deltaWidth / 2)
+        var newOriginX = keepingRightEdge ? currentFrame.maxX - adjustedTargetWidth : currentFrame.origin.x - (deltaWidth / 2)
         
         if let screen = window.screen {
             let screenFrame = screen.visibleFrame
@@ -1954,6 +2072,23 @@ struct ContentView: View {
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             window.animator().setFrame(newFrame, display: true)
         }
+    }
+}
+
+private struct ExportAndWritingCommandsModifier: ViewModifier {
+    let exportActions: DocumentExportActions
+    let distractionFree: DistractionFreeToggle
+    let window: NSWindow?
+    let onExitFullScreen: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.documentExportActions, exportActions)
+            .focusedSceneValue(\.distractionFreeToggle, distractionFree)
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
+                guard let window, (notification.object as? NSWindow) === window else { return }
+                onExitFullScreen()
+            }
     }
 }
 

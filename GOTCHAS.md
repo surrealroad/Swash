@@ -149,3 +149,16 @@
 ## 37. Edit Text Display String Isn't the Markdown
 - **Issue**: Tables, images and (since 1.14.0) Mermaid blocks are replaced in the editor's text storage by an attachment character (`U+FFFC`), so `NSTextView.string` no longer equals the document. Tests that compared `tv.string` with the source started failing in `scripts/run_rich_render_tests.sh` once Mermaid became an attachment, and the PR build stayed red.
 - **Solution**: Compare the Markdown written back through the editor's text binding (`box.text` in the harnesses), and find diagrams as `ImageTextAttachment`s (alt `"Mermaid Diagram"`) rather than `.richPreview` overlays.
+
+## 38. `NSPrintOperation` Calls Back on Its Own Thread
+- **Issue**: `DocumentExporter` prints a `WKWebView` with `runModal(for:delegate:didRun:contextInfo:)` (`run()` gives blank pages). With no panel shown, AppKit calls the `didRun` selector on the print operation's thread, not the main thread. Under default main-actor isolation, touching the window there crashed with `EXC_BREAKPOINT` in `WKWindowVisibilityObserver`.
+- **Solution**: Declare the callback `@objc nonisolated` and hop to the main queue before touching the web view, window or continuation. The web view lives in an offscreen borderless window while it prints, and the print operation's view needs a non-zero frame.
+
+## 39. `ContentView.body` Is Near the Type-Checker's Limit
+- **Issue**: Adding a few more `.focusedSceneValue` and `.onReceive` modifiers to `ContentView.body` failed the build with "the compiler is unable to type-check this expression in reasonable time".
+- **Solution**: Group new modifiers in a small `ViewModifier` (such as `ExportAndWritingCommandsModifier`) and apply it with `.modifier(...)`, rather than extending the chain.
+
+## 40. Sandboxed Apps Can't Read Files Passed on the Command Line
+- **Issue**: Launching the app binary directly with a document path (`Swash.app/Contents/MacOS/Swash file.md`) shows "Swash doesn't have permission to read it": only Launch Services grants the sandbox access. `pkill -x Swash` in scripts also quits the user's own copy of Swash.
+- **Solution**: Open documents with `open -n -a <app> <file> --args …`, find the new process with `pgrep -n -f <app path>`, and quit only that PID (`scripts/generate_readme_screenshots.sh`). `-NSRequiresAquaSystemAppearance YES` and `-AppleInterfaceStyle Dark` force Light or Dark Mode for one launch.
+

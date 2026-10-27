@@ -24,7 +24,7 @@ swiftc \
   Swash/DetectedLink.swift \
   Swash/BubbleMenuView.swift \
   Swash/InteractiveTableView.swift \
-  Swash/SwashTextView.swift \
+  Swash/SwashTextView.swift Swash/WritingModes.swift Swash/ImageInsertion.swift \
   Tests/GFMSpec/GFMSpecRunner.swift \
   -o "$BIN"
 

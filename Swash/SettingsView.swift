@@ -34,6 +34,7 @@ private struct GeneralSettingsView: View {
     @AppStorage("markdownFlavor") private var markdownFlavor: MarkdownFlavor = .github
     @AppStorage(QuickCaptureShortcut.defaultsKey) private var quickCaptureShortcut: QuickCaptureShortcut = QuickCaptureShortcut.defaultValue
     @AppStorage("showMenuBarExtra") private var showMenuBarExtra = false
+    @AppStorage(ImageInsertion.folderDefaultsKey) private var imageFolder = ImageInsertion.defaultFolderName
     @State private var opensAtLogin = LoginItem.isEnabled
 
     var body: some View {
@@ -70,6 +71,15 @@ private struct GeneralSettingsView: View {
                 }
             } header: {
                 Text("File Associations")
+            }
+
+            Section {
+                TextField("Images folder", text: $imageFolder, prompt: Text("Same folder as the document"))
+            } header: {
+                Text("Images")
+            } footer: {
+                Text("Images you drag or paste into a document are copied into this folder beside it and linked with a relative path. Leave it empty to put them next to the document.")
+                    .settingsFooterStyle()
             }
 
             Section {

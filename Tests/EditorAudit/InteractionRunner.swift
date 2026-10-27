@@ -11,10 +11,10 @@ func findTextView(in v: NSView) -> NSTextView? {
 }
 
 var windows: [NSWindow] = []
-func makeEditor(_ box: TextBox) -> NSTextView {
+func makeEditor(_ box: TextBox, styled: Bool = true, writing: WritingOptions = WritingOptions(), baseURL: URL? = nil) -> NSTextView {
     let binding = Binding<String>(get: { box.text }, set: { box.text = $0 })
     let editor = SwashTextView(text: binding, selectedRange: .constant(nil), selectionRect: .constant(nil),
-                               isStyled: true, flavor: .github)
+                               isStyled: styled, flavor: .github, baseURL: baseURL, writingOptions: writing)
     let host = NSHostingView(rootView: editor.frame(width: 600, height: 600))
     host.frame = NSRect(x: 0, y: 0, width: 600, height: 600)
     let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -505,6 +505,70 @@ struct InteractionRunner {
             log("table-cell-focus-and-reuse", b.text, "selectionCleared=\(collapsed) heightFits=\(fits) tableKept=\(after != nil && after === table)",
                 expect: "selectionCleared=true heightFits=true tableKept=true")
         }
+
+        // Focus mode and typewriter scrolling
+        do { let text = "One sentence. Two three here. Four." as NSString
+             let caret = NSRange(location: text.range(of: "three").location, length: 0)
+             let sentence = text.substring(with: FocusUnit.range(.sentence, around: caret, in: text))
+             let paragraph = text.substring(with: FocusUnit.range(.paragraph, around: caret, in: text))
+             log("focus-range", text as String, "sentence=\(sentence) paragraph=\(paragraph)",
+                 expect: "sentence=Two three here.  paragraph=One sentence. Two three here. Four.") }
+        do { let b = TextBox("First **paragraph**.\n\nSecond paragraph.\n\nThird paragraph.")
+             let tv = makeEditor(b, writing: WritingOptions(focus: .paragraph)); pump(0.3)
+             caretAfter("Second", in: tv); pump()
+             let storage = tv.string as NSString
+             func dimmed(_ needle: String) -> String {
+                 let at = storage.range(of: needle).location
+                 return tv.layoutManager?.temporaryAttribute(.foregroundColor, atCharacterIndex: at, effectiveRange: nil) == nil ? "clear" : "dim"
+             }
+             let hiddenMarker = storage.range(of: "**").location
+             let marker = hiddenMarker == NSNotFound ? "collapsed" :
+                 (tv.layoutManager?.temporaryAttribute(.foregroundColor, atCharacterIndex: hiddenMarker, effectiveRange: nil) == nil ? "hidden" : "revealed")
+             log("focus-dims-other-paragraphs", b.text, "first=\(dimmed("First")) second=\(dimmed("Second")) third=\(dimmed("Third")) marker=\(marker)",
+                 expect: "first=dim second=clear third=dim marker=hidden") }
+        do { let b = TextBox((1...120).map { "Line \($0)" }.joined(separator: "\n"))
+             let tv = makeEditor(b, styled: false, writing: WritingOptions(typewriter: true)); pump(0.3)
+             caretAfter("Line 70", in: tv); pump()
+             let clip = tv.enclosingScrollView!.contentView
+             let glyph = tv.layoutManager!.glyphIndexForCharacter(at: tv.selectedRange().location - 1)
+             let line = tv.layoutManager!.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+             let offset = line.midY + tv.textContainerOrigin.y - clip.bounds.origin.y
+             log("typewriter-centres-caret", "caret on line 70 of 120", abs(offset - clip.bounds.height / 2) < 2 ? "centred" : "offset \(offset) of \(clip.bounds.height)",
+                 expect: "centred") }
+
+        // Images pasted or dropped are copied beside the document and linked relatively
+        do { let folder = FileManager.default.temporaryDirectory.appendingPathComponent("swash-images-\(UUID().uuidString)")
+             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+             let doc = folder.appendingPathComponent("Notes.md")
+             let outside = FileManager.default.temporaryDirectory.appendingPathComponent("Holiday [1].png")
+             let image = NSImage(size: NSSize(width: 2, height: 2), flipped: false) { NSColor.red.setFill(); $0.fill(); return true }
+             let png = NSBitmapImageRep(data: image.tiffRepresentation!)!.representation(using: .png, properties: [:])!
+             try? png.write(to: outside)
+             UserDefaults.standard.removeObject(forKey: ImageInsertion.folderDefaultsKey)
+
+             let b = TextBox("Before "); let tv = makeEditor(b, styled: false, baseURL: doc); caretAfter("Before ", in: tv)
+             let pb = NSPasteboard.general; pb.clearContents(); pb.setData(png, forType: .png)
+             tv.paste(nil); pump()
+             let date = DateFormatter(); date.dateFormat = "yyyy-MM-dd"
+             let pasted = b.text.hasPrefix("Before ![Pasted Image \(date.string(from: Date())) at ") && b.text.hasSuffix(".png)") && b.text.contains("](assets/Pasted%20Image%20")
+             let files = (try? FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent("assets").path)) ?? []
+             log("paste-screenshot", "Before | + PNG data", "linked=\(pasted) files=\(files.count)", expect: "linked=true files=1")
+
+             let b2 = TextBox(""); let tv2 = makeEditor(b2, styled: false, baseURL: doc)
+             pb.clearContents(); pb.writeObjects([outside as NSURL]); tv2.paste(nil); pump()
+             let copied = FileManager.default.fileExists(atPath: folder.appendingPathComponent("assets/Holiday [1].png").path)
+             log("paste-image-file", "Holiday [1].png from outside the folder", "\(b2.text) copied=\(copied)",
+                 expect: "![Holiday \\[1\\]](assets/Holiday%20%5B1%5D.png) copied=true")
+
+             let inside = folder.appendingPathComponent("diagram.png"); try? png.write(to: inside)
+             let b3 = TextBox(""); let tv3 = makeEditor(b3, styled: false, baseURL: doc)
+             pb.clearContents(); pb.writeObjects([inside as NSURL]); tv3.paste(nil); pump()
+             log("paste-image-in-folder", "diagram.png beside the document", b3.text, expect: "![diagram](diagram.png)")
+
+             pb.clearContents(); pb.setString("plain text", forType: .string)
+             log("paste-text-not-image", "string on the pasteboard", ImageInsertion.items(on: pb) == nil ? "text" : "image", expect: "text")
+             pb.clearContents()
+             try? FileManager.default.removeItem(at: folder); try? FileManager.default.removeItem(at: outside) }
 
         try? out.write(toFile: CommandLine.arguments[1], atomically: true, encoding: .utf8)
         print(out)
