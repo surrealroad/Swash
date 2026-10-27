@@ -1,5 +1,18 @@
 # swash
 
+## 1.15.0
+
+### Minor Changes
+
+- 007c708: Add images by dragging them onto a document or pasting them, including screenshots. Swash copies the image into an `assets` folder beside the document and inserts a relative `![](assets/…)` link; images already in the document's folder are linked where they are. The folder can be changed (or left empty to use the document's own folder) in Settings › General › Images. If Swash doesn't have permission to write to the folder, it asks for access first. An untitled document has to be saved before a screenshot can be pasted into it.
+- a4d06c7: Export and print documents. File › Export as PDF… and Export as HTML… save the document as it looks in the Preview, with math, Mermaid diagrams, alerts, footnotes and images included. HTML exports are a single self-contained file. File › Print… (⌘P) prints it, and Edit › Copy as Rich Text and Copy as HTML put the whole document on the clipboard for Mail, Pages or Google Docs.
+- 52f24eb: New writing modes in the View menu on the Mac. Focus Mode (⇧⌘D) dims everything except the paragraph or sentence you're writing (choose which under Focus On). Typewriter Scrolling (⌃⌘T) keeps the line you're typing in the middle of the window. Distraction-Free Writing (⌃⇧⌘F) goes full screen, hides the toolbar, outline and status bar, and centres the text in a readable column; press Esc to leave it.
+
+### Patch Changes
+
+- db72882: Showing or hiding the outline sidebar now widens or narrows the window by the sidebar's width, so the document keeps its width and stays in place, as it already does when switching to and from Split view.
+- cf772aa: The README's screenshot now shows Swash in Light or Dark Mode to match the reader's system, with the outline, a callout, a table, math and a Mermaid diagram, and the feature list covers exporting, printing, writing modes and adding images.
+
 ## 1.14.5
 
 ### Patch Changes
