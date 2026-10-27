@@ -91,6 +91,7 @@ struct SwashApp: App {
                 .disabled(!sparkleUpdater.canCheckForUpdates)
             }
             FormatMenuCommands()
+            ExportCommands()
             OpenFolderCommands()
             CommandGroup(after: .saveItem) {
                 Button("Grant Folder Access…") {
