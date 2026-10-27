@@ -529,7 +529,6 @@ struct SwashTextView: NSViewRepresentable {
     var onPrevCell: (() -> Void)? = nil
     var controller: SwashEditorController? = nil
     var onFormatCommand: ((FormatCommand) -> Void)? = nil
-    var writingOptions = WritingOptions()
     
     init(
         text: Binding<String>,
@@ -543,8 +542,7 @@ struct SwashTextView: NSViewRepresentable {
         onNextCell: (() -> Void)? = nil,
         onPrevCell: (() -> Void)? = nil,
         controller: SwashEditorController? = nil,
-        onFormatCommand: ((FormatCommand) -> Void)? = nil,
-        writingOptions: WritingOptions = WritingOptions()
+        onFormatCommand: ((FormatCommand) -> Void)? = nil
     ) {
         self._text = text
         self._selectedRange = selectedRange
@@ -558,7 +556,6 @@ struct SwashTextView: NSViewRepresentable {
         self.onPrevCell = onPrevCell
         self.controller = controller
         self.onFormatCommand = onFormatCommand
-        self.writingOptions = writingOptions
     }
     
     func makeNSView(context: Context) -> NSScrollView {
@@ -614,12 +611,6 @@ struct SwashTextView: NSViewRepresentable {
             object: scrollView.contentView
         )
         scrollSync?.register(scrollView)
-        NotificationCenter.default.addObserver(
-            context.coordinator,
-            selector: #selector(Coordinator.scrollViewFrameDidChange(_:)),
-            name: NSView.frameDidChangeNotification,
-            object: scrollView
-        )
         
         return scrollView
     }
@@ -702,7 +693,6 @@ struct SwashTextView: NSViewRepresentable {
         }
 
         
-        context.coordinator.applyWritingOptions(writingOptions, in: textView)
         context.coordinator.isUpdatingFromSwiftUI = false
     }
     
@@ -721,7 +711,6 @@ struct SwashTextView: NSViewRepresentable {
         var lastIsStyled: Bool? = nil
         var lastFlavor: MarkdownFlavor? = nil
         var lastBaseURL: URL? = nil
-        var lastWritingOptions = WritingOptions()
         
         var lastKnownScrollOrigin: NSPoint? = nil
         weak var currentTextView: NSTextView? = nil
@@ -944,10 +933,6 @@ struct SwashTextView: NSViewRepresentable {
         
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            if !isHighlighting {
-                applyFocus(in: textView)
-                centerCaret(in: textView)
-            }
             logDebug("[SwashTextView] textViewDidChangeSelection - range: \(textView.selectedRange())")
             
             // Only update selection if it wasn't triggered by SwiftUI itself
@@ -968,11 +953,6 @@ struct SwashTextView: NSViewRepresentable {
         @objc func deferredUpdateSelectionRect(_ textView: NSTextView) {
             logDebug("[SwashTextView] deferredUpdateSelectionRect (mouse released/settled)")
             updateSelectionRect(for: textView)
-        }
-        
-        @objc func scrollViewFrameDidChange(_ notification: Notification) {
-            guard let textView = (notification.object as? NSScrollView)?.documentView as? NSTextView else { return }
-            updateWritingInsets(in: textView)
         }
         
         @objc func scrollViewDidScroll(_ notification: Notification) {
@@ -1994,10 +1974,7 @@ struct SwashTextView: NSViewRepresentable {
                 textView.setSelectedRange(restoredSelection)
             }
             
-            applyFocus(in: textView)
-            if parent.writingOptions.typewriter {
-                centerCaret(in: textView)
-            } else if let origin = savedScrollOrigin, let clipView = textView.enclosingScrollView?.contentView {
+            if let origin = savedScrollOrigin, let clipView = textView.enclosingScrollView?.contentView {
                 clipView.scroll(to: origin)
                 textView.enclosingScrollView?.reflectScrolledClipView(clipView)
                 
@@ -2214,7 +2191,6 @@ struct SwashTextView: NSViewRepresentable {
             cachedOffsetMap = nil
             cachedStorageCodeBlocks = MarkdownParser.codeRanges(in: textView.string).blockRanges
             
-            applyFocus(in: textView)
             lastStyledText = textView.string
             lastIsStyled = false
             lastFlavor = parent.flavor

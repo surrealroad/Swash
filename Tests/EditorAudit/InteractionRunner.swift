@@ -11,10 +11,10 @@ func findTextView(in v: NSView) -> NSTextView? {
 }
 
 var windows: [NSWindow] = []
-func makeEditor(_ box: TextBox, styled: Bool = true, writing: WritingOptions = WritingOptions()) -> NSTextView {
+func makeEditor(_ box: TextBox) -> NSTextView {
     let binding = Binding<String>(get: { box.text }, set: { box.text = $0 })
     let editor = SwashTextView(text: binding, selectedRange: .constant(nil), selectionRect: .constant(nil),
-                               isStyled: styled, flavor: .github, writingOptions: writing)
+                               isStyled: true, flavor: .github)
     let host = NSHostingView(rootView: editor.frame(width: 600, height: 600))
     host.frame = NSRect(x: 0, y: 0, width: 600, height: 600)
     let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -373,36 +373,6 @@ struct InteractionRunner {
              let wheel = [f([], [], v, overNested), f([], [], h, overNested), f([], [], v, overText)].joined()
              log("preview-nested-scroll-routing", "\(nested.count) nested scroll views", "gesture=\(gesture) horizontal=\(horizontal) wheel=\(wheel)",
                  expect: "gesture=YYYYn horizontal=nn wheel=Ynn") }
-
-        // Focus mode and typewriter scrolling
-        do { let text = "One sentence. Two three here. Four." as NSString
-             let caret = NSRange(location: text.range(of: "three").location, length: 0)
-             let sentence = text.substring(with: FocusUnit.range(.sentence, around: caret, in: text))
-             let paragraph = text.substring(with: FocusUnit.range(.paragraph, around: caret, in: text))
-             log("focus-range", text as String, "sentence=\(sentence) paragraph=\(paragraph)",
-                 expect: "sentence=Two three here.  paragraph=One sentence. Two three here. Four.") }
-        do { let b = TextBox("First **paragraph**.\n\nSecond paragraph.\n\nThird paragraph.")
-             let tv = makeEditor(b, writing: WritingOptions(focus: .paragraph)); pump(0.3)
-             caretAfter("Second", in: tv); pump()
-             let storage = tv.string as NSString
-             func dimmed(_ needle: String) -> String {
-                 let at = storage.range(of: needle).location
-                 return tv.layoutManager?.temporaryAttribute(.foregroundColor, atCharacterIndex: at, effectiveRange: nil) == nil ? "clear" : "dim"
-             }
-             let hiddenMarker = storage.range(of: "**").location
-             let marker = hiddenMarker == NSNotFound ? "collapsed" :
-                 (tv.layoutManager?.temporaryAttribute(.foregroundColor, atCharacterIndex: hiddenMarker, effectiveRange: nil) == nil ? "hidden" : "revealed")
-             log("focus-dims-other-paragraphs", b.text, "first=\(dimmed("First")) second=\(dimmed("Second")) third=\(dimmed("Third")) marker=\(marker)",
-                 expect: "first=dim second=clear third=dim marker=hidden") }
-        do { let b = TextBox((1...120).map { "Line \($0)" }.joined(separator: "\n"))
-             let tv = makeEditor(b, styled: false, writing: WritingOptions(typewriter: true)); pump(0.3)
-             caretAfter("Line 70", in: tv); pump()
-             let clip = tv.enclosingScrollView!.contentView
-             let glyph = tv.layoutManager!.glyphIndexForCharacter(at: tv.selectedRange().location - 1)
-             let line = tv.layoutManager!.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-             let offset = line.midY + tv.textContainerOrigin.y - clip.bounds.origin.y
-             log("typewriter-centres-caret", "caret on line 70 of 120", abs(offset - clip.bounds.height / 2) < 2 ? "centred" : "offset \(offset) of \(clip.bounds.height)",
-                 expect: "centred") }
 
         try? out.write(toFile: CommandLine.arguments[1], atomically: true, encoding: .utf8)
         print(out)

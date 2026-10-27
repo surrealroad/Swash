@@ -78,17 +78,6 @@ struct ContentView: View {
     @State private var editor = SwashEditorController()
     @State private var dismissedFolderBanner: URL? = nil
 
-    @AppStorage(WritingDefaults.focusMode) private var focusMode = false
-    @AppStorage(WritingDefaults.focusUnit) private var focusUnit: FocusUnit = .paragraph
-    @AppStorage(WritingDefaults.typewriterScrolling) private var typewriterScrolling = false
-    /// Full screen without the toolbar or status bar, with the text in a readable column.
-    @State private var distractionFree = false
-    @State private var enteredFullScreenForWriting = false
-
-    private var writingOptions: WritingOptions {
-        WritingOptions(focus: focusMode ? focusUnit : nil, typewriter: typewriterScrolling, readableColumn: distractionFree)
-    }
-
     private var effectiveBaseURL: URL? {
         fileURL ?? window?.representedURL ?? (window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
     }
@@ -105,7 +94,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let folderURL = unreadableFolderURL, !distractionFree {
+            if let folderURL = unreadableFolderURL {
                 folderAccessBanner(for: folderURL)
             }
             
@@ -120,8 +109,7 @@ struct ContentView: View {
                         flavor: document.flavor,
                         baseURL: effectiveBaseURL,
                         controller: editor,
-                        onFormatCommand: { handleFormatCommand($0) },
-                        writingOptions: writingOptions
+                        onFormatCommand: { handleFormatCommand($0) }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -135,8 +123,7 @@ struct ContentView: View {
                         flavor: document.flavor,
                         baseURL: effectiveBaseURL,
                         controller: editor,
-                        onFormatCommand: { handleFormatCommand($0) },
-                        writingOptions: writingOptions
+                        onFormatCommand: { handleFormatCommand($0) }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -151,8 +138,7 @@ struct ContentView: View {
                             flavor: document.flavor,
                             baseURL: effectiveBaseURL,
                             controller: editor,
-                            onFormatCommand: { handleFormatCommand($0) },
-                            writingOptions: writingOptions
+                            onFormatCommand: { handleFormatCommand($0) }
                         )
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)
@@ -167,9 +153,7 @@ struct ContentView: View {
             .id(documentID)
             
             // Premium Bottom Status Bar
-            if !distractionFree {
-                statusView
-            }
+            statusView
         }
         .frame(minWidth: 600, idealWidth: 800, minHeight: 600, idealHeight: 750)
         .toolbar(id: "mainToolbar") {
@@ -239,13 +223,6 @@ struct ContentView: View {
         .background(WindowAccessor(window: $window))
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
         .focusedSceneValue(\.documentExportActions, exportActions)
-        .focusedSceneValue(\.distractionFreeToggle, DistractionFreeToggle(isOn: distractionFree, toggle: toggleDistractionFree))
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
-            // Leaving full screen (Esc, the green button) ends distraction-free writing too
-            guard (notification.object as? NSWindow) === window else { return }
-            enteredFullScreenForWriting = false
-            if distractionFree { toggleDistractionFree() }
-        }
         .onChange(of: documentID) {
             selectedRange = nil
             selectionRect = nil
@@ -297,23 +274,6 @@ struct ContentView: View {
             }
         }
         return "Untitled"
-    }
-
-    // MARK: - Distraction-Free Writing
-
-    private func toggleDistractionFree() {
-        distractionFree.toggle()
-        guard let window else { return }
-        window.toolbar?.isVisible = !distractionFree
-        let isFullScreen = window.styleMask.contains(.fullScreen)
-        if distractionFree && !isFullScreen {
-            enteredFullScreenForWriting = true
-            window.toggleFullScreen(nil)
-        } else if !distractionFree && isFullScreen && enteredFullScreenForWriting {
-            enteredFullScreenForWriting = false
-            window.toggleFullScreen(nil)
-        }
-        NotificationCenter.default.post(name: .distractionFreeWritingDidChange, object: window, userInfo: ["isOn": distractionFree])
     }
 
     // MARK: - Export and Print
