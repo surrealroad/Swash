@@ -1,5 +1,11 @@
 # swash
 
+## 1.15.1
+
+### Patch Changes
+
+- d704ab3: Size table columns to fit their content and only display add row/column controls when focused while preserving layout space
+
 ## 1.15.0
 
 ### Minor Changes
