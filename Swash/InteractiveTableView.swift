@@ -47,19 +47,20 @@ struct InteractiveTableView: View {
     }
 
     var body: some View {
+        let widths = columnWidths
         VStack(alignment: .leading, spacing: 6) {
             ScrollView(.horizontal, showsIndicators: true) {
                 // Main Table Container
                 VStack(spacing: 0) {
                     // Header Row
-                    headerView
+                    headerView(widths: widths)
                     
                     Divider()
                         .background(Color.secondary.opacity(0.3))
 
                     // Data Rows
                     ForEach(0..<rows.count, id: \.self) { rowIndex in
-                        rowView(for: rowIndex)
+                        rowView(for: rowIndex, widths: widths)
                         
                         if rowIndex < rows.count - 1 {
                             Divider()
@@ -67,7 +68,6 @@ struct InteractiveTableView: View {
                         }
                     }
                 }
-                .frame(minWidth: 300, maxWidth: .infinity)
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
@@ -77,6 +77,7 @@ struct InteractiveTableView: View {
 
             // Table Controls Footer (Visible when editable)
             if isEditable {
+                let isFocused = editingCell != nil
                 HStack(spacing: 12) {
                     Button(action: { addRow() }) {
                         HStack(spacing: 4) {
@@ -111,8 +112,9 @@ struct InteractiveTableView: View {
                     Spacer()
                 }
                 .padding(.top, 2)
-                .opacity(isHovered || editingCell != nil ? 1.0 : 0.6)
-                .animation(.easeInOut(duration: 0.15), value: isHovered)
+                .opacity(isFocused ? 1.0 : 0.0)
+                .allowsHitTesting(isFocused)
+                .animation(.easeInOut(duration: 0.15), value: isFocused)
             }
         }
         .onHover { hovering in
@@ -125,11 +127,39 @@ struct InteractiveTableView: View {
         }
     }
 
+    // MARK: - Column Sizing
+    private var columnWidths: [CGFloat] {
+        let headerFont = NSFont.systemFont(ofSize: 13, weight: .bold)
+        let rowFont = NSFont.systemFont(ofSize: 13, weight: .regular)
+        let cellPadding: CGFloat = 24 // 12 pt leading + 12 pt trailing
+        let menuWidth: CGFloat = isEditable ? 18 : 0 // 14 pt menu button + 4 pt spacing
+        let minColWidth: CGFloat = 110
+
+        return (0..<headers.count).map { colIndex in
+            let headerText = headers[colIndex]
+            var maxContentWidth = ceil((headerText as NSString).size(withAttributes: [.font: headerFont]).width) + menuWidth
+
+            for row in rows {
+                if colIndex < row.count {
+                    let cellText = row[colIndex]
+                    if !cellText.isEmpty {
+                        let textWidth = ceil((cellText as NSString).size(withAttributes: [.font: rowFont]).width)
+                        if textWidth > maxContentWidth {
+                            maxContentWidth = textWidth
+                        }
+                    }
+                }
+            }
+            return max(minColWidth, maxContentWidth + cellPadding)
+        }
+    }
+
     // MARK: - Header View
-    private var headerView: some View {
+    private func headerView(widths: [CGFloat]) -> some View {
         HStack(spacing: 0) {
             ForEach(0..<headers.count, id: \.self) { colIndex in
                 let alignment = colIndex < alignments.count ? alignments[colIndex] : .defaultAlignment
+                let colWidth = colIndex < widths.count ? widths[colIndex] : 110
                 
                 HStack(spacing: 4) {
                     cellContent(text: headers[colIndex], index: CellIndex(row: -1, col: colIndex), isHeader: true)
@@ -162,7 +192,7 @@ struct InteractiveTableView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .frame(minWidth: 110, maxWidth: .infinity, alignment: frameAlignment(for: alignment))
+                .frame(width: colWidth, alignment: frameAlignment(for: alignment))
                 .onHover { hovering in
                     if hovering { hoveredColumn = colIndex }
                 }
@@ -191,18 +221,19 @@ struct InteractiveTableView: View {
     }
 
     // MARK: - Row View
-    private func rowView(for rowIndex: Int) -> some View {
+    private func rowView(for rowIndex: Int, widths: [CGFloat]) -> some View {
         HStack(spacing: 0) {
             let row = rowIndex < rows.count ? rows[rowIndex] : []
             
             ForEach(0..<headers.count, id: \.self) { colIndex in
                 let cellText = colIndex < row.count ? row[colIndex] : ""
                 let alignment = colIndex < alignments.count ? alignments[colIndex] : .defaultAlignment
+                let colWidth = colIndex < widths.count ? widths[colIndex] : 110
 
                 cellContent(text: cellText, index: CellIndex(row: rowIndex, col: colIndex), isHeader: false)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .frame(minWidth: 110, maxWidth: .infinity, alignment: frameAlignment(for: alignment))
+                    .frame(width: colWidth, alignment: frameAlignment(for: alignment))
                     .contextMenu {
                         if isEditable {
                             Button("Insert Row Above") { insertRow(at: rowIndex) }
@@ -289,6 +320,7 @@ struct InteractiveTableView: View {
     private func addRow() {
         let newRow = [String](repeating: "", count: headers.count)
         rows.append(newRow)
+        editingCell = CellIndex(row: rows.count - 1, col: 0)
         notifyChange()
     }
 
@@ -311,6 +343,7 @@ struct InteractiveTableView: View {
         for i in 0..<rows.count {
             rows[i].append("")
         }
+        editingCell = CellIndex(row: -1, col: headers.count - 1)
         notifyChange()
     }
 
