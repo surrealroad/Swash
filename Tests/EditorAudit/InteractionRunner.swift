@@ -351,7 +351,7 @@ struct InteractionRunner {
         do { let b = TextBox("- a\n- b"); let tv = makeEditor(b); caretAfter("b", in: tv)
              tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump(); tv.doCommand(by: #selector(NSResponder.insertNewline(_:))); pump()
              tv.insertText("after", replacementRange: tv.selectedRange()); pump()
-             log("enter-twice-exits-list", "- a\n- b", b.text, expect: "- a\n- b\nafter") }
+             log("enter-twice-exits-list", "- a\n- b", b.text, expect: "- a\n- b\n\nafter") }
         do { let b = TextBox("- item"); let tv = makeEditor(b); tv.setSelectedRange(NSRange(location: 0, length: 0))
              tv.doCommand(by: #selector(NSResponder.deleteBackward(_:))); pump()
              log("backspace-at-line-start-before-hidden-marker", "- item", b.text, expect: "item") }

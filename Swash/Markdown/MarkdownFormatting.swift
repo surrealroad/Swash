@@ -308,29 +308,41 @@ struct MarkdownFormatting {
 
     // MARK: - Links
 
+    /// Links the selection to `url`, or changes the URL of the link at the selection. The
+    /// selection stays on the same text, inside the link text.
     func setLink(_ url: String, selection: NSRange) -> MarkdownEdit? {
         guard isValid(selection) else { return nil }
         if let link = link(at: selection) {
-            let content = ns.substring(with: linkTextRange(link))
+            let textRange = linkTextRange(link)
+            let content = ns.substring(with: textRange)
             let replacement = "[\(content)](\(url))"
             let edited = ns.replacingCharacters(in: link.range, with: replacement)
-            return MarkdownEdit(text: edited, selection: NSRange(location: link.range.location, length: (replacement as NSString).length))
+            return MarkdownEdit(text: edited, selection: Self.map(selection, from: textRange, toTextAt: link.range.location + 1))
         }
         guard let seg = segments(in: selection).first else {
             let replacement = "[\(url)](\(url))"
             let edited = ns.replacingCharacters(in: selection, with: replacement)
-            return MarkdownEdit(text: edited, selection: NSRange(location: selection.location, length: (replacement as NSString).length))
+            return MarkdownEdit(text: edited, selection: NSRange(location: selection.location + 1, length: (url as NSString).length))
         }
         let replacement = "[\(ns.substring(with: seg))](\(url))"
         let edited = ns.replacingCharacters(in: seg, with: replacement)
-        return MarkdownEdit(text: edited, selection: NSRange(location: seg.location, length: (replacement as NSString).length))
+        return MarkdownEdit(text: edited, selection: Self.map(selection, from: seg, toTextAt: seg.location + 1))
     }
 
+    /// Replaces the link at the selection with its text, keeping the selection on the same text.
     func removeLink(selection: NSRange) -> MarkdownEdit? {
         guard isValid(selection), let link = link(at: selection) else { return nil }
-        let content = ns.substring(with: linkTextRange(link))
+        let textRange = linkTextRange(link)
+        let content = ns.substring(with: textRange)
         let edited = ns.replacingCharacters(in: link.range, with: content)
-        return MarkdownEdit(text: edited, selection: NSRange(location: link.range.location, length: (content as NSString).length))
+        return MarkdownEdit(text: edited, selection: Self.map(selection, from: textRange, toTextAt: link.range.location))
+    }
+
+    /// `selection`, clamped to `text`, moved to where that text starts after an edit.
+    private static func map(_ selection: NSRange, from text: NSRange, toTextAt newStart: Int) -> NSRange {
+        func position(_ p: Int) -> Int { newStart + min(max(p - text.location, 0), text.length) }
+        let start = position(selection.location)
+        return NSRange(location: start, length: position(NSMaxRange(selection)) - start)
     }
 
     // MARK: - Blocks
