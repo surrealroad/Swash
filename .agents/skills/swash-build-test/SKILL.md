@@ -62,7 +62,7 @@ node scripts/generate_format_manifest.mjs           # rewrite Swash/Markdown/For
 node scripts/generate_format_manifest.mjs --check   # exit 1 if the committed file is stale
 ```
 
-Commit the generated file. To upgrade the package, bump the exact version in `package.json`, run `npm ci`, regenerate, then fix (or locally skip, with a reason) any new conformance failures. See GOTCHAS #41 and #42.
+Commit the generated file. To upgrade the package, bump the exact version in `package.json`, run `npm ci`, regenerate, then fix (or locally skip, with a reason) any new conformance failures. See GOTCHAS #42 and #43.
 
 ## 4. Other Test Suites
 
