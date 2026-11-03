@@ -194,7 +194,7 @@ struct ConformanceRunner {
         }
 
         var passed = 0, failed = 0, skipped = 0
-        // The code-language menu maps manifest languages onto CodeHighlighter's (GOTCHAS #43).
+        // The code-language menu maps manifest languages onto CodeHighlighter's (GOTCHAS #45).
         for language in FormatManifest.codeLanguages where CodeLanguage(name: language.id) == nil {
             failed += 1
             print("❌ manifest code language \(language.id) has no CodeLanguage; add it to CodeHighlighter")

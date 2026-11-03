@@ -249,6 +249,8 @@ struct MarkdownPreviewView: View {
     let flavor: MarkdownFlavor
     let baseURL: URL?
     var scrollSync: ScrollSync? = nil
+    /// Font, text size, line width and theme (Quick Look and exports use the defaults).
+    var typography = EditorTypography()
     /// Reuses the last parse while the text is unchanged; the view is re-evaluated whenever
     /// `ContentView` updates (selection changes, banners), not only when the text changes.
     @State private var parseCache = ParseCache()
@@ -260,11 +262,12 @@ struct MarkdownPreviewView: View {
     static let updateDelay: Duration = .milliseconds(200)
     
     /// `preparsed`: the parse of `text`, made off the main thread by the caller (Quick Look).
-    init(text: String, flavor: MarkdownFlavor, baseURL: URL? = nil, scrollSync: ScrollSync? = nil, preparsed: MarkdownDocument? = nil) {
+    init(text: String, flavor: MarkdownFlavor, baseURL: URL? = nil, scrollSync: ScrollSync? = nil, typography: EditorTypography = EditorTypography(), preparsed: MarkdownDocument? = nil) {
         self.text = text
         self.flavor = flavor
         self.baseURL = baseURL
         self.scrollSync = scrollSync
+        self.typography = typography
         if let preparsed = preparsed {
             _parseCache = State(initialValue: ParseCache(text: text, flavor: flavor, document: preparsed))
         }
@@ -274,6 +277,7 @@ struct MarkdownPreviewView: View {
         let revision: Int
         let flavor: MarkdownFlavor
         let baseURL: URL?
+        let typography: EditorTypography
     }
     
     var body: some View {
@@ -284,9 +288,9 @@ struct MarkdownPreviewView: View {
             default: return true
             }
         }
-        let context = MarkdownRenderContext(document: document, baseURL: baseURL)
-        
-        PreviewScrollView(scrollSync: scrollSync, contentKey: ContentKey(revision: revision, flavor: flavor, baseURL: baseURL)) {
+        let context = MarkdownRenderContext(document: document, baseURL: baseURL, typography: typography)
+
+        PreviewScrollView(scrollSync: scrollSync, contentKey: ContentKey(revision: revision, flavor: flavor, baseURL: baseURL, typography: typography)) {
             VStack(alignment: .leading, spacing: 14) {
                 if blocks.isEmpty {
                     Text("Nothing to preview yet. Start typing on the left!")
@@ -299,14 +303,15 @@ struct MarkdownPreviewView: View {
                     MarkdownFootnotesView(context: context)
                 }
             }
-            .font(.body)
+            .font(typography.previewFont())
             .foregroundColor(.primary)
             .padding(.horizontal, 28)
             .padding(.vertical, 24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: typography.lineWidth == .readable ? typography.readableColumnWidth + 56 : .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: typography.lineWidth == .readable ? .top : .topLeading)
             .textSelection(.enabled)
         }
-        .background(Color(NSColor.windowBackgroundColor).opacity(0.8))
+        .background(typography.previewBackground)
         .task(id: text) {
             guard let shown = renderedText else {
                 renderedText = text
@@ -497,7 +502,7 @@ struct MarkdownHTMLBlockView: View {
                 }
             }
         } else if let document = document {
-            MarkdownBlockList(nodes: document.root.children, context: MarkdownRenderContext(document: document, baseURL: context.baseURL), spacing: 10)
+            MarkdownBlockList(nodes: document.root.children, context: MarkdownRenderContext(document: document, baseURL: context.baseURL, typography: context.typography), spacing: 10)
         }
     }
     
@@ -553,13 +558,16 @@ struct MarkdownFlowLayout: Layout {
 struct MarkdownRenderContext {
     let document: MarkdownDocument
     let baseURL: URL?
+    /// Font, text size and accent colour from Settings.
+    let typography: EditorTypography
     /// Changes when anything outside a block can change how it renders: link reference
     /// definitions and footnote numbering.
     let signature: Int
-    
-    init(document: MarkdownDocument, baseURL: URL?) {
+
+    init(document: MarkdownDocument, baseURL: URL?, typography: EditorTypography = EditorTypography()) {
         self.document = document
         self.baseURL = baseURL
+        self.typography = typography
         var hasher = Hasher()
         hasher.combine(document.footnoteOrder)
         for label in document.linkReferences.keys.sorted() {
@@ -582,6 +590,7 @@ struct MarkdownBlockView: View, Equatable {
     
     /// Same source, base URL and document-wide definitions render the same, even from a new parse.
     static func == (lhs: MarkdownBlockView, rhs: MarkdownBlockView) -> Bool {
+        guard lhs.context.typography == rhs.context.typography else { return false }
         if lhs.node === rhs.node { return lhs.context.signature == rhs.context.signature && lhs.context.baseURL == rhs.context.baseURL }
         guard lhs.context.signature == rhs.context.signature, lhs.context.baseURL == rhs.context.baseURL,
               lhs.node.range.length == rhs.node.range.length else { return false }
@@ -606,8 +615,8 @@ struct MarkdownBlockView: View, Equatable {
         switch node.kind {
         case .heading(let level, _):
             VStack(alignment: .leading, spacing: 6) {
-                MarkdownInlineView(nodes: node.children, context: context, mathFontSize: MarkdownBlockView.headingSize(for: level))
-                    .font(MarkdownBlockView.headingFont(for: level))
+                MarkdownInlineView(nodes: node.children, context: context, mathFontSize: context.typography.scaled(MarkdownBlockView.headingSize(for: level)))
+                    .font(MarkdownBlockView.headingFont(for: level, typography: context.typography))
                     .fontWeight(.bold)
                     .foregroundColor(.primary)
                     .lineSpacing(4)
@@ -627,7 +636,7 @@ struct MarkdownBlockView: View, Equatable {
             
         case .blockQuote:
             children()
-                .font(.system(.body, design: .serif))
+                .font(context.typography.previewFont(design: .serif))
                 .italic()
                 .foregroundColor(.secondary)
                 .lineSpacing(6)
@@ -635,7 +644,7 @@ struct MarkdownBlockView: View, Equatable {
                 .padding(.leading, 20)
                 .padding(.trailing, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .modifier(QuoteBox(color: .accentColor, fillOpacity: 0.04, cornerRadius: 4))
+                .modifier(QuoteBox(color: context.typography.previewAccent, fillOpacity: 0.04, cornerRadius: 4))
                 .padding(.vertical, 6)
             
         case .alert(let type):
@@ -644,14 +653,14 @@ struct MarkdownBlockView: View, Equatable {
                 HStack(spacing: 6) {
                     Image(systemName: MarkdownBlockView.alertIcon(type))
                         .foregroundColor(color)
-                        .font(.system(size: 13, weight: .bold))
+                        .font(context.typography.previewFont(size: 13, weight: .bold))
                     Text(type.title)
-                        .font(.system(size: 13, weight: .bold))
+                        .font(context.typography.previewFont(size: 13, weight: .bold))
                         .foregroundColor(color)
                 }
                 if node.firstChild != nil {
                     children(spacing: 8)
-                        .font(.body)
+                        .font(context.typography.previewFont())
                         .lineSpacing(5)
                         .foregroundColor(.primary)
                 }
@@ -679,7 +688,7 @@ struct MarkdownBlockView: View, Equatable {
             
         case .codeBlock(_, let info):
             let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init)
-            CodeBlockView(code: node.literal.hasSuffix("\n") ? String(node.literal.dropLast()) : node.literal, language: language)
+            CodeBlockView(code: node.literal.hasSuffix("\n") ? String(node.literal.dropLast()) : node.literal, language: language, fontSize: context.typography.scaled(13))
             
         case .htmlBlock:
             MarkdownHTMLBlockView(html: node.literal, context: context)
@@ -699,7 +708,7 @@ struct MarkdownBlockView: View, Equatable {
             
         case .frontMatter:
             Text(node.literal.trimmingCharacters(in: .newlines))
-                .font(.system(size: 11, design: .monospaced))
+                .font(context.typography.previewFont(size: 11, design: .monospaced))
                 .foregroundColor(.secondary)
                 .padding(.vertical, 8)
                 .padding(.horizontal, 12)
@@ -734,8 +743,8 @@ struct MarkdownBlockView: View, Equatable {
         }
     }
     
-    static func headingFont(for level: Int) -> Font {
-        .system(size: headingSize(for: level), design: .default)
+    static func headingFont(for level: Int, typography: EditorTypography = EditorTypography()) -> Font {
+        .system(size: typography.scaled(headingSize(for: level)), design: typography.fontDesign)
     }
     
     static func alertColor(_ type: AlertType) -> Color {
@@ -928,17 +937,17 @@ struct MarkdownListItemView: View {
     private var marker: some View {
         if case .listItem(let task) = item.kind, let task = task {
             Image(systemName: task == .checked ? "checkmark.square.fill" : "square")
-                .foregroundColor(task == .checked ? .accentColor : .secondary)
-                .font(.system(size: 14))
+                .foregroundColor(task == .checked ? context.typography.previewAccent : .secondary)
+                .font(context.typography.previewFont(size: 14))
                 .frame(width: 16, alignment: .center)
         } else if let list = item.parent, case .list(let ordered, let start, let delimiter, _, _) = list.kind, ordered {
             Text("\(start + index)\(String(delimiter))")
-                .font(.body)
+                .font(context.typography.previewFont())
                 .foregroundColor(.secondary)
                 .monospacedDigit()
         } else {
             Text(["•", "◦", "▪"][depth % 3])
-                .font(.body)
+                .font(context.typography.previewFont())
                 .foregroundColor(.secondary)
                 .frame(width: 10, alignment: .center)
         }
@@ -959,14 +968,14 @@ struct MarkdownFootnotesView: View {
                 ForEach(Array(definitions.enumerated()), id: \.offset) { _, entry in
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("\(entry.number).")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(context.typography.previewFont(size: 11, weight: .bold, design: context.typography.fontDesign))
                             .foregroundColor(.secondary)
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(Array(entry.node.children.enumerated()), id: \.offset) { _, child in
                                 MarkdownBlockView(node: child, context: context).equatable()
                             }
                         }
-                        .font(.system(size: 12))
+                        .font(context.typography.previewFont(size: 12, design: context.typography.fontDesign))
                         .foregroundColor(.secondary)
                     }
                     .padding(.vertical, 2)
@@ -1102,7 +1111,9 @@ struct MarkdownInlineView: View {
     
     var body: some View {
         var pendingMath = false
-        let segments = MarkdownInlineAttributes.segments(nodes, context: context, dark: colorScheme == .dark, mathFontSize: mathFontSize, pendingMath: &pendingMath)
+        let segments = MarkdownInlineAttributes.segments(nodes, context: context, dark: colorScheme == .dark,
+                                                         mathFontSize: mathFontSize == MarkdownInlineAttributes.bodyMathFontSize ? context.typography.scaled(mathFontSize) : mathFontSize,
+                                                         pendingMath: &pendingMath)
         let _ = renderGeneration
         content(segments)
             .onReceive(NotificationCenter.default.publisher(for: RichContentRenderer.didRender)) { _ in
@@ -1216,6 +1227,8 @@ enum MarkdownInlineAttributes {
         var segments: [MarkdownInlineSegment] = []
         var pending = false
         var current: Text? = nil
+        let typography = context.typography
+        let accent = typography.previewAccent
         func flush() {
             if let text = current {
                 segments.append(.text(text))
@@ -1228,7 +1241,7 @@ enum MarkdownInlineAttributes {
             if let url = style.link {
                 attributed.link = url
                 attributed.underlineStyle = .single
-                attributed.foregroundColor = .accentColor
+                attributed.foregroundColor = accent
             }
             if style.highlight { attributed.backgroundColor = Color.yellow.opacity(0.4) }
             if style.keyboard { attributed.backgroundColor = Color.secondary.opacity(0.15) }
@@ -1240,14 +1253,14 @@ enum MarkdownInlineAttributes {
             if style.math { run = run.fontDesign(.serif).italic() }
             if style.mono {
                 run = run.monospaced()
-                if style.link == nil && !style.keyboard { run = run.foregroundColor(.accentColor) }
+                if style.link == nil && !style.keyboard { run = run.foregroundColor(accent) }
             }
             if style.small { run = run.font(.callout) }
-            if style.lowered { run = run.font(.system(size: 10)).baselineOffset(-3) }
+            if style.lowered { run = run.font(typography.previewFont(size: 10, design: typography.fontDesign)).baselineOffset(-3) }
             if style.superscript {
                 // Footnote references (links) are accent-coloured; <sup> text keeps its colour
-                run = run.font(.system(size: 10, weight: .semibold)).baselineOffset(4)
-                if style.link != nil { run = run.foregroundColor(.accentColor) }
+                run = run.font(typography.previewFont(size: 10, weight: .semibold, design: typography.fontDesign)).baselineOffset(4)
+                if style.link != nil { run = run.foregroundColor(accent) }
             }
             current = current.map { $0 + run } ?? run
         }
@@ -1389,7 +1402,8 @@ struct TableView: View {
 struct CodeBlockView: View {
     let code: String
     let language: String?
-    
+    var fontSize: CGFloat = 13
+
     @Environment(\.colorScheme) var colorScheme
     @State private var isHovering = false
     @State private var isCopied = false
@@ -1401,7 +1415,7 @@ struct CodeBlockView: View {
         let defaultColor = colorScheme == .dark ? NSColor(white: 0.9, alpha: 1.0) : NSColor.textColor.withAlphaComponent(0.9)
         
         // Use monospaced font by default for syntax highlighting
-        mutableAttrString.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: fullRange)
+        mutableAttrString.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular), range: fullRange)
         mutableAttrString.addAttribute(.foregroundColor, value: defaultColor, range: fullRange)
         MarkdownCodeHighlighter.highlight(mutableAttrString, language: language, dark: colorScheme == .dark)
         
