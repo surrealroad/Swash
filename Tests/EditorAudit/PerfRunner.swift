@@ -78,6 +78,38 @@ func findTextView(in v: NSView) -> NSTextView? { if let tv = v as? NSTextView { 
         print("keystroke-next-to-image lines=162 avg=\(Int(total / 5 * 1000))ms (2400×1600 PNG in the restyled block)")
         try? FileManager.default.removeItem(at: folder)
     }
+    // Typing inside a code block re-tokenizes and recolours the whole block. Every colour run makes
+    // AppKit's NSTextBlock lookups slower, so blocks over the editor's token limit stay plain.
+    for (lines, budget) in [(300, 100.0), (2000, 1500.0)] {
+        let line = "export async function load(id) { const r = await fetch(`/api/${id}`); /* note */ return r.ok ? \"yes\" : 42 } // end\n"
+        var t = "Intro\n\n```js\n" + String(repeating: line, count: lines) + "```\n\nAfter."
+        let b = Binding<String>(get: { t }, set: { t = $0 })
+        let host = NSHostingView(rootView: SwashTextView(text: b, selectedRange: .constant(nil), selectionRect: .constant(nil), isStyled: true, flavor: .github).frame(width: 600, height: 600))
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 600)
+        let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false); win.contentView = host
+        pump(0.8)
+        let tv = findTextView(in: host)!; let c = tv.delegate as! SwashTextView.Coordinator
+        tv.layoutManager!.ensureLayout(for: tv.textContainer!)
+        let ns = tv.string as NSString
+        let middle = ns.range(of: "const r", options: [], range: NSRange(location: ns.length / 2, length: ns.length / 2))
+        tv.setSelectedRange(NSRange(location: middle.location, length: 0))
+        var total = 0.0
+        for ch in ["a", "b", "c", "d", "e"] {
+            let start = Date()
+            tv.insertText(ch, replacementRange: tv.selectedRange())
+            c.highlightMarkdown(in: tv)
+            tv.layoutManager!.ensureLayout(for: tv.textContainer!)
+            total += Date().timeIntervalSince(start)
+            pump(0.05)
+        }
+        let average = total / 5 * 1000
+        let after = (tv.string as NSString).range(of: "await", options: [], range: NSRange(location: middle.location, length: 200))
+        let keyword = tv.textStorage!.attribute(.foregroundColor, at: after.location, effectiveRange: nil) as? NSColor
+        let coloured = keyword == CodeHighlightTheme.color(for: .keyword)
+        print("keystroke-in-code-block lines=\(lines) avg=\(Int(average))ms coloured=\(coloured) (whole block re-tokenized)")
+        if average > budget { print("PERF FAILURE: keystroke in a \(lines)-line code block took \(Int(average))ms, over the \(Int(budget))ms budget"); exit(1) }
+        if coloured != (lines == 300) { print("PERF FAILURE: \(lines)-line block coloured=\(coloured)"); exit(1) }
+    }
     // Slack mrkdwn restyles the whole document per pass
     do {
         let section = "*Bold* and _italic_ with ~strike~ and `code` <https://s.com|a link>\n> quoted [!NOTE] text\n- [ ] task item\n1. numbered\n[^1]: footnote\n\n"

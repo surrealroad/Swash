@@ -1752,7 +1752,7 @@ struct SwashTextView: NSViewRepresentable {
             }
             add("Plain Text", nil)
             menu.addItem(.separator())
-            for language in MarkdownEditingCommands.commonLanguages { add(language.capitalized, language) }
+            for language in MarkdownEditingCommands.commonLanguages { add(CodeLanguage(name: language)?.displayName ?? language.capitalized, language) }
             if let current = current, !current.isEmpty, !MarkdownEditingCommands.commonLanguages.contains(current.lowercased()) {
                 menu.addItem(.separator())
                 add(current, current)
