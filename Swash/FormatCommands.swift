@@ -9,42 +9,30 @@
 import SwiftUI
 import AppKit
 
-enum FormatCommand: Equatable {
-    case bold, italic, strikethrough, code, link
-    case heading(Int), paragraph
-    case bulletList, numberedList, taskList, quote, codeBlock
-    /// Make the selection a callout of the given type; nil turns a callout back into a plain quote.
-    case callout(AlertType?)
-    case footnote
-    case tableOfContents
-    
-    /// Maps a key-down event to a command (key codes for digits/punctuation, so shifted keys work on any layout).
+extension FormatCommand {
+    /// Maps a key-down event to a command, using the manifest's shortcuts (letters by character,
+    /// digits and punctuation by key code, so shifted keys work on any layout).
     static func command(for event: NSEvent) -> FormatCommand? {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.contains(.command), !flags.contains(.control) else { return nil }
-        let shift = flags.contains(.shift)
-        let option = flags.contains(.option)
-        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        switch (key, shift, option) {
-        case ("b", false, false): return .bold
-        case ("i", false, false): return .italic
-        case ("e", false, false): return .code
-        case ("k", false, false): return .link
-        case ("x", true, false): return .strikethrough
-        default: break
-        }
-        switch (event.keyCode, shift, option) {
-        case (18, false, true): return .heading(1)   // ⌥⌘1
-        case (19, false, true): return .heading(2)   // ⌥⌘2
-        case (20, false, true): return .heading(3)   // ⌥⌘3
-        case (29, false, true): return .paragraph    // ⌥⌘0
-        case (8, false, true): return .codeBlock     // ⌥⌘C
-        case (28, true, false): return .bulletList   // ⇧⌘8
-        case (26, true, false): return .numberedList // ⇧⌘7
-        case (25, true, false): return .taskList     // ⇧⌘9
-        case (47, true, false): return .quote        // ⇧⌘.
-        default: return nil
-        }
+        var modifiers: FormatShortcut.Modifiers = []
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        return FormatManifest.command(charactersIgnoringModifiers: event.charactersIgnoringModifiers, keyCode: event.keyCode, modifiers: modifiers)
+    }
+}
+
+extension FormatShortcut {
+    var keyEquivalent: KeyEquivalent { KeyEquivalent(key) }
+
+    var eventModifiers: EventModifiers {
+        var result: EventModifiers = []
+        if modifiers.contains(.command) { result.insert(.command) }
+        if modifiers.contains(.shift) { result.insert(.shift) }
+        if modifiers.contains(.option) { result.insert(.option) }
+        if modifiers.contains(.control) { result.insert(.control) }
+        return result
     }
 }
 
@@ -76,29 +64,20 @@ extension FocusedValues {
     }
 }
 
-/// The Format menu; shortcuts mirror the editor's key handling.
+/// The Format menu; shortcuts mirror the editor's key handling (both come from FormatManifest).
 struct FormatMenuCommands: Commands {
     @FocusedValue(\.formatCommandHandler) private var handler
     @FocusedValue(\.markdownFlavorSelection) private var flavorSelection
     
     var body: some Commands {
         CommandMenu("Format") {
-            item("Bold", .bold, "b")
-            item("Italic", .italic, "i")
-            item("Strikethrough", .strikethrough, "x", [.command, .shift])
-            item("Inline Code", .code, "e")
-            item("Link…", .link, "k")
-            Divider()
-            item("Heading 1", .heading(1), "1", [.command, .option])
-            item("Heading 2", .heading(2), "2", [.command, .option])
-            item("Heading 3", .heading(3), "3", [.command, .option])
-            item("Paragraph", .paragraph, "0", [.command, .option])
-            Divider()
-            item("Bullet List", .bulletList, "8", [.command, .shift])
-            item("Numbered List", .numberedList, "7", [.command, .shift])
-            item("To-do List", .taskList, "9", [.command, .shift])
-            item("Quote", .quote, ".", [.command, .shift])
-            item("Code Block", .codeBlock, "c", [.command, .option])
+            // Commands, labels, order and shortcuts come from the shared manifest (FormatManifest.generated.swift)
+            ForEach(Array(Self.menuGroups.enumerated()), id: \.offset) { index, group in
+                if index > 0 { Divider() }
+                ForEach(Array(group.enumerated()), id: \.offset) { _, entry in
+                    item(entry)
+                }
+            }
             Menu("Callout") {
                 ForEach(AlertType.allCases, id: \.self) { type in
                     Button(type.title) { handler?(.callout(type)) }
@@ -125,9 +104,28 @@ struct FormatMenuCommands: Commands {
         }
     }
     
-    private func item(_ title: String, _ command: FormatCommand, _ key: Character, _ modifiers: EventModifiers = .command) -> some View {
-        Button(title) { handler?(command) }
-            .keyboardShortcut(KeyEquivalent(key), modifiers: modifiers)
-            .disabled(handler == nil)
+    /// The manifest's menu commands, split into its groups (in order of first appearance).
+    private static let menuGroups: [[FormatMenuEntry]] = {
+        var groups: [[FormatMenuEntry]] = []
+        for entry in FormatManifest.entries(for: .menu) {
+            if let last = groups.last?.last, last.group == entry.group {
+                groups[groups.count - 1].append(entry)
+            } else {
+                groups.append([entry])
+            }
+        }
+        return groups
+    }()
+
+    @ViewBuilder
+    private func item(_ entry: FormatMenuEntry) -> some View {
+        if let shortcut = entry.shortcut {
+            Button(entry.label) { handler?(entry.command) }
+                .keyboardShortcut(shortcut.keyEquivalent, modifiers: shortcut.eventModifiers)
+                .disabled(handler == nil)
+        } else {
+            Button(entry.label) { handler?(entry.command) }
+                .disabled(handler == nil)
+        }
     }
 }

@@ -1161,8 +1161,17 @@ struct ContentView: View {
             selectedRange = live
         }
         guard let range = selectedRange else { return }
+        // Commands from the shared manifest use the same engine as the conformance corpus
+        // (scripts/run_conformance_tests.sh), including its enabledWhen conditions.
+        if let formatting = astFormatting, command.manifestInvocation != nil, command != .link, command != .table {
+            if let edit = FormatCommandEdits.edit(for: command, formatting: formatting, selection: range) {
+                commitEdit(edit.text, selection: edit.selection, actionName: command.label ?? "Format")
+            }
+            return
+        }
         switch command {
         case .tableOfContents: break
+        case .table: applyFormatting(.table)
         case .bold: applyFormatting(.bold)
         case .italic: applyFormatting(.italic)
         case .strikethrough: applyFormatting(.strikethrough)
