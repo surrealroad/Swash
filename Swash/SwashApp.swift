@@ -91,6 +91,7 @@ struct SwashApp: App {
             FileMenuCommands()
             ExportCommands()
             WritingModeCommands()
+            TypographyCommands()
             CommandGroup(after: .saveItem) {
                 Button("Grant Folder Access…") {
                     if let keyWindow = NSApp.keyWindow {

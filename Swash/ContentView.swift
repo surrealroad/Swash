@@ -105,8 +105,21 @@ struct ContentView: View {
     @State private var distractionFree = false
     @State private var enteredFullScreenForWriting = false
 
+    @AppStorage(EditorTypography.Keys.font) private var typographyFont: TypographyFont = .system
+    @AppStorage(EditorTypography.Keys.textSize) private var typographyTextSize: Double = Double(EditorTypography.defaultTextSize)
+    @AppStorage(EditorTypography.Keys.lineWidth) private var typographyLineWidth: TypographyLineWidth = .full
+    @AppStorage(EditorTypography.Keys.theme) private var typographyTheme: EditorTheme = .system
+
+    /// Settings › Appearance; changes restyle open documents live.
+    private var typography: EditorTypography {
+        EditorTypography(font: typographyFont, textSize: EditorTypography.clampedSize(typographyTextSize),
+                         lineWidth: typographyLineWidth, theme: typographyTheme)
+    }
+
     private var writingOptions: WritingOptions {
-        WritingOptions(focus: focusMode ? focusUnit : nil, typewriter: typewriterScrolling, readableColumn: distractionFree)
+        WritingOptions(focus: focusMode ? focusUnit : nil, typewriter: typewriterScrolling,
+                       readableColumn: distractionFree || typographyLineWidth == .readable,
+                       columnWidth: typography.readableColumnWidth)
     }
 
     /// The window's document file when SwiftUI hasn't passed `fileURL`, looked up when the window
@@ -172,7 +185,8 @@ struct ContentView: View {
                         controller: editor,
                         onFormatCommand: { handleFormatCommand($0) },
                         onCaretMove: { updateCurrentHeading(caret: $0) },
-                        writingOptions: writingOptions
+                        writingOptions: writingOptions,
+                        typography: typography
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -188,7 +202,8 @@ struct ContentView: View {
                         controller: editor,
                         onFormatCommand: { handleFormatCommand($0) },
                         onCaretMove: { updateCurrentHeading(caret: $0) },
-                        writingOptions: writingOptions
+                        writingOptions: writingOptions,
+                        typography: typography
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -205,12 +220,13 @@ struct ContentView: View {
                             controller: editor,
                             onFormatCommand: { handleFormatCommand($0) },
                             onCaretMove: { updateCurrentHeading(caret: $0) },
-                            writingOptions: writingOptions
+                            writingOptions: writingOptions,
+                        typography: typography
                         )
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)
                         
-                        MarkdownPreviewView(text: document.text, flavor: document.flavor, baseURL: effectiveBaseURL, scrollSync: scrollSync)
+                        MarkdownPreviewView(text: document.text, flavor: document.flavor, baseURL: effectiveBaseURL, scrollSync: scrollSync, typography: typography)
                             .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

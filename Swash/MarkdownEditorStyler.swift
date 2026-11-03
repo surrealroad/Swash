@@ -120,7 +120,8 @@ struct EditorAttachmentRequest {
 }
 
 final class MarkdownEditorStyler {
-    static let baseFontSize: CGFloat = 14
+    /// Body text size at the default typography (see `EditorTypography`).
+    static let baseFontSize: CGFloat = EditorTypography.defaultTextSize
 
     private struct InlineStyle {
         var size: CGFloat = MarkdownEditorStyler.baseFontSize
@@ -138,7 +139,7 @@ final class MarkdownEditorStyler {
         var smallText = false
         
         /// Applies an enclosing inline HTML tag (<kbd>, <sub>, <mark>…).
-        mutating func apply(_ html: InlineHTMLStyle) {
+        mutating func apply(_ html: InlineHTMLStyle, accent: NSColor) {
             switch html {
             case .keyboard: keyboard = true; mono = true
             case .lowered: subscriptText = true
@@ -149,7 +150,7 @@ final class MarkdownEditorStyler {
             case .bold: bold = true
             case .italic: italic = true
             case .small: smallText = true
-            case .code: mono = true; if link == nil { color = .controlAccentColor }
+            case .code: mono = true; if link == nil { color = accent }
             }
         }
     }
@@ -170,6 +171,8 @@ final class MarkdownEditorStyler {
     private let text: NSString
     private let storageShift: Int
     private let document: MarkdownDocument
+    /// Font family, text size and accent colours (the defaults give the original styling).
+    var typography = EditorTypography()
     private var hidden: [NSRange] = []
     private(set) var attachments: [EditorAttachmentRequest] = []
     /// Code blocks, code spans, HTML and front matter (raw offsets), excluded from spellchecking.
@@ -206,7 +209,8 @@ final class MarkdownEditorStyler {
     
     /// Styles only the given top-level blocks (incremental restyling).
     func style(blocks: [MarkdownNode]) {
-        let context = BlockContext()
+        var context = BlockContext()
+        context.inline.size = typography.textSize
         for block in blocks {
             styleBlock(block, context)
         }
@@ -244,7 +248,7 @@ final class MarkdownEditorStyler {
         while last >= contentStart, last < text.length, text.character(at: last) == 0x0A || text.character(at: last) == 0x0D { last -= 1 }
         guard last >= contentStart, last < text.length else { return }
         
-        let fontSize: CGFloat = kind == .mermaid ? 13 : 16
+        let fontSize: CGFloat = typography.scaled(kind == .mermaid ? 13 : 16)
         let request = RichContentRenderer.Request(kind: kind, source: node.literal, dark: richPreviewDark, fontSize: fontSize)
         let location = node.range.location
         var image: RichContentRenderer.Rendered? = nil
@@ -319,13 +323,13 @@ final class MarkdownEditorStyler {
         if style.mono {
             font = NSFont.monospacedSystemFont(ofSize: max(1, size - 1), weight: style.bold ? .bold : .regular)
         } else {
-            font = NSFont.systemFont(ofSize: size, weight: style.bold ? .bold : .regular)
+            font = typography.font(ofSize: size, weight: style.bold ? .bold : .regular)
         }
         if style.italic {
             font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
         }
         if style.superscript {
-            font = NSFont.systemFont(ofSize: max(9, style.size - 4), weight: .semibold)
+            font = typography.font(ofSize: max(9, style.size - 4), weight: .semibold)
         }
         return font
     }
@@ -428,9 +432,9 @@ final class MarkdownEditorStyler {
 
         case .frontMatter:
             setParagraphStyle(paragraphStyle(context, lineSpacing: 3, paragraphSpacing: 6), over: node.range)
-            apply(InlineStyle(size: 12, mono: true, color: .secondaryLabelColor), to: node.range)
+            apply(InlineStyle(size: typography.scaled(12), mono: true, color: .secondaryLabelColor), to: node.range)
             for marker in node.markers {
-                apply(InlineStyle(size: 12, mono: true, color: .tertiaryLabelColor), to: marker)
+                apply(InlineStyle(size: typography.scaled(12), mono: true, color: .tertiaryLabelColor), to: marker)
             }
             codeRanges.append(node.range)
 
@@ -445,7 +449,7 @@ final class MarkdownEditorStyler {
 
         case .heading(let level, let setext):
             var inline = context.inline
-            inline.size = Self.headingSize(level)
+            inline.size = typography.scaled(Self.headingSize(level))
             inline.bold = true
             let spacingBefore: CGFloat
             let spacingAfter: CGFloat
@@ -485,7 +489,7 @@ final class MarkdownEditorStyler {
             if case .alert(let type) = node.kind {
                 color = Self.alertColor(type)
             } else {
-                color = NSColor.controlAccentColor
+                color = typography.accentColor
                 inner.inline.color = .secondaryLabelColor
                 inner.inline.italic = true
             }
@@ -503,7 +507,7 @@ final class MarkdownEditorStyler {
             // Quote markers, and the alert's [!TYPE] marker shown as a coloured title
             for marker in node.markers {
                 if case .alert(let type) = node.kind, source(marker).hasPrefix("[!") {
-                    apply(InlineStyle(size: 13, bold: true, color: color), to: marker)
+                    apply(InlineStyle(size: typography.scaled(13), bold: true, color: color), to: marker)
                     hideMarker(NSRange(location: marker.location, length: 2))
                     hideMarker(NSRange(location: marker.location + marker.length - 1, length: 1))
                     // Icon before the title, as in the Preview: indent the title line to make room
@@ -535,7 +539,7 @@ final class MarkdownEditorStyler {
                 var color: NSColor? = nil
                 if let task = task {
                     glyph = task == .checked ? "☑" : "☐"
-                    color = task == .checked ? .controlAccentColor : .secondaryLabelColor
+                    color = task == .checked ? typography.accentColor : .secondaryLabelColor
                 } else if let parent = node.parent, case .list(let ordered, _, _, _, _) = parent.kind, ordered {
                     glyph = source(bullet).trimmingCharacters(in: .whitespaces)
                 } else {
@@ -590,7 +594,7 @@ final class MarkdownEditorStyler {
             inner.textBlocks.append(block)
             inner.indent = 0
             setParagraphStyle(paragraphStyle(inner, lineSpacing: 4, paragraphSpacing: 6, paragraphSpacingBefore: 4), over: node.range)
-            apply(InlineStyle(size: 14, mono: true, color: NSColor.labelColor.withAlphaComponent(0.85)), to: node.range)
+            apply(InlineStyle(size: typography.scaled(14), mono: true, color: NSColor.labelColor.withAlphaComponent(0.85)), to: node.range)
             if fenced {
                 for marker in node.markers { hideMarker(marker, collapseLine: true) }
                 // Language badge, drawn at the top-right of the first visible line of the block
@@ -625,7 +629,7 @@ final class MarkdownEditorStyler {
                 attachments.append(EditorAttachmentRequest(range: node.range, kind: .image(alt: alt, urlString: src, rawMarkdown: source(node.range), width: width.map { CGFloat($0) })))
                 break
             }
-            apply(InlineStyle(size: 14, mono: true, color: .secondaryLabelColor), to: node.range)
+            apply(InlineStyle(size: typography.scaled(14), mono: true, color: .secondaryLabelColor), to: node.range)
             codeRanges.append(node.range)
 
         case .thematicBreak:
@@ -660,10 +664,10 @@ final class MarkdownEditorStyler {
 
         case .footnoteDefinition:
             var inner = context
-            inner.inline.size = 12
+            inner.inline.size = typography.scaled(12)
             inner.inline.color = .secondaryLabelColor
             if let marker = node.markers.first {
-                apply(InlineStyle(size: 11, bold: true, color: .secondaryLabelColor), to: marker)
+                apply(InlineStyle(size: typography.scaled(11), bold: true, color: .secondaryLabelColor), to: marker)
                 hideMarker(NSRange(location: marker.location + 1, length: 1))   // the ^
                 if case .footnoteDefinition(let label) = node.kind {
                     let r = valid(marker)
@@ -676,7 +680,7 @@ final class MarkdownEditorStyler {
 
         case .linkReferenceDefinition:
             setParagraphStyle(paragraphStyle(context, lineSpacing: 3, paragraphSpacing: 3), over: node.range)
-            apply(InlineStyle(size: 12, color: .tertiaryLabelColor), to: node.range)
+            apply(InlineStyle(size: typography.scaled(12), color: .tertiaryLabelColor), to: node.range)
 
         default:
             for child in node.children { styleBlock(child, context) }
@@ -695,7 +699,7 @@ final class MarkdownEditorStyler {
                 continue
             }
             var childStyle = style
-            for html in pairing.styles[index] ?? [] { childStyle.apply(html) }
+            for html in pairing.styles[index] ?? [] { childStyle.apply(html, accent: typography.accentColor) }
             styleInline(child, childStyle)
         }
     }
@@ -717,7 +721,7 @@ final class MarkdownEditorStyler {
         case .code:
             var s = style
             s.mono = true
-            if s.link == nil { s.color = .controlAccentColor }
+            if s.link == nil { s.color = typography.accentColor }
             apply(s, to: node.range)
             for marker in node.markers { hideMarker(marker) }
             codeRanges.append(node.range)
@@ -739,7 +743,7 @@ final class MarkdownEditorStyler {
             styleInlines(node, s)
         case .link(let destination, _, _):
             var s = style
-            s.color = .systemBlue
+            s.color = typography.linkColor
             s.link = Self.url(destination)
             for marker in node.markers { hideMarker(marker) }
             styleInlines(node, s)
@@ -768,7 +772,7 @@ final class MarkdownEditorStyler {
         case .footnoteReference(let label):
             var s = style
             s.superscript = true
-            s.color = .controlAccentColor
+            s.color = typography.accentColor
             apply(s, to: node.range)
             let linkRange = valid(node.range)
             if linkRange.length > 0 { storage.addAttribute(.footnoteLink, value: FootnoteLink(label: label, isDefinition: false), range: linkRange) }

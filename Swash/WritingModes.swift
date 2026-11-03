@@ -24,10 +24,12 @@ enum FocusUnit: String, CaseIterable, Identifiable {
 struct WritingOptions: Equatable {
     var focus: FocusUnit? = nil
     var typewriter = false
-    /// Centres the text in a column of `readableWidth` points.
+    /// Centres the text in a column of `columnWidth` points.
     var readableColumn = false
+    /// Width of the readable column (it grows with the text size).
+    var columnWidth: CGFloat = WritingOptions.readableWidth
 
-    static let readableWidth: CGFloat = 700
+    static let readableWidth: CGFloat = EditorTypography.readableWidth
 }
 
 enum WritingDefaults {
@@ -115,7 +117,7 @@ extension SwashTextView.Coordinator {
     func updateWritingInsets(in textView: NSTextView) {
         guard let clip = textView.enclosingScrollView?.contentView else { return }
         let options = parent.writingOptions
-        let width = options.readableColumn ? max(20, ((clip.bounds.width - WritingOptions.readableWidth) / 2).rounded()) : 20
+        let width = options.readableColumn ? max(20, ((clip.bounds.width - options.columnWidth) / 2).rounded()) : 20
         let height = options.typewriter ? max(20, (clip.bounds.height / 2).rounded()) : 20
         let inset = NSSize(width: width, height: height)
         if textView.textContainerInset != inset {
