@@ -133,13 +133,13 @@ enum FormatManifest {
         ),
     ]
 
-    static let codeLanguages: [CodeLanguage] = [
-        CodeLanguage(id: "javascript", label: "JavaScript", shortLabel: "JS"),
-        CodeLanguage(id: "swift", label: "Swift", shortLabel: nil),
-        CodeLanguage(id: "python", label: "Python", shortLabel: nil),
-        CodeLanguage(id: "html", label: "HTML", shortLabel: nil),
-        CodeLanguage(id: "css", label: "CSS", shortLabel: nil),
-        CodeLanguage(id: "json", label: "JSON", shortLabel: nil),
-        CodeLanguage(id: "bash", label: "Bash", shortLabel: nil),
+    static let codeLanguages: [ManifestCodeLanguage] = [
+        ManifestCodeLanguage(id: "javascript", label: "JavaScript", shortLabel: "JS"),
+        ManifestCodeLanguage(id: "swift", label: "Swift", shortLabel: nil),
+        ManifestCodeLanguage(id: "python", label: "Python", shortLabel: nil),
+        ManifestCodeLanguage(id: "html", label: "HTML", shortLabel: nil),
+        ManifestCodeLanguage(id: "css", label: "CSS", shortLabel: nil),
+        ManifestCodeLanguage(id: "json", label: "JSON", shortLabel: nil),
+        ManifestCodeLanguage(id: "bash", label: "Bash", shortLabel: nil),
     ]
 }

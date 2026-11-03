@@ -259,7 +259,20 @@ struct InteractionRunner {
                  tv.mouseDown(with: event); pump()
              }
              log("code-language-badge", md, "badges=\(badges) | \(b.text)", expect: "badges=[\"SWIFT\"] | Intro\n\n```python\nlet x = 1\n```") }
-        
+
+        // 25b. Syntax colours: whole-block tokens (a block comment across lines), placed after block-quote prefixes
+        do { let md = "```js\nconst a = 1 /* one\ntwo */ + 2\n```\n\n> ```py\n> s = '''x\n> y'''\n> ```"
+             let b = TextBox(md); let tv = makeEditor(b)
+             let storage = tv.textStorage!
+             let ns = storage.string as NSString
+             func kind(of needle: String) -> String {
+                 let r = ns.range(of: needle)
+                 guard r.location != NSNotFound, let color = storage.attribute(.foregroundColor, at: r.location, effectiveRange: nil) as? NSColor else { return "missing" }
+                 return CodeTokenKind.allCases.first { CodeHighlightTheme.color(for: $0) == color }?.rawValue ?? "plain"
+             }
+             let result = ["const", "1", "one", "two", "+", "2", "s =", "x", "y'''"].map { "\($0)=\(kind(of: $0))" }.joined(separator: " ")
+             log("code-syntax-colours", md, result, expect: "const=keyword 1=number one=comment two=comment +=plain 2=number s ==plain x=string y'''=string") }
+
         // 26. Incremental restyling must match a full restyle exactly
         func fingerprint(_ tv: NSTextView) -> String {
             guard let storage = tv.textStorage else { return "" }
@@ -290,6 +303,8 @@ struct InteractionRunner {
             ("type in quote", "> quote", " text", true),
             ("before table", "- two", "\n\nPara before table", true),
             ("in code", "let x", "y", true),
+            ("open block comment in code", "let x", " /*", true),
+            ("open string in code", "let x =", " \"", true),
             ("at start", "# Title", "!", true),
             ("at end", "Last paragraph.", " End", true),
             ("add reference definition", "Last paragraph.", "\n\n[r]: https://r.com", false),

@@ -113,7 +113,7 @@ struct FormatCommandDefinition {
 }
 
 /// A code-block language from the manifest.
-struct CodeLanguage: Hashable {
+struct ManifestCodeLanguage: Hashable {
     let id: String
     let label: String
     let shortLabel: String?

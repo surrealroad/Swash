@@ -114,7 +114,7 @@ const commandLines = manifest.commands.map((command) => {
 
 const languageLines = manifest.codeLanguages.map(
   (language) =>
-    `        CodeLanguage(id: ${swiftString(language.id)}, label: ${swiftString(language.label)}, shortLabel: ${
+    `        ManifestCodeLanguage(id: ${swiftString(language.id)}, label: ${swiftString(language.label)}, shortLabel: ${
       language.shortLabel ? swiftString(language.shortLabel) : 'nil'
     }),`
 );
@@ -139,7 +139,7 @@ enum FormatManifest {
 ${commandLines.join('\n')}
     ]
 
-    static let codeLanguages: [CodeLanguage] = [
+    static let codeLanguages: [ManifestCodeLanguage] = [
 ${languageLines.join('\n')}
     ]
 }

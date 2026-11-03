@@ -40,6 +40,10 @@ func run() async {
       B -->|Yes| C[Done]
     ```
 
+    ```swift
+    let greeting = "Hi" // say hello
+    ```
+
     | Name | Value |
     | :--- | ---: |
     | One | 1 |
@@ -55,6 +59,8 @@ func run() async {
 
     let body = DocumentExporter.bodyHTML(for: source)
     check("alert markup", body.contains("markdown-alert markdown-alert-warning"))
+    check("code is highlighted", body.contains("<span class=\"tok-keyword\">let</span> greeting = <span class=\"tok-string\">&quot;Hi&quot;</span> <span class=\"tok-comment\">// say hello</span>"))
+    check("diagram source stays plain", body.contains("<code class=\"language-mermaid\">graph TD"))
     check("local image embedded", body.contains("src=\"data:image/png;base64,"))
     check("copy-as-HTML keeps image paths", DocumentExporter.bodyHTML(for: source, embedImages: false).contains("src=\"dot.png\""))
     check("remote images untouched", DocumentExporter.embeddedImageSource("https://example.com/a.png", folder: nil) == "https://example.com/a.png")

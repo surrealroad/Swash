@@ -60,20 +60,30 @@ extension FormatAction {
 }
 
 /// What the code button's menu applies: inline code, a plain fenced block, or a fenced block
-/// in one of the manifest's languages.
+/// in one of the languages `CodeHighlighter` colours.
 enum CodeFormat: Hashable, CustomStringConvertible {
     case inline
     case plainBlock
     case language(CodeLanguage)
 
-    /// Inline and plain blocks are Swash's own; the languages come from the shared manifest.
-    static let allCases: [CodeFormat] = [.inline, .plainBlock] + FormatManifest.codeLanguages.map { .language($0) }
+    /// Inline and plain blocks are Swash's own. The shared manifest's languages come first, in its
+    /// order and with its labels; the highlighter's other languages follow.
+    static let allCases: [CodeFormat] = {
+        let shared = FormatManifest.codeLanguages.compactMap { CodeLanguage(name: $0.id) }
+        let rest = CodeLanguage.allCases.filter { !shared.contains($0) }
+        return [.inline, .plainBlock] + (shared + rest).map { .language($0) }
+    }()
+
+    /// The manifest's entry for a language, when the manifest lists it.
+    private static func manifestLanguage(_ language: CodeLanguage) -> ManifestCodeLanguage? {
+        FormatManifest.codeLanguages.first { CodeLanguage(name: $0.id) == language }
+    }
 
     var name: String {
         switch self {
         case .inline: return FormatCommand.code.label ?? "Inline Code"
         case .plainBlock: return "Plain Block"
-        case .language(let language): return language.label
+        case .language(let language): return Self.manifestLanguage(language)?.label ?? language.displayName
         }
     }
 
@@ -81,12 +91,12 @@ enum CodeFormat: Hashable, CustomStringConvertible {
         switch self {
         case .inline: return "Inline"
         case .plainBlock: return "Plain"
-        case .language(let language): return language.compactLabel
+        case .language(let language): return Self.manifestLanguage(language)?.compactLabel ?? language.shortLabel
         }
     }
 
     var languageSignifier: String? {
-        if case .language(let language) = self { return language.id }
+        if case .language(let language) = self { return Self.manifestLanguage(language)?.id ?? language.rawValue }
         return nil
     }
 
@@ -94,7 +104,7 @@ enum CodeFormat: Hashable, CustomStringConvertible {
         switch self {
         case .inline: return "inline"
         case .plainBlock: return "plainBlock"
-        case .language(let language): return language.id
+        case .language: return languageSignifier ?? ""
         }
     }
 }
