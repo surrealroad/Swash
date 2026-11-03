@@ -162,3 +162,10 @@
 - **Issue**: Launching the app binary directly with a document path (`Swash.app/Contents/MacOS/Swash file.md`) shows "Swash doesn't have permission to read it": only Launch Services grants the sandbox access. `pkill -x Swash` in scripts also quits the user's own copy of Swash.
 - **Solution**: Open documents with `open -n -a <app> <file> --args …`, find the new process with `pgrep -n -f <app path>`, and quit only that PID (`scripts/generate_readme_screenshots.sh`). `-NSRequiresAquaSystemAppearance YES` and `-AppleInterfaceStyle Dark` force Light or Dark Mode for one launch.
 
+## 41. Typography Reaches the Editor and Preview as a Value, Not the Environment
+- **Issue**: `PreviewScrollView` hosts the preview in its own `NSHostingView`, so SwiftUI environment values set by `ContentView` never reach the blocks. `MarkdownBlockView` is also `Equatable` (compared by source), so a settings change would not re-render unchanged blocks.
+- **Solution**: `EditorTypography` (Settings › Appearance) is passed explicitly: `SwashTextView(typography:)`, `MarkdownPreviewView(typography:)` and `MarkdownRenderContext.typography`. It is part of the preview's `contentKey` and of `MarkdownBlockView ==`, and `updateNSView` treats a change like a flavor change (`forceFullRestyle`). The defaults (`EditorTypography()`) must reproduce the original styling exactly; `scaled(_:)` returns the size unchanged at 14 pt. Quick Look has no app group, so it can't read the app's defaults and always uses `EditorTypography()`.
+
+## 42. Checking That Rendering Is Unchanged
+- **Issue**: The tracked GFM snapshots were made on another machine, so a local run differs from them in every pixel even when nothing changed (see #8), and can't show whether a change altered the default rendering.
+- **Solution**: Make a baseline on the same machine: commit work in progress, check out `origin/main`'s sources, run `scripts/run_spec_tests.sh` (and `run_audit.sh render`), copy `Tests/GFMSpec/snapshots` and `build/editor-audit/render-out` aside, restore your commit, run again and compare the PNGs pixel by pixel (decoded through `CGImage`; the files' bytes differ on every run).
