@@ -77,7 +77,7 @@ struct SpecRunner {
         }
         if onlyExample == nil && onlySection == nil {
             print("")
-            totalFailures += ParserChecks.run()
+            totalFailures += ParserChecks.run() + CodeHighlighterChecks.run()
         }
         exit(totalFailures == 0 ? 0 : 1)
     }
