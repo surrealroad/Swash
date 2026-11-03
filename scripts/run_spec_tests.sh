@@ -18,6 +18,7 @@ swiftc \
   Swash/MarkdownParser.swift \
   Swash/Markdown/*.swift \
   Swash/MarkdownEditorStyler.swift \
+  Swash/CodeHighlightTheme.swift \
   Swash/RichContentRenderer.swift \
   Swash/FormatCommands.swift \
   Swash/MarkdownPreviewView.swift \

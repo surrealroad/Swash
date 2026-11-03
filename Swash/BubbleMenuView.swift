@@ -29,25 +29,16 @@ enum FormatAction: Hashable {
 enum CodeFormat: Hashable, CaseIterable {
     case inline
     case plainBlock
-    case javascript
-    case swift
-    case python
-    case html
-    case css
-    case json
-    case bash
-    
+    /// A fenced block in one of the languages `CodeHighlighter` colours.
+    case language(CodeLanguage)
+
+    static var allCases: [CodeFormat] { [.inline, .plainBlock] + CodeLanguage.allCases.map { .language($0) } }
+
     var name: String {
         switch self {
         case .inline: return "Inline Code"
         case .plainBlock: return "Plain Block"
-        case .javascript: return "JavaScript"
-        case .swift: return "Swift"
-        case .python: return "Python"
-        case .html: return "HTML"
-        case .css: return "CSS"
-        case .json: return "JSON"
-        case .bash: return "Bash"
+        case .language(let language): return language.displayName
         }
     }
     
@@ -55,27 +46,14 @@ enum CodeFormat: Hashable, CaseIterable {
         switch self {
         case .inline: return "Inline"
         case .plainBlock: return "Plain"
-        case .javascript: return "JS"
-        case .swift: return "Swift"
-        case .python: return "Python"
-        case .html: return "HTML"
-        case .css: return "CSS"
-        case .json: return "JSON"
-        case .bash: return "Bash"
+        case .language(let language): return language.shortLabel
         }
     }
     
     var languageSignifier: String? {
         switch self {
-        case .inline: return nil
-        case .plainBlock: return nil
-        case .javascript: return "javascript"
-        case .swift: return "swift"
-        case .python: return "python"
-        case .html: return "html"
-        case .css: return "css"
-        case .json: return "json"
-        case .bash: return "bash"
+        case .inline, .plainBlock: return nil
+        case .language(let language): return language.rawValue
         }
     }
 }

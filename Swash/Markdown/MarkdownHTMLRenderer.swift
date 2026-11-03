@@ -23,6 +23,8 @@ struct MarkdownHTMLRenderer {
         var alertMarkup = false
         /// Rewrites each image destination (for example, to embed a local file as a data URL).
         var imageSource: ((String) -> String)? = nil
+        /// Code blocks in known languages as `<span class="tok-…">` runs (see `CodeHighlighter`).
+        var highlightCode = false
 
         static let spec = Options()
     }
@@ -42,6 +44,19 @@ struct MarkdownHTMLRenderer {
     }
 
     // MARK: Output primitives
+
+    private mutating func highlightedCode(_ code: String, language: CodeLanguage) {
+        let ns = code as NSString
+        var position = 0
+        for token in CodeHighlighter.tokens(for: code, language: language) {
+            if token.range.location > position { out(ns.substring(with: NSRange(location: position, length: token.range.location - position))) }
+            lit("<span class=\"tok-\(token.kind.rawValue)\">")
+            out(ns.substring(with: token.range))
+            lit("</span>")
+            position = NSMaxRange(token.range)
+        }
+        if position < ns.length { out(ns.substring(from: position)) }
+    }
 
     private mutating func lit(_ s: String) {
         guard !s.isEmpty else { return }
@@ -114,7 +129,11 @@ struct MarkdownHTMLRenderer {
             cr()
             tag("pre")
             tag("code", language.isEmpty ? [] : [("class", "language-" + MarkdownSyntax.escapeHTML(language))])
-            out(node.literal)
+            if options.highlightCode, let codeLanguage = CodeLanguage(name: language) {
+                highlightedCode(node.literal, language: codeLanguage)
+            } else {
+                out(node.literal)
+            }
             tag("/code")
             tag("/pre")
             cr()

@@ -325,8 +325,7 @@ enum MarkdownEditingCommands {
     
     // MARK: - Code block language
     
-    static let commonLanguages = ["swift", "python", "javascript", "typescript", "json", "html", "css", "bash",
-                                  "ruby", "go", "rust", "java", "kotlin", "c", "cpp", "sql", "yaml", "markdown", "mermaid"]
+    static let commonLanguages = CodeLanguage.allCases.map(\.rawValue) + ["mermaid"]
     
     /// Sets (or clears, with nil) the info string of the fenced code block containing `location`.
     static func setCodeLanguage(_ language: String?, text: String, location: Int) -> MarkdownEdit? {
