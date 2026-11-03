@@ -26,34 +26,85 @@ enum FormatAction: Hashable {
     case table
 }
 
-enum CodeFormat: Hashable, CaseIterable {
+extension FormatAction {
+    /// The manifest command behind the button (FormatManifest.generated.swift).
+    var command: FormatCommand {
+        switch self {
+        case .bold: return .bold
+        case .italic: return .italic
+        case .code: return .code
+        case .strikethrough: return .strikethrough
+        case .heading: return .heading(1)
+        case .h1: return .heading(1)
+        case .h2: return .heading(2)
+        case .h3: return .heading(3)
+        case .h4: return .heading(4)
+        case .h5: return .heading(5)
+        case .h6: return .heading(6)
+        case .quote: return .quote
+        case .bulletList: return .bulletList
+        case .numberedList: return .numberedList
+        case .table: return .table
+        }
+    }
+
+    /// Whether the manifest offers the command in the bubble menu.
+    var isInBubbleMenu: Bool { command.definition?.surfaces.contains(.bubble) ?? false }
+
+    /// The button's tooltip: the manifest label, plus its shortcut.
+    var tooltip: String {
+        let label = self == .heading ? (command.definition?.label ?? "") : (command.label ?? "")
+        guard self != .heading, let shortcut = command.shortcut else { return label }
+        return "\(label) (\(shortcut.displayString))"
+    }
+}
+
+/// What the code button's menu applies: inline code, a plain fenced block, or a fenced block
+/// in one of the languages `CodeHighlighter` colours.
+enum CodeFormat: Hashable, CustomStringConvertible {
     case inline
     case plainBlock
-    /// A fenced block in one of the languages `CodeHighlighter` colours.
     case language(CodeLanguage)
 
-    static var allCases: [CodeFormat] { [.inline, .plainBlock] + CodeLanguage.allCases.map { .language($0) } }
+    /// Inline and plain blocks are Swash's own. The shared manifest's languages come first, in its
+    /// order and with its labels; the highlighter's other languages follow.
+    static let allCases: [CodeFormat] = {
+        let shared = FormatManifest.codeLanguages.compactMap { CodeLanguage(name: $0.id) }
+        let rest = CodeLanguage.allCases.filter { !shared.contains($0) }
+        return [.inline, .plainBlock] + (shared + rest).map { .language($0) }
+    }()
+
+    /// The manifest's entry for a language, when the manifest lists it.
+    private static func manifestLanguage(_ language: CodeLanguage) -> ManifestCodeLanguage? {
+        FormatManifest.codeLanguages.first { CodeLanguage(name: $0.id) == language }
+    }
 
     var name: String {
         switch self {
-        case .inline: return "Inline Code"
+        case .inline: return FormatCommand.code.label ?? "Inline Code"
         case .plainBlock: return "Plain Block"
-        case .language(let language): return language.displayName
+        case .language(let language): return Self.manifestLanguage(language)?.label ?? language.displayName
         }
     }
-    
+
     var label: String {
         switch self {
         case .inline: return "Inline"
         case .plainBlock: return "Plain"
-        case .language(let language): return language.shortLabel
+        case .language(let language): return Self.manifestLanguage(language)?.compactLabel ?? language.shortLabel
         }
     }
-    
+
     var languageSignifier: String? {
+        if case .language(let language) = self { return Self.manifestLanguage(language)?.id ?? language.rawValue }
+        return nil
+    }
+
+    var description: String {
         switch self {
-        case .inline, .plainBlock: return nil
-        case .language(let language): return language.rawValue
+        case .inline: return "inline"
+        case .plainBlock: return "plainBlock"
+        case .language: return languageSignifier ?? ""
         }
     }
 }
@@ -140,63 +191,53 @@ struct BubbleMenuView: View {
             if context == .image, let image = image, let actions = imageActions {
                 imageControls(image, actions: actions)
             } else if context == .codeBlock || activeFormats.contains(.code) {
-                BubbleButton(
-                    systemImage: "curlybraces",
-                    textLabel: nil,
-                    tooltip: "Toggle Code Off",
-                    isActive: true,
-                    action: { onAction(.code) }
-                )
+                bubbleButton(.code, systemImage: "curlybraces", isActive: true)
                 
                 if let currentFormat = activeCodeFormat {
                     codeFormatDropdown(currentFormat: currentFormat)
                 }
                 
                 if context == .tableCell || activeFormats.contains(.table) {
-                    BubbleButton(
-                        systemImage: "tablecells",
-                        textLabel: nil,
-                        tooltip: "Remove Table",
-                        isActive: true,
-                        action: { onAction(.table) }
-                    )
+                    bubbleButton(.table, systemImage: "tablecells", isActive: true)
                 }
             } else {
-                BubbleButton(systemImage: "bold", textLabel: nil, tooltip: "Bold (⌘B)", isActive: activeFormats.contains(.bold), action: { onAction(.bold) })
-                BubbleButton(systemImage: "italic", textLabel: nil, tooltip: "Italic (⌘I)", isActive: activeFormats.contains(.italic), action: { onAction(.italic) })
-                BubbleButton(systemImage: "curlybraces", textLabel: nil, tooltip: "Code Formatting", isActive: activeFormats.contains(.code), action: { onAction(.code) })
+                bubbleButton(.bold, systemImage: "bold")
+                bubbleButton(.italic, systemImage: "italic")
+                bubbleButton(.code, systemImage: "curlybraces")
                 
                 if activeFormats.contains(.code), let currentFormat = activeCodeFormat {
                     codeFormatDropdown(currentFormat: currentFormat)
                 }
                 
-                BubbleButton(systemImage: "strikethrough", textLabel: nil, tooltip: "Strikethrough", isActive: activeFormats.contains(.strikethrough), action: { onAction(.strikethrough) })
+                bubbleButton(.strikethrough, systemImage: "strikethrough")
                 
-                BubbleButton(
-                    systemImage: "link",
-                    textLabel: nil,
-                    tooltip: activeLink != nil ? "Edit Link" : "Add Link",
-                    isActive: activeLink != nil,
-                    action: {
-                        isPresentingLinkPopover.toggle()
-                    }
-                )
-                .popover(isPresented: $isPresentingLinkPopover, arrowEdge: .bottom) {
-                    LinkEditorPopoverView(
-                        initialURL: activeLink?.url ?? "",
-                        isEditing: activeLink != nil,
-                        onApply: { url in
-                            isPresentingLinkPopover = false
-                            onApplyLink(url)
-                        },
-                        onRemove: {
-                            isPresentingLinkPopover = false
-                            onRemoveLink()
-                        },
-                        onCancel: {
-                            isPresentingLinkPopover = false
+                if FormatCommand.link.definition?.surfaces.contains(.bubble) == true {
+                    BubbleButton(
+                        systemImage: "link",
+                        textLabel: nil,
+                        tooltip: Self.linkTooltip,
+                        isActive: activeLink != nil,
+                        action: {
+                            isPresentingLinkPopover.toggle()
                         }
                     )
+                    .popover(isPresented: $isPresentingLinkPopover, arrowEdge: .bottom) {
+                        LinkEditorPopoverView(
+                            initialURL: activeLink?.url ?? "",
+                            isEditing: activeLink != nil,
+                            onApply: { url in
+                                isPresentingLinkPopover = false
+                                onApplyLink(url)
+                            },
+                            onRemove: {
+                                isPresentingLinkPopover = false
+                                onRemoveLink()
+                            },
+                            onCancel: {
+                                isPresentingLinkPopover = false
+                            }
+                        )
+                    }
                 }
                 
                 if let footnote = footnoteActions {
@@ -217,13 +258,7 @@ struct BubbleMenuView: View {
                         .frame(height: 16)
                         .padding(.horizontal, 2)
                     
-                    BubbleButton(
-                        systemImage: nil,
-                        textLabel: "H",
-                        tooltip: activeHeadingLevel != nil ? "Toggle Heading Off" : "Toggle Heading On",
-                        isActive: activeHeadingLevel != nil,
-                        action: { onAction(.heading) }
-                    )
+                    bubbleButton(.heading, textLabel: "H", isActive: activeHeadingLevel != nil)
                     
                     if let currentLevel = activeHeadingLevel {
                         headingLevelDropdown(currentLevel: currentLevel)
@@ -232,7 +267,7 @@ struct BubbleMenuView: View {
                     if case .callout(let type) = context {
                         calloutDropdown(current: type)
                     } else if context != .heading {
-                        BubbleButton(systemImage: "quote.bubble", textLabel: nil, tooltip: "Blockquote", isActive: activeFormats.contains(.quote), action: { onAction(.quote) })
+                        bubbleButton(.quote, systemImage: "quote.bubble")
                         if context == .blockquote, onSelectCalloutType != nil {
                             calloutDropdown(current: nil)
                         }
@@ -242,7 +277,7 @@ struct BubbleMenuView: View {
                         .frame(height: 16)
                         .padding(.horizontal, 2)
                     
-                    BubbleButton(systemImage: "quote.bubble", textLabel: nil, tooltip: "Blockquote", isActive: activeFormats.contains(.quote), action: { onAction(.quote) })
+                    bubbleButton(.quote, systemImage: "quote.bubble")
                 }
                 
                 if context == .standard || context == .listItem || context.isQuoteLike {
@@ -250,18 +285,18 @@ struct BubbleMenuView: View {
                         .frame(height: 16)
                         .padding(.horizontal, 2)
                     
-                    BubbleButton(systemImage: "list.bullet", textLabel: nil, tooltip: "Bullet List", isActive: activeFormats.contains(.bulletList), action: { onAction(.bulletList) })
-                    BubbleButton(systemImage: "list.number", textLabel: nil, tooltip: "Numbered List", isActive: activeFormats.contains(.numberedList), action: { onAction(.numberedList) })
+                    bubbleButton(.bulletList, systemImage: "list.bullet")
+                    bubbleButton(.numberedList, systemImage: "list.number")
                     
                     if context == .standard {
-                        BubbleButton(systemImage: "tablecells", textLabel: nil, tooltip: "Table", isActive: activeFormats.contains(.table), action: { onAction(.table) })
+                        bubbleButton(.table, systemImage: "tablecells")
                     }
                 } else if context == .tableCell || activeFormats.contains(.table) {
                     Divider()
                         .frame(height: 16)
                         .padding(.horizontal, 2)
                     
-                    BubbleButton(systemImage: "tablecells", textLabel: nil, tooltip: "Remove Table", isActive: true, action: { onAction(.table) })
+                    bubbleButton(.table, systemImage: "tablecells", isActive: true)
                 }
                 
                 if let text = translatableText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -297,6 +332,21 @@ struct BubbleMenuView: View {
         }
     }
     
+    /// The link button's tooltip, from the manifest.
+    private static var linkTooltip: String {
+        let label = FormatCommand.link.label ?? ""
+        return FormatCommand.link.shortcut.map { "\(label) (\($0.displayString))" } ?? label
+    }
+
+    /// A button for a manifest command, hidden when the manifest doesn't offer it in the bubble menu.
+    @ViewBuilder
+    private func bubbleButton(_ action: FormatAction, systemImage: String? = nil, textLabel: String? = nil, isActive: Bool? = nil) -> some View {
+        if action.isInBubbleMenu {
+            BubbleButton(systemImage: systemImage, textLabel: textLabel, tooltip: action.tooltip,
+                         isActive: isActive ?? activeFormats.contains(action), action: { onAction(action) })
+        }
+    }
+
     /// Callout type menu: the five GitHub alert types, plus turning the callout back into a quote.
     @ViewBuilder
     private func calloutDropdown(current: AlertType?) -> some View {
@@ -432,7 +482,7 @@ struct BubbleMenuView: View {
                     onSelectHeadingLevel(level)
                 }) {
                     HStack {
-                        Text("Heading \(level) (H\(level))")
+                        Text(FormatCommand.heading(level).label ?? "H\(level)")
                         if level == currentLevel {
                             Image(systemName: "checkmark")
                         }

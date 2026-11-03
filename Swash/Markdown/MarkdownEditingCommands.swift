@@ -60,11 +60,16 @@ enum MarkdownEditingCommands {
             if current.isListItem && !s.indent.isEmpty {
                 return outdent(text: text, selection: selection, document: document)
             }
-            let replacement: String
-            if current.isListItem {
-                replacement = s.quotePrefix
-            } else {
-                replacement = removingOneQuoteLevel(s.quotePrefix)
+            let prefix = current.isListItem ? s.quotePrefix : removingOneQuoteLevel(s.quotePrefix)
+            // A line straight after the list (or quote) would be a lazy continuation of it, so the
+            // new paragraph needs a blank line before it (one at the outer quote level).
+            var replacement = prefix
+            if current.range.location > 0 {
+                let previous = line(at: current.range.location - 1, in: ns)
+                if !previous.text.trimmingCharacters(in: CharacterSet(charactersIn: " \t>")).isEmpty {
+                    let blank = prefix.replacingOccurrences(of: "[ \t]+$", with: "", options: .regularExpression)
+                    replacement = blank + "\n" + prefix
+                }
             }
             let edited = ns.replacingCharacters(in: current.range, with: replacement)
             return MarkdownEdit(text: edited, selection: NSRange(location: current.range.location + (replacement as NSString).length, length: 0))
@@ -162,13 +167,55 @@ enum MarkdownEditingCommands {
             if candidate.range.location == 0 { break }
             search = candidate.range.location
         }
-        guard let previous = sibling else { return nil }
+        // A list item with nothing to nest under keeps the Tab (rather than inserting a tab character)
+        guard let previous = sibling else { return MarkdownEdit(text: text, selection: selection) }
         let width = previous.structure.marker.count
-        guard width > 0 else { return nil }
+        guard width > 0 else { return MarkdownEdit(text: text, selection: selection) }
         let insertAt = current.range.location + current.structure.quotePrefix.utf16.count
         let spaces = String(repeating: " ", count: width)
-        let edited = ns.replacingCharacters(in: NSRange(location: insertAt, length: 0), with: spaces)
-        return MarkdownEdit(text: edited, selection: NSRange(location: selection.location + width, length: selection.length))
+        let edited = NSMutableString(string: ns.replacingCharacters(in: NSRange(location: insertAt, length: 0), with: spaces))
+        var caret = selection.location + width
+        if current.structure.format == .numberedList {
+            // The item starts (or continues) the nested list, and the outer list closes the gap
+            let nestedIndent = level + width
+            var number = 1
+            var search = current.range.location
+            while search > previous.range.location {
+                let candidate = line(at: search - 1, in: ns)
+                if candidate.range.location <= previous.range.location { break }
+                if candidate.structure.quotePrefix == current.structure.quotePrefix,
+                   candidate.structure.indent.count == nestedIndent, candidate.structure.format == .numberedList {
+                    number = markerNumber(candidate.structure) + 1
+                    break
+                }
+                search = candidate.range.location
+            }
+            caret += setMarkerNumber(number, onLineAt: current.range.location, in: edited)
+            let nested = line(at: current.range.location, in: edited).structure
+            let renumbered = renumber(edited, fromLineAt: current.range.location, prefix: nested.quotePrefix + nested.indent)
+            let outer = renumber(renumbered, fromLineAt: previous.range.location, prefix: previous.structure.quotePrefix + previous.structure.indent)
+            return MarkdownEdit(text: outer as String, selection: NSRange(location: caret, length: selection.length))
+        }
+        return MarkdownEdit(text: edited as String, selection: NSRange(location: caret, length: selection.length))
+    }
+
+    /// The number of an ordered-list marker (`3. ` → 3).
+    private static func markerNumber(_ s: MarkdownFormatting.LineStructure) -> Int {
+        Int(s.marker.trimmingCharacters(in: .whitespaces).prefix(while: { $0.isNumber })) ?? 1
+    }
+
+    /// Renumbers the ordered-list marker of the line at `location`; returns the change in length.
+    private static func setMarkerNumber(_ number: Int, onLineAt location: Int, in text: NSMutableString) -> Int {
+        let current = line(at: location, in: text)
+        let s = current.structure
+        guard s.format == .numberedList else { return 0 }
+        let trimmed = s.marker.trimmingCharacters(in: .whitespaces)
+        let delimiter = trimmed.last.map(String.init) ?? "."
+        let spacing = String(s.marker.reversed().prefix(while: { $0 == " " || $0 == "\t" }).reversed())
+        let newMarker = "\(number)\(delimiter)\(spacing)"
+        let markerRange = NSRange(location: current.range.location + (s.quotePrefix + s.indent).utf16.count, length: s.marker.utf16.count)
+        text.replaceCharacters(in: markerRange, with: newMarker)
+        return (newMarker as NSString).length - markerRange.length
     }
     
     /// Moves a nested list item one level out.
@@ -178,11 +225,13 @@ enum MarkdownEditingCommands {
         guard current.isListItem, !current.structure.indent.isEmpty, !isInCode(selection.location, text: text, document: document) else { return nil }
         // Remove the indentation down to the parent item's column
         var parentIndent = 0
+        var parent: Line? = nil
         var search = current.range.location
         while search > 0 {
             let candidate = line(at: search - 1, in: ns)
             if candidate.isListItem && candidate.structure.indent.count < current.structure.indent.count {
                 parentIndent = candidate.structure.indent.count
+                parent = candidate
                 break
             }
             if candidate.range.location == 0 { break }
@@ -191,8 +240,18 @@ enum MarkdownEditingCommands {
         let remove = current.structure.indent.count - parentIndent
         guard remove > 0 else { return nil }
         let start = current.range.location + current.structure.quotePrefix.utf16.count + parentIndent
-        let edited = ns.replacingCharacters(in: NSRange(location: start, length: remove), with: "")
-        return MarkdownEdit(text: edited, selection: NSRange(location: max(current.range.location, selection.location - remove), length: selection.length))
+        let edited = NSMutableString(string: ns.replacingCharacters(in: NSRange(location: start, length: remove), with: ""))
+        var caret = max(current.range.location, selection.location - remove)
+        if current.structure.format == .numberedList {
+            // The item now follows its old parent in the outer list
+            let number = parent.map { $0.structure.format == .numberedList ? markerNumber($0.structure) + 1 : 1 } ?? 1
+            let delta = setMarkerNumber(number, onLineAt: current.range.location, in: edited)
+            if selection.location - remove > current.range.location { caret += delta }
+            let outer = line(at: current.range.location, in: edited).structure
+            let renumbered = renumber(edited, fromLineAt: current.range.location, prefix: outer.quotePrefix + outer.indent)
+            return MarkdownEdit(text: renumbered as String, selection: NSRange(location: caret, length: selection.length))
+        }
+        return MarkdownEdit(text: edited as String, selection: NSRange(location: caret, length: selection.length))
     }
 
     // MARK: - Backspace
