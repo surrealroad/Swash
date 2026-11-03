@@ -162,10 +162,15 @@
 - **Issue**: Launching the app binary directly with a document path (`Swash.app/Contents/MacOS/Swash file.md`) shows "Swash doesn't have permission to read it": only Launch Services grants the sandbox access. `pkill -x Swash` in scripts also quits the user's own copy of Swash.
 - **Solution**: Open documents with `open -n -a <app> <file> --args …`, find the new process with `pgrep -n -f <app path>`, and quit only that PID (`scripts/generate_readme_screenshots.sh`). `-NSRequiresAquaSystemAppearance YES` and `-AppleInterfaceStyle Dark` force Light or Dark Mode for one launch.
 
-## 41. Typography Reaches the Editor and Preview as a Value, Not the Environment
+
+## 41. Folder Windows: Watching Subfolders, Links and Headless Snapshots
+- **Issue**: A `DispatchSource` file-system source on the folder only reports changes directly inside it, so files added or saved in subfolders went unnoticed. `NSTextView` opens a clicked `.link` with `NSWorkspace`, which can't open a relative URL such as `Other.md`. In headless snapshots (`cacheDisplay`), the `NavigationSplitView` sidebar's material draws as an empty white column even though the list has rows.
+- **Solution**: `FolderWorkspace` watches the whole tree with an `FSEventStream` (it works in the sandbox for a folder whose security-scoped access is active) and rescans off the main thread with `FolderScanner` (`FolderIndex.swift`). Folder windows pass a `noteLinkHandler` and a `textRevealRequest` to the editor through the SwiftUI environment rather than through `ContentView`'s parameters (see #39). `SwashTextView.Coordinator` handles `textView(_:clickedOnLink:at:)` and marks `[[wiki]]` links as `swash-note:` links only while a handler is set. Because `SwashTextView.swift` now uses `NoteLinkResolver`, `Swash/FolderIndex.swift` is in every harness's file list (#14). In harnesses, check the sidebar through its `NSTableView` row count, not the snapshot.
+
+## 42. Typography Reaches the Editor and Preview as a Value, Not the Environment
 - **Issue**: `PreviewScrollView` hosts the preview in its own `NSHostingView`, so SwiftUI environment values set by `ContentView` never reach the blocks. `MarkdownBlockView` is also `Equatable` (compared by source), so a settings change would not re-render unchanged blocks.
 - **Solution**: `EditorTypography` (Settings › Appearance) is passed explicitly: `SwashTextView(typography:)`, `MarkdownPreviewView(typography:)` and `MarkdownRenderContext.typography`. It is part of the preview's `contentKey` and of `MarkdownBlockView ==`, and `updateNSView` treats a change like a flavor change (`forceFullRestyle`). The defaults (`EditorTypography()`) must reproduce the original styling exactly; `scaled(_:)` returns the size unchanged at 14 pt. Quick Look has no app group, so it can't read the app's defaults and always uses `EditorTypography()`.
 
-## 42. Checking That Rendering Is Unchanged
+## 43. Checking That Rendering Is Unchanged
 - **Issue**: The tracked GFM snapshots were made on another machine, so a local run differs from them in every pixel even when nothing changed (see #8), and can't show whether a change altered the default rendering.
 - **Solution**: Make a baseline on the same machine: commit work in progress, check out `origin/main`'s sources, run `scripts/run_spec_tests.sh` (and `run_audit.sh render`), copy `Tests/GFMSpec/snapshots` and `build/editor-audit/render-out` aside, restore your commit, run again and compare the PNGs pixel by pixel (decoded through `CGImage`; the files' bytes differ on every run).

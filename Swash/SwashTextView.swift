@@ -26,6 +26,46 @@ extension Notification.Name {
     static let removeCurrentTable = Notification.Name("removeCurrentTable")
 }
 
+/// Opens a link to another note (a folder window's relative and `[[wiki]]` links). Returns false
+/// to let the system open the link as usual.
+typealias NoteLinkHandler = @MainActor @Sendable (URL) -> Bool
+
+/// A selection for the editor to show once it has loaded `fileURL`, such as a search result.
+/// Shown once: views rebuilt later (switching view modes) don't repeat it.
+final class TextRevealRequest {
+    let fileURL: URL
+    /// In raw-Markdown offsets.
+    let range: NSRange
+    var isHandled = false
+
+    init(fileURL: URL, range: NSRange) {
+        self.fileURL = fileURL.standardizedFileURL
+        self.range = range
+    }
+}
+
+nonisolated private struct NoteLinkHandlerKey: EnvironmentKey {
+    static let defaultValue: NoteLinkHandler? = nil
+}
+
+nonisolated private struct TextRevealRequestKey: EnvironmentKey {
+    static let defaultValue: TextRevealRequest? = nil
+}
+
+extension EnvironmentValues {
+    var noteLinkHandler: NoteLinkHandler? {
+        get { self[NoteLinkHandlerKey.self] }
+        set { self[NoteLinkHandlerKey.self] = newValue }
+    }
+    var textRevealRequest: TextRevealRequest? {
+        get { self[TextRevealRequestKey.self] }
+        set { self[TextRevealRequestKey.self] = newValue }
+    }
+}
+
+/// `[[wiki]]` links are marked with this scheme; the note name follows, percent-encoded.
+let wikiLinkScheme = "swash-note"
+
 /// The markdown source an attachment stands in for, or nil for non-Swash attachments.
 func swashRawMarkdown(for attachment: Any?) -> String? {
     if let table = attachment as? TableTextAttachment { return table.rawMarkdown }
@@ -1084,6 +1124,26 @@ struct SwashTextView: NSViewRepresentable {
         
         context.coordinator.applyWritingOptions(writingOptions, in: textView)
         context.coordinator.isUpdatingFromSwiftUI = false
+
+        let linkHandler = context.environment.noteLinkHandler
+        if (linkHandler == nil) != (context.coordinator.noteLinkHandler == nil), !needsHighlight {
+            // Wiki links are marked only while a handler can open them
+            context.coordinator.forceFullRestyle = true
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView, context.coordinator.parent.isStyled else { return }
+                context.coordinator.highlightMarkdown(in: textView)
+            }
+        }
+        context.coordinator.noteLinkHandler = linkHandler
+        if let request = context.environment.textRevealRequest, !request.isHandled,
+           request.fileURL == currentBaseURL?.standardizedFileURL {
+            request.isHandled = true
+            // After the styling pass queued above, so the selection lands in the styled text
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView else { return }
+                context.coordinator.reveal(rawRange: request.range, in: textView)
+            }
+        }
     }
     
     func makeCoordinator() -> Coordinator {
@@ -1121,6 +1181,41 @@ struct SwashTextView: NSViewRepresentable {
         private var editGeneration = 0
         private var highlightedGeneration = -1
         
+        /// Opens links to other notes; set in folder windows.
+        var noteLinkHandler: NoteLinkHandler? = nil
+
+        /// Selects `rawRange`, scrolls it into view and briefly highlights it.
+        func reveal(rawRange: NSRange, in textView: NSTextView) {
+            let length = (parent.text as NSString).length
+            guard rawRange.location <= length else { return }
+            let clamped = NSRange(location: rawRange.location, length: min(rawRange.length, length - rawRange.location))
+            let range = storageRange(forRaw: clamped, in: textView)
+            textView.window?.makeFirstResponder(textView)
+            textView.setSelectedRange(range)
+            textView.scrollRangeToVisible(range)
+            if range.length > 0 { textView.showFindIndicator(for: range) }
+        }
+
+        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            guard let handler = noteLinkHandler else { return false }
+            let url = (link as? URL) ?? (link as? String).flatMap { URL(string: $0) }
+            guard let url else { return false }
+            return handler(url)
+        }
+
+        /// Marks `[[wiki]]` links outside code as links, when a folder window can open them.
+        private func markWikiLinks(rawText: String, exclusions: [NSRange], map: AttachmentOffsetMap, in textView: NSTextView) {
+            guard noteLinkHandler != nil, rawText.contains("[["), let storage = textView.textStorage else { return }
+            for link in NoteLinkResolver.wikiLinks(in: rawText) {
+                guard !exclusions.contains(where: { NSIntersectionRange($0, link.range).length > 0 }),
+                      let encoded = link.target.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                      let url = URL(string: "\(wikiLinkScheme):\(encoded)") else { continue }
+                let range = map.storageRange(forRaw: link.range)
+                guard NSMaxRange(range) <= storage.length else { continue }
+                storage.addAttribute(.link, value: url, range: range)
+            }
+        }
+
         init(_ parent: SwashTextView) {
             self.parent = parent
             super.init()
@@ -2588,6 +2683,7 @@ struct SwashTextView: NSViewRepresentable {
             
             let map = offsetMap(for: textView)
             cachedStorageCodeBlocks = exclusions.map { map.storageRange(forRaw: $0) }
+            markWikiLinks(rawText: rawText, exclusions: exclusions, map: map, in: textView)
             let restoredSelection = storageRange(forRaw: savedRawSelection, in: textView)
             if textView.selectedRange() != restoredSelection {
                 textView.setSelectedRange(restoredSelection)
