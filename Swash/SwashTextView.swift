@@ -624,6 +624,12 @@ class SwashNSTextView: NSTextView {
             handler(command)
             return true
         }
+        // View › Bigger is ⌘+; accept the unshifted ⌘= too, as other Mac apps do
+        if window?.firstResponder === self, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers == "=" {
+            EditorTypography.adjustTextSize(by: 1)
+            return true
+        }
         return super.performKeyEquivalent(with: event)
     }
     
@@ -922,6 +928,8 @@ struct SwashTextView: NSViewRepresentable {
     /// Reports the caret's raw-markdown location whenever the selection moves.
     var onCaretMove: ((Int) -> Void)? = nil
     var writingOptions = WritingOptions()
+    /// Font, text size and theme from Settings; a change restyles the whole document.
+    var typography = EditorTypography()
     
     init(
         text: Binding<String>,
@@ -937,7 +945,8 @@ struct SwashTextView: NSViewRepresentable {
         controller: SwashEditorController? = nil,
         onFormatCommand: ((FormatCommand) -> Void)? = nil,
         onCaretMove: ((Int) -> Void)? = nil,
-        writingOptions: WritingOptions = WritingOptions()
+        writingOptions: WritingOptions = WritingOptions(),
+        typography: EditorTypography = EditorTypography()
     ) {
         self._text = text
         self._selectedRange = selectedRange
@@ -953,6 +962,7 @@ struct SwashTextView: NSViewRepresentable {
         self.onFormatCommand = onFormatCommand
         self.onCaretMove = onCaretMove
         self.writingOptions = writingOptions
+        self.typography = typography
     }
     
     func makeNSView(context: Context) -> NSScrollView {
@@ -1075,8 +1085,10 @@ struct SwashTextView: NSViewRepresentable {
         let baseChanged = (context.coordinator.lastBaseURL != currentBaseURL)
         
         // Highlight if the text was updated, if style parameters changed, if baseURL updated, or on first run.
+        context.coordinator.applyThemeBackground(typography, in: textView)
         let needsHighlight = textWasUpdated ||
                              context.coordinator.lastStyledText == nil ||
+                             context.coordinator.lastTypography != typography ||
                              context.coordinator.lastIsStyled != isStyled ||
                              context.coordinator.lastFlavor != flavor ||
                              (baseChanged && currentBaseURL != nil)
@@ -1152,6 +1164,8 @@ struct SwashTextView: NSViewRepresentable {
         var lastFlavor: MarkdownFlavor? = nil
         var lastBaseURL: URL? = nil
         var lastWritingOptions = WritingOptions()
+        /// Typography of the last styling pass.
+        var lastTypography: EditorTypography? = nil
         
         var lastKnownScrollOrigin: NSPoint? = nil
         weak var currentTextView: NSTextView? = nil
@@ -1822,7 +1836,7 @@ struct SwashTextView: NSViewRepresentable {
         func textView(_ textView: NSTextView, shouldChangeTypingAttributes oldTypingAttributes: [String : Any] = [:], toAttributes newTypingAttributes: [NSAttributedString.Key : Any] = [:]) -> [NSAttributedString.Key : Any] {
             var attrs = newTypingAttributes
             if let font = attrs[.font] as? NSFont, font.pointSize < 1.0 {
-                attrs[.font] = NSFont.systemFont(ofSize: 14, weight: .regular)
+                attrs[.font] = parent.typography.bodyFont
             }
             if let color = attrs[.foregroundColor] as? NSColor, color == .clear {
                 attrs[.foregroundColor] = NSColor.textColor
@@ -1947,7 +1961,7 @@ struct SwashTextView: NSViewRepresentable {
             textStorage.beginEditing()
             
             // 1. Reset everything to high-texture defaults
-            let defaultFont = NSFont.systemFont(ofSize: 14, weight: .regular)
+            let defaultFont = parent.typography.bodyFont
             let defaultColor = NSColor.textColor
             textStorage.setAttributes([
                 .font: defaultFont,
@@ -1975,6 +1989,7 @@ struct SwashTextView: NSViewRepresentable {
                 // CommonMark / GFM: style from the shared Markdown AST
                 let document = formatting(for: text).document
                 let styler = MarkdownEditorStyler(storage: textStorage, document: document)
+                styler.typography = parent.typography
                 configureRichPreviews(styler, for: textView)
                 styler.style()
                 collectRichPreviews(from: styler, fullPass: true)
@@ -2691,6 +2706,7 @@ struct SwashTextView: NSViewRepresentable {
             lastStyledText = rawText
             lastIsStyled = true
             lastFlavor = parent.flavor
+            lastTypography = parent.typography
             lastBaseURL = parent.baseURL ?? textView.window?.representedURL ?? (textView.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
             
             let autoSelectRequested = ProcessInfo.processInfo.arguments.contains("--select-sample") || ProcessInfo.processInfo.environment["SWASH_AUTO_SELECT"] == "1"
@@ -2787,9 +2803,10 @@ struct SwashTextView: NSViewRepresentable {
             }
             storage.replaceCharacters(in: storageRegion, with: raw.substring(with: NSRange(location: start, length: end - start)))
             let region = NSRange(location: storageStart, length: end - start)
-            storage.setAttributes([.font: NSFont.systemFont(ofSize: 14, weight: .regular), .foregroundColor: NSColor.textColor], range: region)
+            storage.setAttributes([.font: parent.typography.bodyFont, .foregroundColor: NSColor.textColor], range: region)
             
             let styler = MarkdownEditorStyler(storage: storage, document: document, storageShift: shift)
+            styler.typography = parent.typography
             configureRichPreviews(styler, for: textView)
             let changedBlocks = Array(blocks[firstStyled..<(blocks.count - suffix)])
             styler.style(blocks: changedBlocks)
@@ -2936,7 +2953,7 @@ struct SwashTextView: NSViewRepresentable {
             let fullRange = NSRange(location: 0, length: textStorage.length)
             textStorage.beginEditing()
             
-            let monospaceFont = NSFont.monospacedSystemFont(ofSize: 13.5, weight: .regular)
+            let monospaceFont = parent.typography.sourceFont
             textStorage.setAttributes([
                 .font: monospaceFont,
                 .foregroundColor: NSColor.textColor
@@ -2952,6 +2969,7 @@ struct SwashTextView: NSViewRepresentable {
             lastStyledText = textView.string
             lastIsStyled = false
             lastFlavor = parent.flavor
+            lastTypography = parent.typography
             lastBaseURL = parent.baseURL ?? textView.window?.representedURL ?? (textView.window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
         }
         

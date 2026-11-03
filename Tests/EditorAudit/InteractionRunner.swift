@@ -551,6 +551,114 @@ struct InteractionRunner {
              log("typewriter-centres-caret", "caret on line 70 of 120", abs(offset - clip.bounds.height / 2) < 2 ? "centred" : "offset \(offset) of \(clip.bounds.height)",
                  expect: "centred") }
 
+        // Typography settings (font, text size, line width, theme)
+        do { let t = EditorTypography()
+             log("typography-defaults", "EditorTypography()",
+                 "size=\(t.textSize) body=\(t.bodyFont == NSFont.systemFont(ofSize: 14)) source=\(t.sourceFont.pointSize) h1=\(t.scaled(MarkdownEditorStyler.headingSize(1))) accent=\(t.accentColor == .controlAccentColor) link=\(t.linkColor == .systemBlue) previewBody=\(t.previewFont() == .body) column=\(t.readableColumnWidth)",
+                 expect: "size=14.0 body=true source=13.5 h1=24.0 accent=true link=true previewBody=true column=700.0") }
+        do { let t = EditorTypography(font: .serif, textSize: 21)
+             let serif = t.bodyFont.fontName.contains("NewYork")
+             log("typography-scaled-values", "serif, 21 pt",
+                 "scale=\(t.scale) h1=\(t.scaled(MarkdownEditorStyler.headingSize(1))) serif=\(serif) mono=\(EditorTypography(font: .mono).bodyFont.isFixedPitch) column=\(t.readableColumnWidth)",
+                 expect: "scale=1.5 h1=36.0 serif=true mono=true column=1050.0") }
+        do { // Styling uses the settings, and a change restyles the open editor in place
+             let b = TextBox("# Title\n\nBody with `code` and [link](https://example.com).")
+             let binding = Binding<String>(get: { b.text }, set: { b.text = $0 })
+             func view(_ t: EditorTypography) -> some View {
+                 SwashTextView(text: binding, selectedRange: .constant(nil), selectionRect: .constant(nil),
+                               isStyled: true, flavor: .github, typography: t).frame(width: 600, height: 600)
+             }
+             let host = NSHostingView(rootView: view(EditorTypography()))
+             host.frame = NSRect(x: 0, y: 0, width: 600, height: 600)
+             let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+             win.contentView = host; windows.append(win); host.layoutSubtreeIfNeeded(); pump(0.3)
+             let tv = findTextView(in: host)!
+             func probe() -> String {
+                 let s = tv.string as NSString, storage = tv.textStorage!
+                 func font(_ needle: String) -> NSFont { storage.attribute(.font, at: s.range(of: needle).location, effectiveRange: nil) as! NSFont }
+                 func color(_ needle: String) -> NSColor? { storage.attribute(.foregroundColor, at: s.range(of: needle).location, effectiveRange: nil) as? NSColor }
+                 let serif = font("Body").fontName.contains("NewYork")
+                 return "body=\(font("Body").pointSize)\(serif ? " serif" : "") h1=\(font("Title").pointSize) code=\(font("code").pointSize)\(font("code").isFixedPitch ? " mono" : "") codeTeal=\(color("code") == .systemTeal) linkTeal=\(color("link") == .systemTeal) paper=\(tv.backgroundColor == EditorTheme.paper.background)"
+             }
+             let before = probe()
+             host.rootView = view(EditorTypography(font: .serif, textSize: 21, theme: .ocean)); pump(0.3)
+             let after = probe()
+             host.rootView = view(EditorTypography(theme: .paper)); pump(0.3)
+             let paper = probe()
+             log("typography-live-restyle", before, after + " | " + paper,
+                 expect: "body=21.0 serif h1=36.0 code=20.0 mono codeTeal=true linkTeal=true paper=false | body=14.0 h1=24.0 code=13.0 mono codeTeal=false linkTeal=false paper=true")
+             log("typography-default-styling", "default typography", before,
+                 expect: "body=14.0 h1=24.0 code=13.0 mono codeTeal=false linkTeal=false paper=false") }
+        do { // Source mode follows the text size, staying monospaced
+             let b = TextBox("Plain source")
+             let binding = Binding<String>(get: { b.text }, set: { b.text = $0 })
+             let host = NSHostingView(rootView: SwashTextView(text: binding, selectedRange: .constant(nil), selectionRect: .constant(nil),
+                                                              isStyled: false, flavor: .github, typography: EditorTypography(textSize: 28)).frame(width: 600, height: 600))
+             host.frame = NSRect(x: 0, y: 0, width: 600, height: 600)
+             let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+             win.contentView = host; windows.append(win); host.layoutSubtreeIfNeeded(); pump(0.3)
+             let tv = findTextView(in: host)!
+             let font = tv.textStorage!.attribute(.font, at: 0, effectiveRange: nil) as! NSFont
+             log("typography-source-mode", "28 pt", "size=\(font.pointSize) mono=\(font.isFixedPitch)", expect: "size=27.0 mono=true") }
+        do { // Readable column: the text is centred in a column, full width otherwise
+             let b = TextBox("Some text")
+             let full = makeEditor(b, writing: WritingOptions())
+             let column = makeEditor(b, writing: WritingOptions(readableColumn: true, columnWidth: 300))
+             let clip = column.enclosingScrollView!.contentView.bounds.width
+             let expected = max(20, ((clip - 300) / 2).rounded())
+             log("typography-readable-column", "column 300 in \(clip)", "full=\(full.textContainerInset.width) column=\(column.textContainerInset.width == expected)",
+                 expect: "full=20.0 column=true") }
+        do { // Preview: bigger text is taller; a readable column is narrower; blocks re-render when typography changes
+             let md = (1...40).map { "Paragraph \($0) with enough words to wrap across the preview when the text gets larger, or when it is set in a readable column instead." }.joined(separator: "\n\n")
+             /// Content height, and the left edge of the text (points) in a snapshot of the visible page.
+             func measure(_ t: EditorTypography) -> (height: CGFloat, left: Int) {
+                 let host = NSHostingView(rootView: MarkdownPreviewView(text: md, flavor: .github, typography: t).frame(width: 1200, height: 600))
+                 host.frame = NSRect(x: 0, y: 0, width: 1200, height: 600)
+                 let win = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+                 win.contentView = host; windows.append(win); pump(0.4)
+                 func allScrollViews(in v: NSView) -> [NSScrollView] { ((v as? NSScrollView).map { [$0] } ?? []) + v.subviews.flatMap(allScrollViews) }
+                 var left = -1
+                 if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                     host.cacheDisplay(in: host.bounds, to: rep)
+                     let scale = CGFloat(rep.pixelsWide) / host.bounds.width
+                     let background = rep.colorAt(x: 1, y: 1)?.usingColorSpace(.sRGB)
+                     columns: for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                         for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+                             if let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), let b = background,
+                                abs(c.redComponent - b.redComponent) + abs(c.greenComponent - b.greenComponent) + abs(c.blueComponent - b.blueComponent) > 0.3 {
+                                 left = Int(CGFloat(x) / scale); break columns
+                             }
+                         }
+                     }
+                 }
+                 return (allScrollViews(in: host).compactMap { $0.documentView?.frame.height }.max() ?? 0, left)
+             }
+             let normal = measure(EditorTypography())
+             let large = measure(EditorTypography(textSize: 22))
+             let readable = measure(EditorTypography(lineWidth: .readable, theme: .forest))
+             log("typography-preview-size", "40 paragraphs at 14 / 22 pt, and in a readable column",
+                 "largerTaller=\(large.height > normal.height * 1.1) fullLeft=\(normal.left < 60) columnCentred=\(abs(readable.left - (1200 - 756) / 2 - 28) < 20)",
+                 expect: "largerTaller=true fullLeft=true columnCentred=true")
+             let document = MarkdownDocument.parse("Hello")
+             let plain = MarkdownBlockView(node: document.root.children[0], context: MarkdownRenderContext(document: document, baseURL: nil))
+             let themed = MarkdownBlockView(node: document.root.children[0], context: MarkdownRenderContext(document: document, baseURL: nil, typography: EditorTypography(theme: .rose)))
+             log("typography-preview-block-equality", "same block, different theme", "equal=\(plain == themed) self=\(plain == plain)", expect: "equal=false self=true") }
+        do { // View › Bigger / Smaller / Actual Size, and ⌘= in the editor
+             let defaults = UserDefaults.standard
+             defaults.removeObject(forKey: EditorTypography.Keys.textSize)
+             EditorTypography.adjustTextSize(by: 1); let bigger = EditorTypography.current.textSize
+             EditorTypography.adjustTextSize(by: -3); let smaller = EditorTypography.current.textSize
+             for _ in 0..<40 { EditorTypography.adjustTextSize(by: 1) }; let capped = EditorTypography.current.textSize
+             EditorTypography.adjustTextSize(by: 0); let reset = EditorTypography.current.textSize
+             let b = TextBox("Zoom"); let tv = makeEditor(b)
+             let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: tv.window!.windowNumber,
+                                          context: nil, characters: "=", charactersIgnoringModifiers: "=", isARepeat: false, keyCode: 24)!
+             let handled = tv.performKeyEquivalent(with: event)
+             let afterKey = EditorTypography.current.textSize
+             defaults.removeObject(forKey: EditorTypography.Keys.textSize)
+             log("typography-zoom", "14 → +1 → −3 → +40 → reset → ⌘=", "\(bigger) \(smaller) \(capped) \(reset) handled=\(handled) \(afterKey) text=\(b.text)",
+                 expect: "15.0 12.0 32.0 14.0 handled=true 15.0 text=Zoom") }
+
         // Images pasted or dropped are copied beside the document and linked relatively
         do { let folder = FileManager.default.temporaryDirectory.appendingPathComponent("swash-images-\(UUID().uuidString)")
              try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
