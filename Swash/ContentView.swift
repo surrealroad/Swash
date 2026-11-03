@@ -1789,7 +1789,7 @@ struct ContentView: View {
     
     private func codeFormat(forLanguage language: String?) -> CodeFormat {
         guard let lang = language?.lowercased(), !lang.isEmpty else { return .plainBlock }
-        return CodeFormat.allCases.first(where: { $0.languageSignifier == lang }) ?? .plainBlock
+        return CodeLanguage(name: lang).map { CodeFormat.language($0) } ?? .plainBlock
     }
     
     private func determineActiveCodeFormat() -> CodeFormat? {

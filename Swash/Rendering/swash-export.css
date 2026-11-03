@@ -37,6 +37,19 @@ code, pre, kbd { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospac
 code { padding: 0.15em 0.35em; border-radius: 5px; background: #eff1f3; }
 pre { padding: 14px 16px; overflow: auto; border-radius: 8px; background: #f6f8fa; line-height: 1.45; }
 pre code { padding: 0; background: none; font-size: 100%; white-space: pre-wrap; word-break: break-word; }
+/* Code colours (CodeHighlighter tokens) */
+.tok-keyword, .tok-literal { color: #cf222e; }
+.tok-type, .tok-emphasis { color: #8250df; }
+.tok-emphasis { font-style: italic; }
+.tok-builtin, .tok-function { color: #6639ba; }
+.tok-string, .tok-regex { color: #0a3069; }
+.tok-number, .tok-attribute, .tok-property { color: #0550ae; }
+.tok-comment { color: #59636e; font-style: italic; }
+.tok-meta, .tok-variable { color: #953800; }
+.tok-tag { color: #116329; }
+.tok-heading { color: #0550ae; font-weight: 600; }
+.tok-inserted { color: #116329; background: #dafbe1; }
+.tok-deleted { color: #82071e; background: #ffebe9; }
 kbd { padding: 0.1em 0.4em; border: 1px solid #d1d9e0; border-bottom-width: 2px; border-radius: 5px; background: #f6f8fa; }
 
 blockquote { padding: 0 1em; border-left: 0.25em solid #d1d9e0; color: #59636e; }

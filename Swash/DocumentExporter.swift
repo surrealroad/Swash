@@ -46,6 +46,7 @@ final class DocumentExporter: NSObject {
         let document = MarkdownPreviewView.parse(source.text, flavor: source.flavor)
         var options = MarkdownHTMLRenderer.Options()
         options.alertMarkup = true
+        options.highlightCode = true
         if embedImages {
             let folder = source.fileURL?.deletingLastPathComponent()
             options.imageSource = { embeddedImageSource($0, folder: folder) }

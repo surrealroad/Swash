@@ -785,18 +785,9 @@ final class MarkdownEditorStyler {
     // MARK: - Code
 
     private func highlightCode(in node: MarkdownNode, language: String?) {
-        guard let language = language else { return }
-        let range = rawClamp(node.range)
-        var line = range.location
-        let end = range.location + range.length
-        while line < end {
-            let lineRange = text.lineRange(for: NSRange(location: line, length: 0))
-            var contentLength = lineRange.length
-            if contentLength > 0 && text.character(at: lineRange.location + contentLength - 1) == 0x0A { contentLength -= 1 }
-            let lineText = text.substring(with: NSRange(location: lineRange.location, length: contentLength))
-            MarkdownCodeHighlighter.highlight(line: lineText, offset: lineRange.location - storageShift, language: language, in: storage)
-            if lineRange.length == 0 { break }
-            line = lineRange.location + lineRange.length
+        MarkdownCodeHighlighter.highlight(block: node, language: language, source: text) { range, color in
+            let r = valid(range)
+            if r.length > 0 { storage.addAttribute(.foregroundColor, value: color, range: r) }
         }
     }
 
@@ -825,52 +816,5 @@ final class MarkdownEditorStyler {
 
     static func url(_ destination: String) -> URL? {
         URL(string: destination) ?? URL(string: MarkdownSyntax.normalizeURI(destination))
-    }
-}
-
-/// Lightweight keyword / string / number / comment colouring for code block lines.
-enum MarkdownCodeHighlighter {
-    private static let keywordsByLanguage: [String: [String]] = [
-        "javascript": ["func", "function", "let", "var", "const", "return", "class", "import", "if", "else", "for", "while", "in", "switch", "case", "break", "continue", "struct", "enum"],
-        "swift": ["func", "function", "let", "var", "const", "return", "class", "import", "if", "else", "for", "while", "in", "switch", "case", "break", "continue", "struct", "enum"],
-        "python": ["def", "class", "import", "from", "return", "if", "elif", "else", "for", "while", "in", "as", "try", "except", "lambda", "pass"],
-        "css": ["body", "html", "div", "span", "p", "a", "img", "button", "input", "label", "form", "section", "header", "footer", "h1", "h2", "h3"],
-        "bash": ["if", "then", "else", "elif", "fi", "for", "while", "in", "do", "done", "case", "esac", "function", "return", "local", "echo", "exit"],
-        "sh": ["if", "then", "else", "elif", "fi", "for", "while", "in", "do", "done", "case", "esac", "function", "return", "local", "echo", "exit"],
-    ]
-    private static var keywordRegexes: [String: NSRegularExpression] = [:]
-    private static let stringRegex = try! NSRegularExpression(pattern: "\"[^\"]*\"|'[^']*'")
-    private static let numberRegex = try! NSRegularExpression(pattern: "\\b\\d+\\b")
-
-    static func highlight(line: String, offset: Int, language: String?, in storage: NSTextStorage) {
-        guard let lang = language?.lowercased() else { return }
-        let full = NSRange(location: 0, length: storage.length)
-        func color(_ range: NSRange, _ color: NSColor) {
-            let r = NSIntersectionRange(NSRange(location: offset + range.location, length: range.length), full)
-            if r.length > 0 { storage.addAttribute(.foregroundColor, value: color, range: r) }
-        }
-        let length = (line as NSString).length
-        if ["python", "bash", "sh"].contains(lang), let hash = line.firstIndex(of: "#") {
-            let start = line.utf16.distance(from: line.startIndex, to: hash)
-            color(NSRange(location: start, length: length - start), .secondaryLabelColor)
-            return
-        }
-        if ["javascript", "swift", "html", "css", "json"].contains(lang), line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
-            color(NSRange(location: 0, length: length), .secondaryLabelColor)
-            return
-        }
-        let lineRange = NSRange(location: 0, length: length)
-        if let words = keywordsByLanguage[lang] {
-            let regex: NSRegularExpression
-            if let cached = keywordRegexes[lang] {
-                regex = cached
-            } else {
-                regex = try! NSRegularExpression(pattern: "\\b(" + words.joined(separator: "|") + ")\\b")
-                keywordRegexes[lang] = regex
-            }
-            for m in regex.matches(in: line, options: [], range: lineRange) { color(m.range, .systemPink) }
-        }
-        for m in stringRegex.matches(in: line, options: [], range: lineRange) { color(m.range, .systemGreen) }
-        for m in numberRegex.matches(in: line, options: [], range: lineRange) { color(m.range, .systemOrange) }
     }
 }

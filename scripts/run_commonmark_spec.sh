@@ -17,6 +17,7 @@ swiftc -O \
   Swash/Markdown/*.swift \
   Tests/CommonMarkSpec/SpecRunner.swift \
   Tests/CommonMarkSpec/ParserChecks.swift \
+  Tests/CommonMarkSpec/CodeHighlighterChecks.swift \
   -o "$BIN"
 
 "$BIN" Tests/CommonMarkSpec/fixtures "$@"
