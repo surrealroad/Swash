@@ -1,5 +1,11 @@
 # swash
 
+## 1.19.1
+
+### Patch Changes
+
+- f106ab2: The Markdown engine (parser, preview and export renderer, HTML paste conversion, code highlighting, and the formatting and editing commands) now comes from the shared `PixerateMarkdown` package in the Pixerate editor repo instead of Swash's own copy. Editing, the Preview, Quick Look and export behave as before.
+
 ## 1.19.0
 
 ### Minor Changes
