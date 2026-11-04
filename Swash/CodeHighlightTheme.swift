@@ -8,6 +8,7 @@
 //
 
 import AppKit
+import PixerateMarkdown
 
 enum CodeHighlightTheme {
     /// (light, dark) sRGB colours, close to Xcode's default themes.

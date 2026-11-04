@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import PixerateMarkdown
 
 final class TextBox { var text: String; init(_ t: String) { text = t } }
 func pump(_ s: Double = 0.15) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }

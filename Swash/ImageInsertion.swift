@@ -10,6 +10,7 @@
 
 import AppKit
 import UniformTypeIdentifiers
+import PixerateMarkdown
 
 enum ImageInsertion {
     static let folderDefaultsKey = "imageAssetsFolder"

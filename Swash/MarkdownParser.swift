@@ -7,6 +7,7 @@
 
 import Foundation
 import AppKit
+import PixerateMarkdown
 
 struct MarkdownTableData: Equatable {
     var headers: [String]

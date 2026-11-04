@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import PixerateMarkdown
 
 // Audit harness: loads markdown into the real SwashTextView (WYSIWYG "Edit Text" mode),
 // dumps what the user actually sees (hidden markers removed) plus style runs,

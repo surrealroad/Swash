@@ -11,6 +11,7 @@
 import Foundation
 import WebKit
 import UniformTypeIdentifiers
+import PixerateMarkdown
 #if os(macOS)
 import AppKit
 #else
