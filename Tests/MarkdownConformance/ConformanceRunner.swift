@@ -3,7 +3,8 @@
 //  Swash
 //
 //  Runs the shared Markdown editing corpus from `@pixerate/markdown-conformance` against
-//  Swash's editing engine (FormatCommandEdits, MarkdownFormatting, MarkdownEditingCommands).
+//  Swash's editing engine in PixerateMarkdown (FormatCommandEdits, MarkdownFormatting,
+//  MarkdownEditingCommands).
 //  Fixtures address raw Markdown (GOTCHAS #9), so the text and range are used directly.
 //
 //  `edit.*` commands model the editor's key handling: when a command returns nil, the text view
@@ -15,6 +16,7 @@
 //
 
 import Foundation
+import PixerateMarkdown
 
 struct ConformanceCase {
     let file: String

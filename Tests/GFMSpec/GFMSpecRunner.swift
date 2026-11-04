@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import PixerateMarkdown
 
 // MARK: - Fixture Models
 
@@ -876,7 +877,7 @@ struct GFMSpecRunner {
 // MARK: - AST adapter
 //
 // The GFM fixtures were written against Swash's original flat block parser. These types map
-// the shared Markdown AST (Swash/Markdown) onto that flat shape so the same assertions now
+// the shared Markdown AST (PixerateMarkdown) onto that flat shape so the same assertions now
 // exercise the parser the app actually uses.
 
 enum BlockType: Equatable {

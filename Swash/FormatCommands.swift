@@ -10,6 +10,7 @@ import SwiftUI
 #if os(macOS)
 import AppKit
 #endif
+import PixerateMarkdown
 
 #if os(macOS)
 extension FormatCommand {

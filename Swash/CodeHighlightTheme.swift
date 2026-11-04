@@ -12,6 +12,7 @@ import AppKit
 #else
 import UIKit
 #endif
+import PixerateMarkdown
 
 enum CodeHighlightTheme {
     /// (light, dark) sRGB colours, close to Xcode's default themes.

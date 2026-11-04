@@ -10,6 +10,7 @@
 #if os(iOS)
 import SwiftUI
 import UIKit
+import PixerateMarkdown
 
 /// Lets SwiftUI read the selection and apply edits through whichever editor is on screen, so they
 /// go through UIKit's undo manager and keep the selection (the iOS counterpart of

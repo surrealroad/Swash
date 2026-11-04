@@ -20,7 +20,7 @@ Status: **in progress** on the `feat/universal-ios` branch. The phase checklists
 
 | Area | Files | Portability |
 |---|---|---|
-| Markdown core | `Swash/Markdown/*` | Foundation only, except `HTMLToMarkdown`'s use of `XMLDocument`. iOS uses `HTMLLiteDOM` instead (GOTCHAS #48). |
+| Markdown core | The `PixerateMarkdown` package (GOTCHAS #63) | Foundation only, except `HTMLToMarkdown`'s use of `XMLDocument`. iOS uses the package's `HTMLLiteDOM` instead (GOTCHAS #48). |
 | Document model, flavour, settings | `SwashDocument`, `MarkdownFlavor`, `SettingsView` | SwiftUI. Mostly portable. |
 | Preview ("Formatted") | `MarkdownPreviewView` | SwiftUI views. Only the scroll container, scroll sync, nested-scroll routing and a few colours are AppKit. |
 | Rich rendering | `RichContentRenderer` | WebKit works on iOS. The only differences are image types and the snapshot sizing. |

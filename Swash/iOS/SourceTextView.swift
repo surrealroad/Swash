@@ -10,6 +10,7 @@
 import SwiftUI
 import MacAppKitExtras
 import UIKit
+import PixerateMarkdown
 
 struct SourceTextView: UIViewRepresentable {
     @Binding var text: String

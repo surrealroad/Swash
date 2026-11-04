@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import PixerateMarkdown
 
 /// The heading outline of the document in an editor. ContentView keeps it current and handles a
 /// chosen heading; the outline sidebar of a document window or a folder window shows it.

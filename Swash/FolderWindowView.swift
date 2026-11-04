@@ -11,6 +11,7 @@
 import SwiftUI
 import MacAppKitExtras
 import AppKit
+import PixerateMarkdown
 
 struct FolderWindowView: View {
     let folderURL: URL

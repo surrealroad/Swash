@@ -9,6 +9,7 @@ import SwiftUI
 #if os(macOS)
 import AppKit
 #endif
+import PixerateMarkdown
 
 extension Notification.Name {
     static let applyCellFormatting = Notification.Name("applyCellFormatting")

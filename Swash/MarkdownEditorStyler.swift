@@ -13,6 +13,7 @@ import AppKit
 #else
 import UIKit
 #endif
+import PixerateMarkdown
 
 #if os(macOS)
 /// An NSTextBlock whose background starts at its left margin, so blocks nested in list items are

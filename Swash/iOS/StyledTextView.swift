@@ -11,6 +11,7 @@
 #if os(iOS)
 import SwiftUI
 import UIKit
+import PixerateMarkdown
 
 struct StyledTextView: UIViewRepresentable {
     @Binding var text: String

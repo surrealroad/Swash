@@ -12,6 +12,7 @@ import AppKit
 #else
 import UIKit
 #endif
+import PixerateMarkdown
 
 struct MarkdownTableData: Equatable {
     var headers: [String]

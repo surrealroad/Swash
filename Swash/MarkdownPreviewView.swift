@@ -10,6 +10,7 @@ import MacAppKitExtras
 #if os(macOS)
 import AppKit
 #endif
+import PixerateMarkdown
 
 #if os(macOS)
 struct PreviewScrollView<Content: View>: NSViewRepresentable {

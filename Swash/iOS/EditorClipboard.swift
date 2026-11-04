@@ -10,6 +10,7 @@
 #if os(iOS)
 import UIKit
 import UniformTypeIdentifiers
+import PixerateMarkdown
 
 enum EditorClipboard {
     /// Raw Markdown written by Swash's own copy, so copy and paste between Swash documents is lossless.

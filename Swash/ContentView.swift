@@ -9,6 +9,7 @@
 import SwiftUI
 import MacAppKitExtras
 import UniformTypeIdentifiers
+import PixerateMarkdown
 
 struct BubbleMenuSizePreferenceKey: PreferenceKey {
     static var defaultValue: CGSize = .zero

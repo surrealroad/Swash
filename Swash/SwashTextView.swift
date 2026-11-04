@@ -9,6 +9,7 @@
 import SwiftUI
 import MacAppKitExtras
 import AppKit
+import PixerateMarkdown
 
 func logDebug(_ message: String) {
     // No-op in production. Diagnostics disabled.

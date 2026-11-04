@@ -10,6 +10,7 @@
 import SwiftUI
 import MacAppKitExtras
 import UIKit
+import PixerateMarkdown
 
 struct IOSContentView: View {
     @Binding var document: SwashDocument
