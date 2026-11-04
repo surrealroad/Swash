@@ -7,18 +7,25 @@
 
 import SwiftUI
 
+/// The heading outline of the document in an editor. ContentView keeps it current and handles a
+/// chosen heading; the outline sidebar of a document window or a folder window shows it.
+@MainActor @Observable
+final class DocumentOutlineState {
+    var outline = MarkdownOutline(text: "")
+    /// The heading around the caret.
+    var currentIndex: Int?
+    /// Moves the editor to a heading.
+    @ObservationIgnored var select: (MarkdownOutline.Heading) -> Void = { _ in }
+}
+
 /// Sidebar listing the document's headings; the heading around the caret is highlighted and
 /// choosing one moves the editor there.
 struct DocumentOutlineView: View {
-    let outline: MarkdownOutline
-    let currentIndex: Int?
-    let onSelect: (MarkdownOutline.Heading) -> Void
-
-    /// The sidebar's fixed width; ContentView resizes the window by it when the outline is toggled.
-    static let width: CGFloat = 220
+    let state: DocumentOutlineState
 
     var body: some View {
         Group {
+            let outline = state.outline
             if outline.headings.isEmpty {
                 VStack(spacing: 6) {
                     Image(systemName: "list.bullet.indent")
@@ -38,10 +45,11 @@ struct DocumentOutlineView: View {
                 let minLevel = outline.headings.map(\.level).min() ?? 1
                 ScrollViewReader { proxy in
                     List(selection: Binding<Int?>(
-                        get: { currentIndex },
+                        get: { state.currentIndex },
                         set: { index in
                             if let index = index, outline.headings.indices.contains(index) {
-                                onSelect(outline.headings[index])
+                                state.currentIndex = index
+                                state.select(outline.headings[index])
                             }
                         }
                     )) {
@@ -58,13 +66,12 @@ struct DocumentOutlineView: View {
                         }
                     }
                     .listStyle(.sidebar)
-                    .onChange(of: currentIndex) { _, index in
+                    .onChange(of: state.currentIndex) { _, index in
                         if let index = index { proxy.scrollTo(index) }
                     }
                 }
             }
         }
-        .frame(width: Self.width)
         .accessibilityLabel("Outline")
     }
 }

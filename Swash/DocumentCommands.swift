@@ -22,6 +22,11 @@ struct DocumentFileURLKey: FocusedValueKey {
     typealias Value = URL
 }
 
+/// Whether the focused window shows the heading outline, for View › Show Outline.
+struct OutlineVisibilityKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 /// The focused document's view mode and a way to switch it, for the View menu.
 struct ViewModeSelection {
     let current: ViewMode
@@ -47,6 +52,11 @@ extension FocusedValues {
         get { self[DocumentFileURLKey.self] }
         set { self[DocumentFileURLKey.self] = newValue }
     }
+
+    var outlineVisibility: Binding<Bool>? {
+        get { self[OutlineVisibilityKey.self] }
+        set { self[OutlineVisibilityKey.self] = newValue }
+    }
 }
 
 /// Edit menu "Copy …" items and the View menu's view modes and outline toggle.
@@ -54,7 +64,7 @@ struct DocumentMenuCommands: Commands {
     @FocusedValue(\.documentCommandHandler) private var handler
     @FocusedValue(\.viewModeSelection) private var viewMode
     @FocusedValue(\.documentFileURL) private var fileURL
-    @AppStorage("showOutline") private var showOutline = false
+    @FocusedValue(\.outlineVisibility) private var showOutline
 
     var body: some Commands {
         CommandGroup(after: .pasteboard) {
@@ -77,8 +87,9 @@ struct DocumentMenuCommands: Commands {
                 .disabled(viewMode == nil)
             }
             Divider()
-            Button(showOutline ? "Hide Outline" : "Show Outline") { showOutline.toggle() }
+            Button(showOutline?.wrappedValue == true ? "Hide Outline" : "Show Outline") { showOutline?.wrappedValue.toggle() }
                 .keyboardShortcut("s", modifiers: [.command, .control])
+                .disabled(showOutline == nil)
             Divider()
         }
     }

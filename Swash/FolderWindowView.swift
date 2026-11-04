@@ -67,9 +67,12 @@ private struct FolderBrowserView: View {
     @StateObject private var workspace: FolderWorkspace
     @State private var window: NSWindow?
 
-    /// What the sidebar shows: the file tree (filtered by name) or full-text search results.
-    enum SidebarMode: Hashable { case files, search }
+    /// What the sidebar shows: the file tree (filtered by name), full-text search results or the
+    /// open file's heading outline.
+    enum SidebarMode: Hashable { case files, search, outline }
     @State private var mode: SidebarMode = .files
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var outline = DocumentOutlineState()
     @State private var query = ""
     @FocusState private var queryFocused: Bool
     @State private var expanded: Set<URL> = []
@@ -84,7 +87,7 @@ private struct FolderBrowserView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
         } detail: {
             detail
@@ -94,10 +97,17 @@ private struct FolderBrowserView: View {
         .background(WindowAccessor(window: $window))
         .onAppear { workspace.open() }
         .onDisappear { workspace.close() }
+        .focusedSceneValue(\.outlineVisibility, Binding(
+            get: { mode == .outline },
+            set: { shown in
+                mode = shown ? .outline : .files
+                if shown { columnVisibility = .all }
+            }
+        ))
         .onChange(of: workspace.selectedFile) { _, file in
             // Undo actions belong to the previous file's editor
             window?.undoManager?.removeAllActions()
-            if let file { expandAncestors(of: file) }
+            if let file { expandAncestors(of: file) } else { outline.outline = MarkdownOutline(text: "") }
         }
         .onChange(of: workspace.hasUnsavedChanges) { _, unsaved in
             window?.isDocumentEdited = unsaved
@@ -131,7 +141,7 @@ private struct FolderBrowserView: View {
         if let file = workspace.selectedFile {
             // Not `.id(file)`: rebuilding ContentView also rebuilds its customizable toolbar,
             // and AppKit throws while removing the old items. `documentID` resets only the editor.
-            ContentView(document: $workspace.document, fileURL: file, documentID: file)
+            ContentView(document: $workspace.document, fileURL: file, documentID: file, hostedOutline: outline)
                 .environment(\.noteLinkHandler, { [weak workspace] url in workspace?.openLink(url) ?? false })
                 .environment(\.textRevealRequest, workspace.revealRequest)
                 // Links in the split view's preview
@@ -159,7 +169,9 @@ private struct FolderBrowserView: View {
 
     private var sidebar: some View {
         Group {
-            if mode == .search && !isQueryEmpty {
+            if mode == .outline {
+                DocumentOutlineView(state: outline)
+            } else if mode == .search && !isQueryEmpty {
                 searchResultsList
             } else {
                 fileTree
@@ -194,33 +206,36 @@ private struct FolderBrowserView: View {
             Picker("Sidebar", selection: $mode) {
                 Text("Files").tag(SidebarMode.files)
                 Text("Search").tag(SidebarMode.search)
+                Text("Outline").tag(SidebarMode.outline)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            HStack(spacing: 4) {
-                Image(systemName: mode == .files ? "line.3.horizontal.decrease" : "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField(mode == .files ? "Filter by Name" : "Search in Notes", text: $query)
-                    .textFieldStyle(.plain)
-                    .focused($queryFocused)
-                    .onSubmit {
-                        if mode == .search, let first = workspace.searchResults.first { open(first) }
+            if mode != .outline {
+                HStack(spacing: 4) {
+                    Image(systemName: mode == .files ? "line.3.horizontal.decrease" : "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField(mode == .files ? "Filter by Name" : "Search in Notes", text: $query)
+                        .textFieldStyle(.plain)
+                        .focused($queryFocused)
+                        .onSubmit {
+                            if mode == .search, let first = workspace.searchResults.first { open(first) }
+                        }
+                        .onExitCommand { query = "" }
+                    if !query.isEmpty {
+                        Button {
+                            query = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Clear")
                     }
-                    .onExitCommand { query = "" }
-                if !query.isEmpty {
-                    Button {
-                        query = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Clear")
                 }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
