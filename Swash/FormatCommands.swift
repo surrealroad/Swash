@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AppKit
+import PixerateMarkdown
 
 extension FormatCommand {
     /// Maps a key-down event to a command, using the manifest's shortcuts (letters by character,

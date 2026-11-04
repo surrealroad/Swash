@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import PixerateMarkdown
 
 /// Sidebar listing the document's headings; the heading around the caret is highlighted and
 /// choosing one moves the editor there.

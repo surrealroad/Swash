@@ -1,0 +1,24 @@
+{
+  "originHash" : "78791716016b811a47055affc16902cb69212fcd94ec78ae979192f17e9ae98d",
+  "pins" : [
+    {
+      "identity" : "editor",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Pixerate/editor",
+      "state" : {
+        "revision" : "487a96677324ec1fc66074be6afeb6306ee29860",
+        "version" : "0.9.0"
+      }
+    },
+    {
+      "identity" : "sparkle",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sparkle-project/Sparkle",
+      "state" : {
+        "revision" : "ab7d71291238df6e0492143b120c9b696a35f603",
+        "version" : "2.10.1"
+      }
+    }
+  ],
+  "version" : 3
+}

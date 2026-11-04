@@ -33,12 +33,6 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      # FormatManifest.generated.swift is committed so Xcode never needs Node; fail if it is stale
-      - name: Check generated format manifest
-        run: |
-          node scripts/generate_format_manifest.mjs
-          git diff --exit-code Swash/Markdown/FormatManifest.generated.swift
-
       - name: Build (Release, ad-hoc signed)
         run: |
           xcodebuild -scheme Swash \
@@ -49,6 +43,11 @@ jobs:
 
       - name: Math and Mermaid rendering tests
         run: scripts/run_rich_render_tests.sh
+
+      # PixerateMarkdown (the Markdown engine, from the Pixerate editor repo) at the pinned revision:
+      # the CommonMark and GFM spec examples, its parser checks, and the shared editing corpus
+      - name: CommonMark and GFM spec tests
+        run: scripts/run_commonmark_spec.sh
 
       - name: Markdown conformance tests (@pixerate/markdown-conformance)
         run: scripts/run_conformance_tests.sh

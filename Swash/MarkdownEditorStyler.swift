@@ -9,6 +9,7 @@
 //
 
 import AppKit
+import PixerateMarkdown
 
 /// An NSTextBlock whose background starts at its left margin, so blocks nested in list items are
 /// indented instead of painting their background under the list indentation. NSTextBlock fills its

@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AppKit
+import PixerateMarkdown
 
 enum DocumentCommand {
     case copyHeadingLink, copyMarkdownLink, copyFilePath

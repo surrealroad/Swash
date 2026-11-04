@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import PixerateMarkdown
 
 enum ViewMode: String, CaseIterable, Identifiable {
     case edit = "Source"

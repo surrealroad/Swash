@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Translation
+import PixerateMarkdown
 
 enum FormatAction: Hashable {
     case bold

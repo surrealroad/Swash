@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import PixerateMarkdown
 func pump(_ s: Double = 0.2) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
 func findTextView(in v: NSView) -> NSTextView? { if let tv = v as? NSTextView { return tv }; for s in v.subviews { if let f = findTextView(in: s) { return f } }; return nil }
 @main struct PerfRunner { static func main() {

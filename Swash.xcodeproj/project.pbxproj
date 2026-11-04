@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		0460136230045F6A00853817 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0460136130045F6A00853817 /* Sparkle */; };
+		046013C230045F6A00853817 /* PixerateMarkdown in Frameworks */ = {isa = PBXBuildFile; productRef = 046013C130045F6A00853817 /* PixerateMarkdown */; };
+		046013C430045F6A00853817 /* PixerateMarkdown in Frameworks */ = {isa = PBXBuildFile; productRef = 046013C330045F6A00853817 /* PixerateMarkdown */; };
 		0460137130045F6800853817 /* SwashQuickLookExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460137030045F6800853817 /* SwashQuickLookExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0460138130045F6800853817 /* SwashShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460138030045F6800853817 /* SwashShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0460139130045F6800853817 /* SwashThumbnailExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460139030045F6800853817 /* SwashThumbnailExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -201,6 +203,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0460136230045F6A00853817 /* Sparkle in Frameworks */,
+				046013C230045F6A00853817 /* PixerateMarkdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -208,6 +211,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				046013C430045F6A00853817 /* PixerateMarkdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -265,6 +269,7 @@
 			name = Swash;
 			packageProductDependencies = (
 				0460136130045F6A00853817 /* Sparkle */,
+				046013C130045F6A00853817 /* PixerateMarkdown */,
 			);
 			productName = Swash;
 			productReference = 0460134030045F6800853817 /* Swash.app */;
@@ -287,6 +292,9 @@
 				0460137630045F6800853817 /* SwashQuickLookExtension */,
 			);
 			name = SwashQuickLookExtension;
+			packageProductDependencies = (
+				046013C330045F6A00853817 /* PixerateMarkdown */,
+			);
 			productName = SwashQuickLookExtension;
 			productReference = 0460137030045F6800853817 /* SwashQuickLookExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -389,6 +397,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				0460136030045F6A00853817 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				046013C030045F6A00853817 /* XCRemoteSwiftPackageReference "editor" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0460134130045F6800853817 /* Products */;
@@ -1016,6 +1025,14 @@
 				minimumVersion = 2.6.4;
 			};
 		};
+		046013C030045F6A00853817 /* XCRemoteSwiftPackageReference "editor" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Pixerate/editor";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.9.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1023,6 +1040,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0460136030045F6A00853817 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		046013C130045F6A00853817 /* PixerateMarkdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 046013C030045F6A00853817 /* XCRemoteSwiftPackageReference "editor" */;
+			productName = PixerateMarkdown;
+		};
+		046013C330045F6A00853817 /* PixerateMarkdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 046013C030045F6A00853817 /* XCRemoteSwiftPackageReference "editor" */;
+			productName = PixerateMarkdown;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

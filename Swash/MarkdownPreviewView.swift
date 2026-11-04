@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AppKit
+import PixerateMarkdown
 
 /// Keeps the editor and preview scroll positions in step by scrolling the clip views directly.
 /// Scroll positions never pass through SwiftUI state, so scrolling doesn't re-evaluate

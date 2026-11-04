@@ -44,30 +44,22 @@ This compiles `Tests/GFMSpec/GFMSpecRunner.swift` with the Swash markdown compon
 
 ## 3. Markdown Conformance (shared editing corpus)
 
-Swash's editing engine is held to the shared corpus in `@pixerate/markdown-conformance` (a pinned dev dependency, installed by `npm ci`):
+Swash's editing engine (`PixerateMarkdown`, from the Pixerate editor repo) is held to the shared corpus in `@pixerate/markdown-conformance`. Both come from the editor repo at the revision `Package.resolved` pins; `scripts/pixerate_markdown.sh` fetches them into `build/pixerate-editor` (set `PIXERATE_EDITOR_DIR` to use a local checkout instead):
 
 ```bash
-npm ci
 ./scripts/run_conformance_tests.sh            # all cases
 ./scripts/run_conformance_tests.sh --verbose  # print every case
 ./scripts/run_conformance_tests.sh --case link-update-url
 ```
 
-This compiles `Swash/Markdown/*.swift` with `Tests/MarkdownConformance/ConformanceRunner.swift` (Foundation only, no app target). Each fixture's selection markers (`‸`, `⟦…⟧`) become a raw-Markdown UTF-16 range; `format.*` commands go through `FormatCommandEdits` and `edit.*` through `MarkdownEditingCommands`. Cases with `skip.swash` upstream, or in the runner's `localSkips`, are reported as skipped with their reason. It exits non-zero on any failure, and the PR build runs it.
+This builds the `PixerateMarkdown` module and compiles `Tests/MarkdownConformance/ConformanceRunner.swift` against it (Foundation only, no app target). Each fixture's selection markers (`‸`, `⟦…⟧`) become a raw-Markdown UTF-16 range; `format.*` commands go through `FormatCommandEdits` and `edit.*` through `MarkdownEditingCommands`. Cases with `skip.swash` upstream, or in the runner's `localSkips`, are reported as skipped with their reason. It exits non-zero on any failure, and the PR build runs it.
 
-The Format menu, shortcuts, bubble-menu labels and code languages are generated from the package's `manifest.json`:
-
-```bash
-node scripts/generate_format_manifest.mjs           # rewrite Swash/Markdown/FormatManifest.generated.swift
-node scripts/generate_format_manifest.mjs --check   # exit 1 if the committed file is stale
-```
-
-Commit the generated file. To upgrade the package, bump the exact version in `package.json`, run `npm ci`, regenerate, then fix (or locally skip, with a reason) any new conformance failures. See GOTCHAS #45 and #46.
+The Format menu, shortcuts, bubble-menu labels and code languages come from the manifest, generated into the engine in the editor repo (`scripts/gen-swift-markdown.mjs`). To take a new manifest or engine, bump the PixerateMarkdown dependency, then fix (or locally skip, with a reason) any new conformance failures. See GOTCHAS #45, #46 and #47.
 
 ## 4. Other Test Suites
 
 ```bash
-./scripts/run_commonmark_spec.sh   # CommonMark/GFM parser spec and engine checks
+./scripts/run_commonmark_spec.sh   # CommonMark/GFM parser spec and engine checks (PixerateMarkdown)
 ./Tests/EditorAudit/run_audit.sh   # render, interaction, bubble-menu and perf harnesses
 ./scripts/run_rich_render_tests.sh # math and Mermaid rendering
 ./scripts/run_export_tests.sh      # HTML and PDF export

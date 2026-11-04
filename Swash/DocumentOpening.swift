@@ -11,6 +11,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import Combine
+import PixerateMarkdown
 
 // MARK: - Opening
 

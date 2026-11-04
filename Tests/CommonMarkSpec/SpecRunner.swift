@@ -5,11 +5,14 @@
 //  Runs the CommonMark 0.31.2 and GFM extension example suites against MarkdownDocument
 //  by rendering each example to HTML and comparing with the expected output. Also checks
 //  that every node's source range and markers lie within the source and nest in their parent.
+//  The fixtures, SpecStructure, ParserChecks and CodeHighlighterChecks come from
+//  PixerateMarkdown's tests in the Pixerate editor repo (scripts/pixerate_markdown.sh).
 //
 //  Usage: run_commonmark_spec.sh [--verbose] [--example N] [--section NAME]
 //
 
 import Foundation
+@testable import PixerateMarkdown
 
 struct SpecExample: Decodable {
     let markdown: String
@@ -54,7 +57,7 @@ struct SpecRunner {
                 stat.total += 1
                 if ok { stat.pass += 1; passed += 1 }
                 sectionStats[ex.section] = stat
-                if let problem = structureProblem(document) {
+                if let problem = SpecStructure.problem(in: document) {
                     structureFailures += 1
                     if verbose || onlyExample != nil { print("⚠️  [\(suite.name) #\(ex.example)] structure: \(problem)") }
                 }
@@ -80,30 +83,5 @@ struct SpecRunner {
             totalFailures += ParserChecks.run() + CodeHighlighterChecks.run()
         }
         exit(totalFailures == 0 ? 0 : 1)
-    }
-
-    /// Ranges must be inside the source; child and marker ranges must lie inside their node's range.
-    static func structureProblem(_ document: MarkdownDocument) -> String? {
-        let length = (document.source as NSString).length
-        var problem: String? = nil
-        func inside(_ inner: NSRange, _ outer: NSRange) -> Bool {
-            inner.location >= outer.location && inner.location + inner.length <= outer.location + outer.length
-        }
-        document.root.walk { node in
-            guard problem == nil else { return }
-            let r = node.range
-            if r.location < 0 || r.length < 0 || r.location + r.length > length {
-                problem = "\(node.kind) range \(r) outside source (length \(length))"
-                return
-            }
-            for marker in node.markers where !inside(marker, NSRange(location: 0, length: length)) {
-                problem = "\(node.kind) marker \(marker) outside source"
-                return
-            }
-            if let parent = node.parent, parent !== document.root, !inside(r, parent.range) {
-                problem = "\(node.kind) \(r) not inside parent \(parent.kind) \(parent.range)"
-            }
-        }
-        return problem
     }
 }
