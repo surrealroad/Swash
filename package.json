@@ -1,6 +1,6 @@
 {
   "name": "swash",
-  "version": "1.8.6",
+  "version": "1.19.0",
   "private": true,
   "description": "Native macOS Markdown Editor",
   "type": "module",
@@ -10,6 +10,7 @@
     "changeset:status": "changeset status --since=origin/main"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.1"
+    "@changesets/cli": "^3.0.3",
+    "@pixerate/markdown-conformance": "0.2.0"
   }
 }

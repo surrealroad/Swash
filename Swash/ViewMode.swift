@@ -20,6 +20,9 @@ enum ViewMode: String, CaseIterable, Identifiable {
         }
     }
     
+    /// Order of the View menu items (⌘1, ⌘2, ⌘3): the default view first.
+    static let menuOrder: [ViewMode] = [.preview, .edit, .split]
+
     var tooltip: String {
         switch self {
         case .edit: return "Show source"

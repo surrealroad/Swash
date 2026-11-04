@@ -22,6 +22,13 @@ extension NSColor {
     static var tertiaryTextColor: NSColor { .tertiaryLabelColor }
     static var accentTintColor: NSColor { .controlAccentColor }
     static var separatorLineColor: NSColor { .separatorColor }
+
+    /// A colour that follows the Light or Dark appearance it is drawn in.
+    static func appearanceAware(light: NSColor, dark: NSColor) -> NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+        }
+    }
 }
 
 extension NSFont {
@@ -34,6 +41,12 @@ extension NSFont {
 extension Image {
     init(platformImage: PlatformImage) {
         self.init(nsImage: platformImage)
+    }
+}
+
+extension Color {
+    init(platformColor: PlatformColor) {
+        self.init(nsColor: platformColor)
     }
 }
 
@@ -67,6 +80,16 @@ extension UIColor {
     static var tertiaryTextColor: UIColor { .tertiaryLabel }
     static var accentTintColor: UIColor { .tintColor }
     static var separatorLineColor: UIColor { .separator }
+
+    /// AppKit spelling of an sRGB colour.
+    convenience init(srgbRed red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
+        self.init(red: red, green: green, blue: blue, alpha: alpha)
+    }
+
+    /// A colour that follows the Light or Dark appearance it is drawn in.
+    static func appearanceAware(light: UIColor, dark: UIColor) -> UIColor {
+        UIColor { traits in traits.userInterfaceStyle == .dark ? dark : light }
+    }
 }
 
 extension UIFont {
@@ -80,6 +103,12 @@ extension UIFont {
 extension Image {
     init(platformImage: PlatformImage) {
         self.init(uiImage: platformImage)
+    }
+}
+
+extension Color {
+    init(platformColor: PlatformColor) {
+        self.init(uiColor: platformColor)
     }
 }
 

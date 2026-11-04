@@ -33,34 +33,43 @@ enum MarkdownEditingCommands {
         return Line(range: range, text: text, structure: MarkdownFormatting.structure(of: text))
     }
 
-    private static func isInCode(_ location: Int, text: String) -> Bool {
-        MarkdownFormatting(text: text).codeBlock(containing: NSRange(location: location, length: 0)) != nil
+    /// `document`, when given, must be the parse of `text`; callers that already have one pass it
+    /// so the check doesn't parse the whole document again.
+    private static func isInCode(_ location: Int, text: String, document: MarkdownDocument?) -> Bool {
+        let parsed = document.flatMap { $0.source == text ? $0 : nil }
+        return MarkdownFormatting(text: text, document: parsed).codeBlock(containing: NSRange(location: location, length: 0)) != nil
     }
 
     // MARK: - Enter
 
-    static func newline(text: String, selection: NSRange) -> MarkdownEdit? {
+    static func newline(text: String, selection: NSRange, document: MarkdownDocument? = nil) -> MarkdownEdit? {
         guard selection.length == 0 else { return nil }
         let ns = text as NSString
         let current = line(at: selection.location, in: ns)
         let s = current.structure
         guard current.isListItem || !s.quotePrefix.isEmpty else { return nil }
-        guard !isInCode(selection.location, text: text) else { return nil }
         let caretInLine = selection.location - current.range.location
         // Caret inside the prefix/marker: default behaviour
         guard caretInLine >= current.contentOffset else { return nil }
+        // The only check that parses the document, so it runs last
+        guard !isInCode(selection.location, text: text, document: document) else { return nil }
 
         let contentIsEmpty = s.content.trimmingCharacters(in: .whitespaces).isEmpty
         if contentIsEmpty {
             // Empty item: outdent a nested item, otherwise leave the list (or one quote level)
             if current.isListItem && !s.indent.isEmpty {
-                return outdent(text: text, selection: selection)
+                return outdent(text: text, selection: selection, document: document)
             }
-            let replacement: String
-            if current.isListItem {
-                replacement = s.quotePrefix
-            } else {
-                replacement = removingOneQuoteLevel(s.quotePrefix)
+            let prefix = current.isListItem ? s.quotePrefix : removingOneQuoteLevel(s.quotePrefix)
+            // A line straight after the list (or quote) would be a lazy continuation of it, so the
+            // new paragraph needs a blank line before it (one at the outer quote level).
+            var replacement = prefix
+            if current.range.location > 0 {
+                let previous = line(at: current.range.location - 1, in: ns)
+                if !previous.text.trimmingCharacters(in: CharacterSet(charactersIn: " \t>")).isEmpty {
+                    let blank = prefix.replacingOccurrences(of: "[ \t]+$", with: "", options: .regularExpression)
+                    replacement = blank + "\n" + prefix
+                }
             }
             let edited = ns.replacingCharacters(in: current.range, with: replacement)
             return MarkdownEdit(text: edited, selection: NSRange(location: current.range.location + (replacement as NSString).length, length: 0))
@@ -138,10 +147,10 @@ enum MarkdownEditingCommands {
     // MARK: - Tab / Shift-Tab
 
     /// Nests a list item under its previous sibling (indentation = that sibling's content column).
-    static func indent(text: String, selection: NSRange) -> MarkdownEdit? {
+    static func indent(text: String, selection: NSRange, document: MarkdownDocument? = nil) -> MarkdownEdit? {
         let ns = text as NSString
         let current = line(at: selection.location, in: ns)
-        guard current.isListItem, !isInCode(selection.location, text: text) else { return nil }
+        guard current.isListItem, !isInCode(selection.location, text: text, document: document) else { return nil }
         let level = current.structure.indent.count
         // Walk up past deeper (nested) lines and blank lines to the previous sibling item
         var sibling: Line? = nil
@@ -158,27 +167,71 @@ enum MarkdownEditingCommands {
             if candidate.range.location == 0 { break }
             search = candidate.range.location
         }
-        guard let previous = sibling else { return nil }
+        // A list item with nothing to nest under keeps the Tab (rather than inserting a tab character)
+        guard let previous = sibling else { return MarkdownEdit(text: text, selection: selection) }
         let width = previous.structure.marker.count
-        guard width > 0 else { return nil }
+        guard width > 0 else { return MarkdownEdit(text: text, selection: selection) }
         let insertAt = current.range.location + current.structure.quotePrefix.utf16.count
         let spaces = String(repeating: " ", count: width)
-        let edited = ns.replacingCharacters(in: NSRange(location: insertAt, length: 0), with: spaces)
-        return MarkdownEdit(text: edited, selection: NSRange(location: selection.location + width, length: selection.length))
+        let edited = NSMutableString(string: ns.replacingCharacters(in: NSRange(location: insertAt, length: 0), with: spaces))
+        var caret = selection.location + width
+        if current.structure.format == .numberedList {
+            // The item starts (or continues) the nested list, and the outer list closes the gap
+            let nestedIndent = level + width
+            var number = 1
+            var search = current.range.location
+            while search > previous.range.location {
+                let candidate = line(at: search - 1, in: ns)
+                if candidate.range.location <= previous.range.location { break }
+                if candidate.structure.quotePrefix == current.structure.quotePrefix,
+                   candidate.structure.indent.count == nestedIndent, candidate.structure.format == .numberedList {
+                    number = markerNumber(candidate.structure) + 1
+                    break
+                }
+                search = candidate.range.location
+            }
+            caret += setMarkerNumber(number, onLineAt: current.range.location, in: edited)
+            let nested = line(at: current.range.location, in: edited).structure
+            let renumbered = renumber(edited, fromLineAt: current.range.location, prefix: nested.quotePrefix + nested.indent)
+            let outer = renumber(renumbered, fromLineAt: previous.range.location, prefix: previous.structure.quotePrefix + previous.structure.indent)
+            return MarkdownEdit(text: outer as String, selection: NSRange(location: caret, length: selection.length))
+        }
+        return MarkdownEdit(text: edited as String, selection: NSRange(location: caret, length: selection.length))
+    }
+
+    /// The number of an ordered-list marker (`3. ` → 3).
+    private static func markerNumber(_ s: MarkdownFormatting.LineStructure) -> Int {
+        Int(s.marker.trimmingCharacters(in: .whitespaces).prefix(while: { $0.isNumber })) ?? 1
+    }
+
+    /// Renumbers the ordered-list marker of the line at `location`; returns the change in length.
+    private static func setMarkerNumber(_ number: Int, onLineAt location: Int, in text: NSMutableString) -> Int {
+        let current = line(at: location, in: text)
+        let s = current.structure
+        guard s.format == .numberedList else { return 0 }
+        let trimmed = s.marker.trimmingCharacters(in: .whitespaces)
+        let delimiter = trimmed.last.map(String.init) ?? "."
+        let spacing = String(s.marker.reversed().prefix(while: { $0 == " " || $0 == "\t" }).reversed())
+        let newMarker = "\(number)\(delimiter)\(spacing)"
+        let markerRange = NSRange(location: current.range.location + (s.quotePrefix + s.indent).utf16.count, length: s.marker.utf16.count)
+        text.replaceCharacters(in: markerRange, with: newMarker)
+        return (newMarker as NSString).length - markerRange.length
     }
     
     /// Moves a nested list item one level out.
-    static func outdent(text: String, selection: NSRange) -> MarkdownEdit? {
+    static func outdent(text: String, selection: NSRange, document: MarkdownDocument? = nil) -> MarkdownEdit? {
         let ns = text as NSString
         let current = line(at: selection.location, in: ns)
-        guard current.isListItem, !current.structure.indent.isEmpty, !isInCode(selection.location, text: text) else { return nil }
+        guard current.isListItem, !current.structure.indent.isEmpty, !isInCode(selection.location, text: text, document: document) else { return nil }
         // Remove the indentation down to the parent item's column
         var parentIndent = 0
+        var parent: Line? = nil
         var search = current.range.location
         while search > 0 {
             let candidate = line(at: search - 1, in: ns)
             if candidate.isListItem && candidate.structure.indent.count < current.structure.indent.count {
                 parentIndent = candidate.structure.indent.count
+                parent = candidate
                 break
             }
             if candidate.range.location == 0 { break }
@@ -187,8 +240,18 @@ enum MarkdownEditingCommands {
         let remove = current.structure.indent.count - parentIndent
         guard remove > 0 else { return nil }
         let start = current.range.location + current.structure.quotePrefix.utf16.count + parentIndent
-        let edited = ns.replacingCharacters(in: NSRange(location: start, length: remove), with: "")
-        return MarkdownEdit(text: edited, selection: NSRange(location: max(current.range.location, selection.location - remove), length: selection.length))
+        let edited = NSMutableString(string: ns.replacingCharacters(in: NSRange(location: start, length: remove), with: ""))
+        var caret = max(current.range.location, selection.location - remove)
+        if current.structure.format == .numberedList {
+            // The item now follows its old parent in the outer list
+            let number = parent.map { $0.structure.format == .numberedList ? markerNumber($0.structure) + 1 : 1 } ?? 1
+            let delta = setMarkerNumber(number, onLineAt: current.range.location, in: edited)
+            if selection.location - remove > current.range.location { caret += delta }
+            let outer = line(at: current.range.location, in: edited).structure
+            let renumbered = renumber(edited, fromLineAt: current.range.location, prefix: outer.quotePrefix + outer.indent)
+            return MarkdownEdit(text: renumbered as String, selection: NSRange(location: caret, length: selection.length))
+        }
+        return MarkdownEdit(text: edited as String, selection: NSRange(location: caret, length: selection.length))
     }
 
     // MARK: - Backspace
@@ -196,17 +259,18 @@ enum MarkdownEditingCommands {
     /// At the start of a block's content, removes its marker (heading, list, task) or one quote level.
     /// `markersHidden`: in the WYSIWYG editor the prefix is invisible, so a caret anywhere before the
     /// content (even at the very start of the line) counts as being at the start of the block.
-    static func backspace(text: String, selection: NSRange, markersHidden: Bool = false) -> MarkdownEdit? {
+    static func backspace(text: String, selection: NSRange, markersHidden: Bool = false, document: MarkdownDocument? = nil) -> MarkdownEdit? {
         guard selection.length == 0 else { return nil }
         let ns = text as NSString
         let current = line(at: selection.location, in: ns)
         let s = current.structure
-        guard !isInCode(selection.location, text: text) else { return nil }
         var caretInLine = selection.location - current.range.location
         let prefixLength = (s.quotePrefix + s.indent).utf16.count
         guard caretInLine <= current.contentOffset, current.contentOffset > 0 else { return nil }
         if markersHidden { caretInLine = current.contentOffset }
         guard caretInLine > 0 else { return nil }
+        // The only check that parses the document, so it runs after the per-line ones
+        guard !isInCode(selection.location, text: text, document: document) else { return nil }
         if !s.marker.isEmpty, caretInLine > prefixLength {
             // Caret at (or within) the marker: remove it, keeping quote prefix and indentation
             let markerRange = NSRange(location: current.range.location + prefixLength, length: s.marker.utf16.count)
@@ -225,7 +289,7 @@ enum MarkdownEditingCommands {
     // MARK: - "/" block menu
     
     enum BlockInsert: CaseIterable {
-        case text, heading1, heading2, heading3, bulletList, numberedList, todoList, quote, callout, codeBlock, divider, table
+        case text, heading1, heading2, heading3, bulletList, numberedList, todoList, quote, callout, codeBlock, divider, table, footnote
         
         var title: String {
             switch self {
@@ -241,6 +305,7 @@ enum MarkdownEditingCommands {
             case .codeBlock: return "Code Block"
             case .divider: return "Divider"
             case .table: return "Table"
+            case .footnote: return "Footnote"
             }
         }
         
@@ -258,6 +323,7 @@ enum MarkdownEditingCommands {
             case .codeBlock: return "curlybraces"
             case .divider: return "minus"
             case .table: return "tablecells"
+            case .footnote: return "textformat.superscript"
             }
         }
     }
@@ -271,13 +337,18 @@ enum MarkdownEditingCommands {
         guard location - current.range.location >= current.contentOffset else { return false }
         guard current.structure.content.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         if case .heading = current.structure.format { return false }
-        return !isInCode(location, text: text)
+        return !isInCode(location, text: text, document: nil)
     }
     
     /// Replaces the line holding the "/" at `slashLocation` with the chosen block.
     static func insertBlock(_ kind: BlockInsert, text: String, slashLocation: Int) -> MarkdownEdit? {
         let ns = text as NSString
         guard slashLocation < ns.length, ns.character(at: slashLocation) == 0x2F else { return nil }
+        if kind == .footnote {
+            // A reference where the "/" was, and its definition at the end of the document
+            let withoutSlash = ns.replacingCharacters(in: NSRange(location: slashLocation, length: 1), with: "")
+            return MarkdownFormatting(text: withoutSlash).insertFootnote(selection: NSRange(location: slashLocation, length: 0))
+        }
         let current = line(at: slashLocation, in: ns)
         let s = current.structure
         // Keep the quote prefix and indentation; replace any list marker
@@ -303,6 +374,8 @@ enum MarkdownEditingCommands {
         case .table:
             let header = prefix + "| Column 1 | Column 2 |"
             lineText = header + "\n" + prefix + "| --- | --- |\n" + prefix + "|  |  |\n\n" + continuation + s.indent
+        case .footnote:
+            return nil
         }
         let edited = ns.replacingCharacters(in: current.range, with: lineText)
         let caret = current.range.location + (caretOffset ?? (lineText as NSString).length)
@@ -311,8 +384,7 @@ enum MarkdownEditingCommands {
     
     // MARK: - Code block language
     
-    static let commonLanguages = ["swift", "python", "javascript", "typescript", "json", "html", "css", "bash",
-                                  "ruby", "go", "rust", "java", "kotlin", "c", "cpp", "sql", "yaml", "markdown", "mermaid"]
+    static let commonLanguages = CodeLanguage.allCases.map(\.rawValue) + ["mermaid"]
     
     /// Sets (or clears, with nil) the info string of the fenced code block containing `location`.
     static func setCodeLanguage(_ language: String?, text: String, location: Int) -> MarkdownEdit? {

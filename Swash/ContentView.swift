@@ -42,6 +42,7 @@ struct WindowAccessor: NSViewRepresentable {
 
 /// One `ScrollSync` per file, so a window that switches files doesn't carry the scroll position over.
 /// A plain class, so asking for the current sync during a view update changes no SwiftUI state.
+@MainActor
 final class ScrollSyncStore {
     private var key: URL?
     private var sync = ScrollSync()
@@ -78,27 +79,90 @@ struct ContentView: View {
     @ObservedObject private var folderAccessManager = FolderAccessManager.shared
     @State private var editor = SwashEditorController()
     @State private var dismissedFolderBanner: URL? = nil
+    @AppStorage("showOutline") private var showOutline = false
+    @State private var currentHeadingIndex: Int? = nil
+    @State private var conflictCount = 0
+    /// Outline and statistics of `insightsText`, refreshed once typing pauses so keystrokes don't
+    /// pay for an extra whole-document parse.
+    @State private var outline = MarkdownOutline(text: "")
+    @State private var statistics = MarkdownStatistics.empty
+    @State private var insightsText: String? = nil
+    @State private var showConflictSheet = false
 
-    private var effectiveBaseURL: URL? {
-        fileURL ?? window?.representedURL ?? (window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL })
+    @AppStorage(WritingDefaults.focusMode) private var focusMode = false
+    @AppStorage(WritingDefaults.focusUnit) private var focusUnit: FocusUnit = .paragraph
+    @AppStorage(WritingDefaults.typewriterScrolling) private var typewriterScrolling = false
+    /// Full screen without the toolbar, outline or status bar, with the text in a readable column.
+    @State private var distractionFree = false
+    @State private var enteredFullScreenForWriting = false
+
+    @AppStorage(EditorTypography.Keys.font) private var typographyFont: TypographyFont = .system
+    @AppStorage(EditorTypography.Keys.textSize) private var typographyTextSize: Double = Double(EditorTypography.defaultTextSize)
+    @AppStorage(EditorTypography.Keys.lineWidth) private var typographyLineWidth: TypographyLineWidth = .full
+    @AppStorage(EditorTypography.Keys.theme) private var typographyTheme: EditorTheme = .system
+
+    /// Settings › Appearance; changes restyle open documents live.
+    private var typography: EditorTypography {
+        EditorTypography(font: typographyFont, textSize: EditorTypography.clampedSize(typographyTextSize),
+                         lineWidth: typographyLineWidth, theme: typographyTheme)
     }
 
+    private var writingOptions: WritingOptions {
+        WritingOptions(focus: focusMode ? focusUnit : nil, typewriter: typewriterScrolling,
+                       readableColumn: distractionFree || typographyLineWidth == .readable,
+                       columnWidth: typography.readableColumnWidth)
+    }
+
+    /// The window's document file when SwiftUI hasn't passed `fileURL`, looked up when the window
+    /// attaches or becomes key rather than on every evaluation of `body`.
+    @State private var windowDocumentURL: URL? = nil
+    
+    private var effectiveBaseURL: URL? {
+        fileURL ?? windowDocumentURL
+    }
+    
+    private func refreshWindowDocumentURL() {
+        let url = window?.representedURL ?? window.flatMap { NSDocumentController.shared.document(for: $0)?.fileURL }
+        if url != windowDocumentURL { windowDocumentURL = url }
+    }
+
+    /// Folder whose images can't be read, refreshed off the keystroke path (see `refreshFolderBanner`).
+    @State private var unreadableFolder: URL? = nil
+    @State private var bannerScannedText: String? = nil
+    
     private var unreadableFolderURL: URL? {
-        guard let unreadable = MarkdownParser.unreadableRelativeFolder(in: document.text, baseURL: effectiveBaseURL) else {
-            return nil
-        }
-        if dismissedFolderBanner == unreadable {
-            return nil
-        }
+        guard let unreadable = unreadableFolder, dismissedFolderBanner != unreadable else { return nil }
         return unreadable
+    }
+    
+    /// Scans for unreadable relative images (a file-system check per image) once typing pauses,
+    /// when the document's location changes and when folder access is granted.
+    private func refreshFolderBanner() {
+        let folder = MarkdownParser.unreadableRelativeFolder(in: document.text, baseURL: effectiveBaseURL)
+        if folder != unreadableFolder { unreadableFolder = folder }
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            if let folderURL = unreadableFolderURL {
+            if conflictCount > 0 {
+                ConflictBanner(count: conflictCount) { showConflictSheet = true }
+            }
+            if let folderURL = unreadableFolderURL, !distractionFree {
                 folderAccessBanner(for: folderURL)
             }
             
+            HStack(spacing: 0) {
+            if showOutline && !distractionFree {
+                DocumentOutlineView(
+                    outline: outline,
+                    currentIndex: currentHeadingIndex,
+                    onSelect: { heading in
+                        currentHeadingIndex = outline.headings.firstIndex(of: heading)
+                        editor.reveal(rawLocation: heading.range.location)
+                    }
+                )
+                Divider()
+            }
             ZStack(alignment: .topLeading) {
                 if viewMode == .preview {
                     SwashTextView(
@@ -110,7 +174,10 @@ struct ContentView: View {
                         flavor: document.flavor,
                         baseURL: effectiveBaseURL,
                         controller: editor,
-                        onFormatCommand: { handleFormatCommand($0) }
+                        onFormatCommand: { handleFormatCommand($0) },
+                        onCaretMove: { updateCurrentHeading(caret: $0) },
+                        writingOptions: writingOptions,
+                        typography: typography
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -124,7 +191,10 @@ struct ContentView: View {
                         flavor: document.flavor,
                         baseURL: effectiveBaseURL,
                         controller: editor,
-                        onFormatCommand: { handleFormatCommand($0) }
+                        onFormatCommand: { handleFormatCommand($0) },
+                        onCaretMove: { updateCurrentHeading(caret: $0) },
+                        writingOptions: writingOptions,
+                        typography: typography
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(bubbleMenuOverlay)
@@ -139,12 +209,15 @@ struct ContentView: View {
                             flavor: document.flavor,
                             baseURL: effectiveBaseURL,
                             controller: editor,
-                            onFormatCommand: { handleFormatCommand($0) }
+                            onFormatCommand: { handleFormatCommand($0) },
+                            onCaretMove: { updateCurrentHeading(caret: $0) },
+                            writingOptions: writingOptions,
+                        typography: typography
                         )
                         .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(bubbleMenuOverlay)
                         
-                        MarkdownPreviewView(text: document.text, flavor: document.flavor, baseURL: effectiveBaseURL, scrollSync: scrollSync)
+                        MarkdownPreviewView(text: document.text, flavor: document.flavor, baseURL: effectiveBaseURL, scrollSync: scrollSync, typography: typography)
                             .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -152,12 +225,22 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .id(documentID)
+            }
             
             // Premium Bottom Status Bar
-            statusView
+            if !distractionFree {
+                statusView
+            }
         }
         .frame(minWidth: 600, idealWidth: 800, minHeight: 600, idealHeight: 750)
         .toolbar(id: "mainToolbar") {
+            ToolbarItem(id: "outline", placement: .navigation) {
+                Toggle(isOn: $showOutline) {
+                    Label("Outline", systemImage: "sidebar.left")
+                }
+                .help(showOutline ? "Hide the heading outline" : "Show the heading outline")
+            }
+            
             ToolbarItem(id: "flexibleSpace", placement: .automatic) {
                 Spacer()
             }
@@ -174,28 +257,6 @@ struct ContentView: View {
                 .help("Choose how the document is shown")
             }
             
-            ToolbarItem(id: "flavorPicker", placement: .primaryAction) {
-                Picker("Flavor", selection: Binding(
-                    get: { document.flavor },
-                    set: { newFlavor in
-                        let oldFlavor = document.flavor
-                        if oldFlavor != newFlavor {
-                            var updatedDoc = document
-                            updatedDoc.text = MarkdownParser.convert(document.text, from: oldFlavor, to: newFlavor)
-                            updatedDoc.flavor = newFlavor
-                            document = updatedDoc
-                        }
-                    }
-                )) {
-                    ForEach(MarkdownFlavor.allCases) { flavor in
-                        Text(flavor.rawValue).tag(flavor)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .help("Select Markdown format scheme (converting raw text format in place)")
-            }
-            
             ToolbarItem(id: "share", placement: .primaryAction) {
                 ShareLink(
                     item: document.text,
@@ -209,6 +270,9 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .cellSelectionDidChange)) { notification in
+            // Editing a table cell ends the text selection: the bubble menu belongs to the cell now
+            if selectionRect != nil { selectionRect = nil }
+            if selectedRange != nil { selectedRange = nil }
             if let userInfo = notification.userInfo, let rect = userInfo["rect"] as? NSRect {
                 self.cellSelectionRect = rect
                 if let formats = userInfo["formats"] as? Set<FormatAction> {
@@ -222,7 +286,16 @@ struct ContentView: View {
             }
         }
         .background(WindowAccessor(window: $window))
+        .onChange(of: window) { _, _ in refreshWindowDocumentURL() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if let window = window, notification.object as? NSWindow === window { refreshWindowDocumentURL() }
+        }
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
+        .modifier(exportAndWritingCommands)
+        .focusedSceneValue(\.documentCommandHandler, { handleDocumentCommand($0) })
+        .focusedSceneValue(\.documentFileURL, effectiveBaseURL)
+        .focusedSceneValue(\.viewModeSelection, ViewModeSelection(current: viewMode) { viewMode = $0 })
+        .focusedSceneValue(\.markdownFlavorSelection, MarkdownFlavorSelection(current: document.flavor) { requestFlavorChange(to: $0) })
         .onChange(of: documentID) {
             selectedRange = nil
             selectionRect = nil
@@ -232,6 +305,81 @@ struct ContentView: View {
         .onChange(of: viewMode) { oldMode, newMode in
             handleViewModeChange(from: oldMode, to: newMode)
         }
+        .task(id: document.text) {
+            // The first pass (document just opened) is immediate; edits wait for a pause in typing
+            if insightsText != nil {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+            }
+            refreshInsights()
+        }
+        .task(id: FolderBannerInputs(text: document.text, baseURL: effectiveBaseURL, access: folderAccessManager.accessGrantedTrigger)) {
+            // Only edits wait for a pause; opening, moving the file or granting access refresh at once
+            if let scanned = bannerScannedText, scanned != document.text {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+            }
+            bannerScannedText = document.text
+            refreshFolderBanner()
+        }
+        .onChange(of: showOutline) { _, shown in
+            if shown, let caret = editor.currentRawSelection?.location { updateCurrentHeading(caret: caret) }
+            handleOutlineToggle(shown: shown)
+        }
+        .onAppear {
+            // An untitled document created for a quick note or an import starts with its text
+            if fileURL == nil, document.text.isEmpty, let seed = NewDocumentSeed.take() {
+                document.text = seed
+            }
+        }
+        .onChange(of: window) { _, window in
+            if window?.isKeyWindow == true { documentWindowBecameKey() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if let window = window, notification.object as? NSWindow === window { documentWindowBecameKey() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            guard let window = window, notification.object as? NSWindow === window else { return }
+            if let url = effectiveBaseURL { RecentlyClosedDocuments.shared.push(url) }
+            if QuickCaptureController.shared.target?.window === window { QuickCaptureController.shared.target = nil }
+        }
+        .sheet(isPresented: $showConflictSheet) {
+            if let url = effectiveBaseURL {
+                ConflictResolutionSheet(url: url, onKeep: { version in
+                    showConflictSheet = false
+                    resolveConflicts(keeping: version, at: url)
+                }, onCancel: { showConflictSheet = false })
+            }
+        }
+    }
+    
+    // MARK: - Window Focus, Quick Notes & Conflicts
+    
+    /// Remembers this document as the quick-note target and checks for iCloud conflicts.
+    private func documentWindowBecameKey() {
+        QuickCaptureController.shared.target = QuickCaptureTarget(title: documentTitle, window: window) { note in
+            let updated = QuickCaptureText.appending(note, to: document.text)
+            let end = NSRange(location: (updated as NSString).length, length: 0)
+            commitEdit(updated, selection: end, actionName: "Quick Note")
+            editor.reveal(rawLocation: end.location)
+        }
+        refreshConflicts()
+    }
+    
+    private func refreshConflicts() {
+        let count = effectiveBaseURL.map { DocumentConflicts.unresolved(at: $0).count } ?? 0
+        if count != conflictCount { conflictCount = count }
+    }
+    
+    private func resolveConflicts(keeping version: NSFileVersion?, at url: URL) {
+        do {
+            if let text = try DocumentConflicts.resolve(at: url, keeping: version) {
+                commitEdit(text, selection: NSRange(location: 0, length: 0), actionName: "Keep Other Version")
+            }
+        } catch {
+            NSApp.presentError(error)
+        }
+        refreshConflicts()
     }
     
     private var documentTitle: String {
@@ -254,15 +402,20 @@ struct ContentView: View {
                 return name
             }
         }
-        let lines = document.text.components(separatedBy: .newlines)
-        for line in lines {
+        // First "# " heading, stopping as soon as one is found
+        var headingTitle: String? = nil
+        document.text.enumerateLines { line, stop in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("# ") {
                 let title = trimmed.dropFirst(2).trimmingCharacters(in: .whitespaces)
                 if !title.isEmpty {
-                    return title
+                    headingTitle = title
+                    stop = true
                 }
             }
+        }
+        if let title = headingTitle {
+            return title
         }
         if let title = window?.title, !title.isEmpty {
             let cleaned = title
@@ -276,7 +429,101 @@ struct ContentView: View {
         return "Untitled"
     }
 
-    private var sharePreviewImage: Image {
+    // MARK: - Distraction-Free Writing
+
+    /// Export and writing-mode menu actions, kept out of `body`'s modifier chain so it type-checks quickly.
+    private var exportAndWritingCommands: some ViewModifier {
+        ExportAndWritingCommandsModifier(
+            exportActions: exportActions,
+            distractionFree: DistractionFreeToggle(isOn: distractionFree, toggle: toggleDistractionFree),
+            window: window,
+            onExitFullScreen: {
+                // Leaving full screen (Esc, the green button) ends distraction-free writing too
+                enteredFullScreenForWriting = false
+                if distractionFree { toggleDistractionFree() }
+            }
+        )
+    }
+
+    private func toggleDistractionFree() {
+        distractionFree.toggle()
+        guard let window else { return }
+        window.toolbar?.isVisible = !distractionFree
+        let isFullScreen = window.styleMask.contains(.fullScreen)
+        if distractionFree && !isFullScreen {
+            enteredFullScreenForWriting = true
+            window.toggleFullScreen(nil)
+        } else if !distractionFree && isFullScreen && enteredFullScreenForWriting {
+            enteredFullScreenForWriting = false
+            window.toggleFullScreen(nil)
+        }
+    }
+
+    // MARK: - Export and Print
+
+    private var exportSource: DocumentExporter.Source {
+        DocumentExporter.Source(text: document.text, flavor: document.flavor, fileURL: effectiveBaseURL, title: documentTitle)
+    }
+
+    private var exportActions: DocumentExportActions {
+        DocumentExportActions(
+            exportPDF: { export(as: .pdf) },
+            exportHTML: { export(as: .html) },
+            print: {
+                let source = exportSource
+                Task {
+                    do { try await DocumentExporter.print(source, window: window) } catch { presentExportError(error) }
+                }
+            },
+            copyRichText: { DocumentExporter.copyRichText(exportSource) },
+            copyHTML: { DocumentExporter.copyHTML(exportSource) }
+        )
+    }
+
+    /// Asks where to save, then writes a PDF or a self-contained HTML file.
+    private func export(as type: UTType) {
+        let source = exportSource
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [type]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.nameFieldStringValue = source.title
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task {
+                do {
+                    if type == .pdf {
+                        try await DocumentExporter.exportPDF(source, to: url)
+                    } else {
+                        try await DocumentExporter.standaloneHTML(for: source).write(to: url, atomically: true, encoding: .utf8)
+                    }
+                } catch {
+                    presentExportError(error)
+                }
+            }
+        }
+        if let window {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            completion(panel.runModal())
+        }
+    }
+
+    private func presentExportError(_ error: Error) {
+        let alert = NSAlert(error: error)
+        alert.messageText = "“\(documentTitle)” couldn’t be exported."
+        alert.informativeText = error.localizedDescription
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private var sharePreviewImage: Image { ContentView.sharePreviewIcon }
+    
+    /// The Markdown document icon, drawn once rather than on every evaluation of `body`.
+    private static let sharePreviewIcon: Image = {
         let size = NSSize(width: 64, height: 64)
         let image = NSImage(size: size)
         image.isTemplate = false
@@ -288,7 +535,7 @@ struct ContentView: View {
         image.unlockFocus()
         
         return Image(nsImage: image)
-    }
+    }()
     
     /// False for the one update after switching files, before the old selection is cleared.
     private var selectionFitsText: Bool {
@@ -305,8 +552,10 @@ struct ContentView: View {
                 let activeHeadingLevel = determineActiveHeadingLevel()
                 let bubbleContext = determineBubbleMenuContext()
                 let activeLink = determineActiveLink()
+                let selectedImage = cellSelectionRect == nil ? determineSelectedImage() : nil
                 let measuredWidth = bubbleMenuSize.width > 0 ? bubbleMenuSize.width : (activeCodeFormat != nil ? 426 : 380)
                 let measuredHeight = bubbleMenuSize.height > 0 ? bubbleMenuSize.height : 40
+                let menuFrame = Self.bubbleMenuFrame(around: rect, size: CGSize(width: measuredWidth, height: measuredHeight), in: geometry.size)
                 
                 BubbleMenuView(
                     activeFormats: cellSelectionRect != nil ? cellActiveFormats : determineActiveFormats(),
@@ -337,7 +586,14 @@ struct ContentView: View {
                     },
                     onRemoveLink: {
                         removeLink(activeLink: activeLink)
-                    }
+                    },
+                    translatableText: cellSelectionRect == nil && bubbleContext != .codeBlock && bubbleContext != .image ? selectedPlainText : nil,
+                    onReplaceWithTranslation: { replaceSelection(with: $0) },
+                    onSelectCalloutType: astFormatting == nil ? nil : { applyCalloutType($0) },
+                    image: selectedImage?.source,
+                    imageActions: selectedImage.map { imageMenuActions(range: $0.range, image: $0.source) },
+                    onInsertFootnote: astFormatting == nil || cellSelectionRect != nil ? nil : { insertFootnote() },
+                    footnoteActions: cellSelectionRect == nil ? footnoteMenuActions() : nil
                 )
                 .background(
                     GeometryReader { menuGeo in
@@ -350,38 +606,32 @@ struct ContentView: View {
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                .position(
-                    x: {
-                        let padding: CGFloat = 12
-                        if geometry.size.width <= measuredWidth + (padding * 2) {
-                            return geometry.size.width / 2
-                        } else {
-                            let halfWidth = measuredWidth / 2
-                            let minX = halfWidth + padding
-                            let maxX = geometry.size.width - halfWidth - padding
-                            return max(minX, min(rect.midX, maxX))
-                        }
-                    }(),
-                    y: {
-                        let spacing: CGFloat = 8
-                        let padding: CGFloat = 8
-                        let showBelow = (rect.minY - measuredHeight - spacing) < padding
-                        let calculatedY: CGFloat
-                        if showBelow {
-                            calculatedY = rect.maxY + measuredHeight / 2 + spacing
-                        } else {
-                            calculatedY = rect.minY - measuredHeight / 2 - spacing
-                        }
-                        let halfHeight = measuredHeight / 2
-                        let minY = halfHeight + padding
-                        let maxY = geometry.size.height - halfHeight - padding
-                        return max(minY, min(calculatedY, maxY))
-                    }()
-                )
+                .position(x: menuFrame.midX, y: menuFrame.midY)
+                .onAppear { editor.bubbleMenuFrame = menuFrame }
+                .onChange(of: menuFrame) { _, frame in editor.bubbleMenuFrame = frame }
+                .onDisappear { editor.bubbleMenuFrame = nil }
                 .animation(.spring(response: 0.24, dampingFraction: 0.72), value: selectionRect)
                 .animation(.spring(response: 0.24, dampingFraction: 0.72), value: activeCodeFormat)
             }
         }
+    }
+    
+    /// Where the bubble menu goes: centred above `rect` (below it when there's no room), kept
+    /// inside `container` with a small margin.
+    static func bubbleMenuFrame(around rect: NSRect, size: CGSize, in container: CGSize) -> CGRect {
+        let padding: CGFloat = 12
+        let x: CGFloat
+        if container.width <= size.width + padding * 2 {
+            x = container.width / 2
+        } else {
+            x = max(size.width / 2 + padding, min(rect.midX, container.width - size.width / 2 - padding))
+        }
+        let spacing: CGFloat = 8
+        let verticalPadding: CGFloat = 8
+        let showBelow = (rect.minY - size.height - spacing) < verticalPadding
+        let calculatedY = showBelow ? rect.maxY + size.height / 2 + spacing : rect.minY - size.height / 2 - spacing
+        let y = max(size.height / 2 + verticalPadding, min(calculatedY, container.height - size.height / 2 - verticalPadding))
+        return CGRect(x: x - size.width / 2, y: y - size.height / 2, width: size.width, height: size.height)
     }
     
     // Status panel rendering word/character count stats
@@ -403,10 +653,7 @@ struct ContentView: View {
             
             Spacer()
             
-            let stats = calculateStats()
-            Text("\(stats.words) words   •   \(stats.chars) characters")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
+            StatisticsMenu(document: statistics, selection: selectionStatistics)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
@@ -740,6 +987,9 @@ struct ContentView: View {
     }
     
     private func determineBubbleMenuContext() -> BubbleMenuContext {
+        if cellSelectionRect == nil, determineSelectedImage() != nil {
+            return .image
+        }
         if determineActiveCodeFormat() != nil || isSelectionInsideCodeBlock().inside {
             return .codeBlock
         }
@@ -755,7 +1005,10 @@ struct ContentView: View {
             if containers.allSatisfy(isHeading) { return .heading }
             if containers.contains(where: inList) { return .listItem }
             if containers.contains(where: isHeading) { return .heading }
-            if containers.contains(where: inQuote) { return .blockquote }
+            if containers.contains(where: inQuote) {
+                if let type = formatting.alertType(at: range) { return .callout(type) }
+                return .blockquote
+            }
             return .standard
         }
         
@@ -924,11 +1177,25 @@ struct ContentView: View {
     
     /// Handles shortcuts and Format menu items using the live editor selection (carets included).
     private func handleFormatCommand(_ command: FormatCommand) {
+        if command == .tableOfContents {
+            insertTableOfContents()
+            return
+        }
         if let live = editor.currentRawSelection {
             selectedRange = live
         }
         guard let range = selectedRange else { return }
+        // Commands from the shared manifest use the same engine as the conformance corpus
+        // (scripts/run_conformance_tests.sh), including its enabledWhen conditions.
+        if let formatting = astFormatting, command.manifestInvocation != nil, command != .link, command != .table {
+            if let edit = FormatCommandEdits.edit(for: command, formatting: formatting, selection: range) {
+                commitEdit(edit.text, selection: edit.selection, actionName: command.label ?? "Format")
+            }
+            return
+        }
         switch command {
+        case .tableOfContents: break
+        case .table: applyFormatting(.table)
         case .bold: applyFormatting(.bold)
         case .italic: applyFormatting(.italic)
         case .strikethrough: applyFormatting(.strikethrough)
@@ -946,6 +1213,162 @@ struct ContentView: View {
             }
         case .link:
             promptForLink()
+        case .callout(let type):
+            applyCalloutType(type)
+        case .footnote:
+            insertFootnote()
+        }
+    }
+    
+    // MARK: - Callouts, Footnotes & Images
+    
+    /// Makes the selection a callout of `type`, or a plain quote when nil.
+    private func applyCalloutType(_ type: AlertType?) {
+        guard let formatting = astFormatting, let range = selectedRange ?? editor.currentRawSelection,
+              let edit = formatting.setAlertType(type, selection: range) else { return }
+        commitEdit(edit.text, selection: edit.selection, actionName: type.map { "\($0.title) Callout" } ?? "Plain Quote")
+    }
+    
+    /// Adds a footnote after the selection and puts the caret in its definition.
+    private func insertFootnote() {
+        guard let formatting = astFormatting, let range = editor.currentRawSelection ?? selectedRange,
+              let edit = formatting.insertFootnote(selection: range) else { return }
+        commitEdit(edit.text, selection: edit.selection, actionName: "Insert Footnote")
+        editor.reveal(rawLocation: edit.selection.location)
+    }
+    
+    /// Jump and delete actions for the footnote the selection is on.
+    private func footnoteMenuActions() -> FootnoteMenuActions? {
+        guard let formatting = astFormatting, let range = selectedRange,
+              let footnote = formatting.footnote(at: range) else { return nil }
+        return FootnoteMenuActions(
+            isDefinition: footnote.isDefinition,
+            goToCounterpart: { editor.revealFootnote(footnote) },
+            delete: {
+                guard let edit = formatting.deleteFootnote(label: footnote.label, selection: range) else { return }
+                commitEdit(edit.text, selection: edit.selection, actionName: "Delete Footnote")
+            }
+        )
+    }
+    
+    /// The image whose whole source is selected (a clicked image in the Formatted view).
+    private func determineSelectedImage() -> (range: NSRange, source: MarkdownImageSource)? {
+        guard let formatting = astFormatting, let range = selectedRange, range.length > 0,
+              formatting.image(exactly: range) != nil, NSMaxRange(range) <= (document.text as NSString).length,
+              let image = MarkdownImageSource(markdown: (document.text as NSString).substring(with: range)) else { return nil }
+        return (range, image)
+    }
+    
+    private func imageMenuActions(range: NSRange, image: MarkdownImageSource) -> ImageMenuActions {
+        let text = document.text
+        func rewrite(_ actionName: String, _ change: (inout MarkdownImageSource) -> Void) {
+            guard text == document.text else { return }
+            var updated = image
+            change(&updated)
+            guard updated != image else { return }
+            let markdown = updated.markdown
+            let newText = (text as NSString).replacingCharacters(in: range, with: markdown)
+            commitEdit(newText, selection: NSRange(location: range.location, length: (markdown as NSString).length), actionName: actionName)
+        }
+        let fileURL = localImageURL(image.source)
+        return ImageMenuActions(
+            setAlt: { alt in rewrite("Edit Alt Text") { $0.alt = alt } },
+            setWidth: { width in rewrite("Resize Image") { $0.width = width } },
+            replace: {
+                chooseReplacementImage(near: fileURL) { source in rewrite("Replace Image") { $0.source = source } }
+            },
+            reveal: fileURL.map { url in { NSWorkspace.shared.activateFileViewerSelecting([url]) } },
+            copyPath: { DocumentLinkText.copy(fileURL?.path ?? image.source) }
+        )
+    }
+    
+    /// The file a local image source refers to, if it exists.
+    private func localImageURL(_ source: String) -> URL? {
+        let cleaned = MarkdownParser.cleanImageURLAndTitle(source).url
+        guard !cleaned.isEmpty, URL(string: cleaned)?.scheme.map({ $0 == "file" }) ?? true else { return nil }
+        guard let path = MarkdownParser.resolveImageFile(urlString: cleaned, baseURL: effectiveBaseURL, windowURL: window?.representedURL)?.path else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+    
+    /// Asks for a new image file and reports its source: a path relative to the document when
+    /// it is in the document's folder (or below), otherwise a file URL.
+    private func chooseReplacementImage(near current: URL?, completion: @escaping (String) -> Void) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = "Replace"
+        panel.message = "Choose an image to show instead"
+        panel.directoryURL = current?.deletingLastPathComponent() ?? effectiveBaseURL?.deletingLastPathComponent()
+        let respond: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            completion(MarkdownImageSource.source(for: url, relativeTo: effectiveBaseURL))
+        }
+        if let window = window {
+            panel.beginSheetModal(for: window, completionHandler: respond)
+        } else {
+            respond(panel.runModal())
+        }
+    }
+
+    
+    /// Format ▸ Markdown Flavor: asks whether to rewrite the text so its formatting carries over,
+    /// or keep the raw text and read it with the new flavor's rules.
+    private func requestFlavorChange(to newFlavor: MarkdownFlavor) {
+        let oldFlavor = document.flavor
+        guard newFlavor != oldFlavor else { return }
+        let converted = MarkdownParser.convert(document.text, from: oldFlavor, to: newFlavor)
+        guard converted != document.text else {
+            changeFlavor(to: newFlavor, convertedText: nil)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Switch to \(newFlavor.displayName)?"
+        alert.informativeText = "Keep Formatting rewrites the Markdown so bold, links and other formatting look the same in \(newFlavor.displayName). Keep Raw Text leaves the text unchanged and reads it with \(newFlavor.displayName) rules."
+        alert.addButton(withTitle: "Keep Formatting")
+        alert.addButton(withTitle: "Keep Raw Text")
+        alert.addButton(withTitle: "Cancel")
+        let respond: (NSApplication.ModalResponse) -> Void = { response in
+            switch response {
+            case .alertFirstButtonReturn:
+                changeFlavor(to: newFlavor, convertedText: converted)
+            case .alertSecondButtonReturn:
+                changeFlavor(to: newFlavor, convertedText: nil)
+            default:
+                break
+            }
+        }
+        if let window = window {
+            alert.beginSheetModal(for: window, completionHandler: respond)
+        } else {
+            respond(alert.runModal())
+        }
+    }
+    
+    /// Switches the flavor (and optionally rewrites the text) as a single undoable step. The text edit
+    /// goes through the live text view's undo; the flavor is restored by an action in the same group.
+    private func changeFlavor(to newFlavor: MarkdownFlavor, convertedText: String?) {
+        let undoManager = editor.textView?.undoManager ?? window?.undoManager
+        let actionName = convertedText == nil ? "Change Markdown Flavor" : "Convert to \(newFlavor.displayName)"
+        undoManager?.beginUndoGrouping()
+        registerFlavorUndo(restoring: document.flavor, text: nil, undoManager: undoManager)
+        document.flavor = newFlavor
+        if let convertedText = convertedText, !editor.apply(newText: convertedText, selection: nil, actionName: actionName) {
+            // No live editor: the text has to be restored by the flavor undo action too
+            registerFlavorUndo(restoring: newFlavor, text: document.text, undoManager: undoManager)
+            document.text = convertedText
+        }
+        undoManager?.setActionName(actionName)
+        undoManager?.endUndoGrouping()
+    }
+    
+    /// Registers an undo that restores `flavor` (and `text`, if given), re-registering itself for redo.
+    private func registerFlavorUndo(restoring flavor: MarkdownFlavor, text: String?, undoManager: UndoManager?) {
+        let binding = $document
+        undoManager?.registerUndo(withTarget: editor) { _ in
+            registerFlavorUndo(restoring: binding.wrappedValue.flavor, text: text == nil ? nil : binding.wrappedValue.text, undoManager: undoManager)
+            binding.wrappedValue.flavor = flavor
+            if let text = text { binding.wrappedValue.text = text }
         }
     }
     
@@ -1357,13 +1780,13 @@ struct ContentView: View {
     
     private func isSelectionInsideCodeBlock() -> (inside: Bool, language: String?) {
         guard let range = selectedRange,
-              let block = MarkdownParser.fencedCodeBlock(containing: range, in: document.text) else { return (false, nil) }
+              let block = MarkdownParser.fencedCodeBlock(containing: range, in: editor.codeRanges(for: document.text)) else { return (false, nil) }
         return (true, block.language)
     }
     
     private func codeFormat(forLanguage language: String?) -> CodeFormat {
         guard let lang = language?.lowercased(), !lang.isEmpty else { return .plainBlock }
-        return CodeFormat.allCases.first(where: { $0.languageSignifier == lang }) ?? .plainBlock
+        return CodeLanguage(name: lang).map { CodeFormat.language($0) } ?? .plainBlock
     }
     
     private func determineActiveCodeFormat() -> CodeFormat? {
@@ -1389,7 +1812,7 @@ struct ContentView: View {
         
         // Check if the selection is (or is inside) a code span
         let trimmedRange = trimmedInlineRange(range)
-        let spans = MarkdownParser.codeRanges(in: fullText).spans
+        let spans = editor.codeRanges(for: fullText).spans
         if spans.contains(where: { span in
             (trimmedRange.location >= span.content.location && trimmedRange.location + trimmedRange.length <= span.content.location + span.content.length) ||
             NSEqualRanges(span.full, trimmedRange)
@@ -1417,14 +1840,14 @@ struct ContentView: View {
         }
         
         // Case 2: Selection is inside a fenced block (``` or ~~~)
-        if let block = MarkdownParser.fencedCodeBlock(containing: range, in: fullText),
+        if let block = MarkdownParser.fencedCodeBlock(containing: range, in: editor.codeRanges(for: fullText)),
            let blockRange = Range(block.fullRange, in: fullText) {
             return (nsText.substring(with: block.contentRange), blockRange)
         }
         
         // Case 3: Selection is, or is inside, a code span
         let trimmedRange = trimmedInlineRange(range)
-        for span in MarkdownParser.codeRanges(in: fullText).spans {
+        for span in editor.codeRanges(for: fullText).spans {
             let insideContent = trimmedRange.location >= span.content.location &&
                 trimmedRange.location + trimmedRange.length <= span.content.location + span.content.length
             if insideContent || NSEqualRanges(span.full, trimmedRange), let spanRange = Range(span.full, in: fullText) {
@@ -1523,16 +1946,98 @@ struct ContentView: View {
         commitEdit(newText, selection: NSRange(location: link.fullRange.location, length: (link.text as NSString).length), actionName: "Remove Link")
     }
     
-    private func calculateStats() -> (words: Int, chars: Int) {
-        let trimmed = document.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return (0, 0) }
-        
-        let words = trimmed.components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .count
-        let chars = document.text.count
-        
-        return (words, chars)
+    /// The selection as readers see it (Markdown syntax removed), for Translate.
+    private var selectedPlainText: String? {
+        let ns = document.text as NSString
+        guard let range = selectedRange, range.length > 0, NSMaxRange(range) <= ns.length else { return nil }
+        let selected = MarkdownDocument.parse(ns.substring(with: range))
+        var paragraphs: [String] = []
+        selected.root.walk { node in
+            switch node.kind {
+            case .paragraph, .heading, .tableCell:
+                paragraphs.append(node.plainText)
+            case .codeBlock:
+                paragraphs.append(node.literal)
+            default:
+                break
+            }
+        }
+        let text = paragraphs.joined(separator: "\n\n")
+        return text.isEmpty ? nil : text
+    }
+    
+    /// Replaces the selection with `text` (a translation), as one undoable edit.
+    private func replaceSelection(with text: String) {
+        let ns = document.text as NSString
+        guard let range = selectedRange, NSMaxRange(range) <= ns.length else { return }
+        let updated = ns.replacingCharacters(in: range, with: text)
+        commitEdit(updated, selection: NSRange(location: range.location, length: (text as NSString).length), actionName: "Translate")
+    }
+    
+    /// Statistics of the selected text, or nil without a selection.
+    private var selectionStatistics: MarkdownStatistics? {
+        let ns = document.text as NSString
+        guard let range = selectedRange, range.length > 0, NSMaxRange(range) <= ns.length else { return nil }
+        return MarkdownStatistics(text: ns.substring(with: range))
+    }
+    
+    // MARK: - Outline & Document Commands
+    
+    private func refreshInsights() {
+        let text = document.text
+        guard text != insightsText else { return }
+        insightsText = text
+        let newOutline = editor.outline(for: text)
+        if newOutline != outline { outline = newOutline }
+        let newStatistics = editor.statistics(for: text)
+        if newStatistics != statistics { statistics = newStatistics }
+        if showOutline, let caret = editor.currentRawSelection?.location { updateCurrentHeading(caret: caret) }
+    }
+    
+    /// Tracks the heading around the caret; only real changes are published, so caret moves stay cheap.
+    private func updateCurrentHeading(caret: Int) {
+        guard showOutline else { return }
+        let index = outline.headingIndex(containing: caret)
+        if index != currentHeadingIndex { currentHeadingIndex = index }
+    }
+    
+    /// Raw location of the caret (or selection start) in the live editor, else the end of the document.
+    private var caretLocation: Int {
+        editor.currentRawSelection?.location ?? selectedRange?.location ?? (document.text as NSString).length
+    }
+    
+    private func handleDocumentCommand(_ command: DocumentCommand) {
+        switch command {
+        case .copyHeadingLink:
+            if let link = DocumentLinkText.headingLink(in: editor.outline(for: document.text), at: caretLocation) {
+                DocumentLinkText.copy(link)
+            } else {
+                NSSound.beep()
+            }
+        case .copyMarkdownLink:
+            guard let url = effectiveBaseURL else { NSSound.beep(); return }
+            DocumentLinkText.copy(DocumentLinkText.markdownLink(title: documentTitle, fileURL: url))
+        case .copyFilePath:
+            guard let url = effectiveBaseURL else { NSSound.beep(); return }
+            DocumentLinkText.copy(url.path)
+        }
+    }
+    
+    /// Inserts a linked list of the document's headings at the caret, as its own block.
+    private func insertTableOfContents() {
+        let toc = editor.outline(for: document.text).tableOfContents()
+        guard !toc.isEmpty else { NSSound.beep(); return }
+        let ns = document.text as NSString
+        var selection = editor.currentRawSelection ?? selectedRange ?? NSRange(location: ns.length, length: 0)
+        if NSMaxRange(selection) > ns.length { selection = NSRange(location: ns.length, length: 0) }
+        let before = ns.substring(to: selection.location)
+        let after = ns.substring(from: NSMaxRange(selection))
+        let leading = before.isEmpty || before.hasSuffix("\n\n") ? "" : (before.hasSuffix("\n") ? "\n" : "\n\n")
+        let trailing = after.hasPrefix("\n\n") ? "" : (after.hasPrefix("\n") || after.isEmpty ? "\n" : "\n\n")
+        let inserted = leading + toc + trailing
+        let newText = ns.replacingCharacters(in: selection, with: inserted)
+        let caret = selection.location + (leading as NSString).length + (toc as NSString).length
+        commitEdit(newText, selection: NSRange(location: caret, length: 0), actionName: "Insert Table of Contents")
     }
     
     private func handleViewModeChange(from oldMode: ViewMode, to newMode: ViewMode) {
@@ -1556,7 +2061,16 @@ struct ContentView: View {
         }
     }
     
-    private func animateWindowWidth(to targetWidth: CGFloat, window: NSWindow) {
+    /// Showing or hiding the outline resizes the window by the sidebar's width, on the left, so the
+    /// document keeps its width and position (as switching to and from Split does).
+    private func handleOutlineToggle(shown: Bool) {
+        guard !distractionFree, let window = self.window, !window.styleMask.contains(.fullScreen) else { return }
+        let sidebarWidth = DocumentOutlineView.width + 1   // and its divider
+        let targetWidth = window.frame.width + (shown ? sidebarWidth : -sidebarWidth)
+        animateWindowWidth(to: max(600, targetWidth), window: window, keepingRightEdge: true)
+    }
+    
+    private func animateWindowWidth(to targetWidth: CGFloat, window: NSWindow, keepingRightEdge: Bool = false) {
         let currentFrame = window.frame
         var adjustedTargetWidth = targetWidth
         
@@ -1568,7 +2082,7 @@ struct ContentView: View {
         let deltaWidth = adjustedTargetWidth - currentFrame.width
         guard abs(deltaWidth) > 1 else { return }
         
-        var newOriginX = currentFrame.origin.x - (deltaWidth / 2)
+        var newOriginX = keepingRightEdge ? currentFrame.maxX - adjustedTargetWidth : currentFrame.origin.x - (deltaWidth / 2)
         
         if let screen = window.screen {
             let screenFrame = screen.visibleFrame
@@ -1594,7 +2108,31 @@ struct ContentView: View {
     }
 }
 
+private struct ExportAndWritingCommandsModifier: ViewModifier {
+    let exportActions: DocumentExportActions
+    let distractionFree: DistractionFreeToggle
+    let window: NSWindow?
+    let onExitFullScreen: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.documentExportActions, exportActions)
+            .focusedSceneValue(\.distractionFreeToggle, distractionFree)
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
+                guard let window, (notification.object as? NSWindow) === window else { return }
+                onExitFullScreen()
+            }
+    }
+}
+
 #Preview {
     ContentView(document: .constant(SwashDocument()))
+}
+
+/// What the folder-access banner depends on.
+private struct FolderBannerInputs: Equatable {
+    let text: String
+    let baseURL: URL?
+    let access: UUID
 }
 #endif

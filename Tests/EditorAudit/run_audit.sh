@@ -1,12 +1,12 @@
 #!/bin/bash
 # Reproduces the WYSIWYG editor audit (see docs/WYSIWYG_AUDIT.md).
-# Usage: ./Tests/EditorAudit/run_audit.sh [render|interact|bubble|perf|all]
+# Usage: ./Tests/EditorAudit/run_audit.sh [render|interact|bubble|folder|perf|all]
 set -eo pipefail
 cd "$(dirname "$0")/../.."
 OUT="build/editor-audit"; mkdir -p "$OUT"
 SDK="$(xcrun --show-sdk-path --sdk macosx)"
 EXTRAS="$(scripts/build_mac_appkit_extras.sh)"
-CORE="Swash/Markdown/*.swift Swash/PlatformTypes.swift Swash/EditorSupport.swift Swash/RichContentRenderer.swift Swash/MarkdownEditorStyler.swift Swash/FormatCommands.swift Swash/MarkdownFlavor.swift Swash/FolderAccessManager.swift Swash/MarkdownParser.swift Swash/MarkdownPreviewView.swift Swash/DetectedLink.swift Swash/InteractiveTableView.swift Swash/SwashTextView.swift"
+CORE="Swash/Markdown/*.swift Swash/PlatformTypes.swift Swash/EditorSupport.swift Swash/RichContentRenderer.swift Swash/MarkdownEditorStyler.swift Swash/CodeHighlightTheme.swift Swash/FormatCommands.swift Swash/MarkdownFlavor.swift Swash/FolderAccessManager.swift Swash/MarkdownParser.swift Swash/MarkdownPreviewView.swift Swash/DetectedLink.swift Swash/InteractiveTableView.swift Swash/SwashTextView.swift Swash/FolderIndex.swift Swash/WritingModes.swift Swash/EditorTypography.swift Swash/ImageInsertion.swift"
 what="${1:-all}"
 
 if [[ $what == render || $what == all ]]; then
@@ -40,8 +40,12 @@ enum TestHooks {
 '''
 open(sys.argv[1], "w").write(s)
 PY
-  swiftc $EXTRAS -O -target arm64-apple-macos15.0 -sdk "$SDK" $CORE "$OUT/BubbleMenuView.hooked.swift" Swash/SwashDocument.swift Swash/ViewMode.swift Swash/ContentView.swift Tests/EditorAudit/BubbleRunner.swift -o "$OUT/bubble"
+  swiftc $EXTRAS -O -target arm64-apple-macos15.0 -sdk "$SDK" $CORE "$OUT/BubbleMenuView.hooked.swift" Swash/SwashDocument.swift Swash/ViewMode.swift Swash/ContentView.swift Swash/DocumentCommands.swift Swash/DocumentOutlineView.swift Swash/DocumentOpening.swift Swash/QuickCapture.swift Swash/ConflictResolution.swift Swash/DocumentExporter.swift Swash/ExportCommands.swift Tests/EditorAudit/BubbleRunner.swift -o "$OUT/bubble"
   "$OUT/bubble" "$OUT/bubble-out" | sed -n "/^BUBBLE/,\$p"; echo "Bubble menu report: $OUT/bubble-out/bubble.md"
+fi
+if [[ $what == folder || $what == all ]]; then
+  swiftc $EXTRAS -O -target arm64-apple-macos15.0 -sdk "$SDK" $CORE Swash/BubbleMenuView.swift Swash/SwashDocument.swift Swash/ViewMode.swift Swash/ContentView.swift Swash/DocumentCommands.swift Swash/DocumentOutlineView.swift Swash/DocumentOpening.swift Swash/QuickCapture.swift Swash/ConflictResolution.swift Swash/DocumentExporter.swift Swash/ExportCommands.swift Swash/FolderWorkspace.swift Swash/FolderWindowView.swift Tests/EditorAudit/FolderRunner.swift -o "$OUT/folder"
+  "$OUT/folder" "$OUT/folder-out" | grep -E "^(PASS|FAIL|FOLDER|Folder)"
 fi
 if [[ $what == perf || $what == all ]]; then
   swiftc $EXTRAS -O -target arm64-apple-macos14.0 -sdk "$SDK" $CORE Swash/BubbleMenuView.swift Tests/EditorAudit/PerfRunner.swift -o "$OUT/perf"

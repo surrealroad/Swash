@@ -289,6 +289,10 @@ private extension FormatCommand {
         case .taskList: return "To-do List"
         case .quote: return "Quote"
         case .codeBlock: return "Code Block"
+        case .table: return "Table"
+        case .callout: return "Callout"
+        case .footnote: return "Footnote"
+        case .tableOfContents: return "Table of Contents"
         }
     }
 }

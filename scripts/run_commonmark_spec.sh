@@ -17,6 +17,7 @@ swiftc -O \
   Swash/Markdown/*.swift \
   Tests/CommonMarkSpec/SpecRunner.swift \
   Tests/CommonMarkSpec/ParserChecks.swift \
+  Tests/CommonMarkSpec/CodeHighlighterChecks.swift \
   -o "$BIN"
 
 "$BIN" Tests/CommonMarkSpec/fixtures "$@"
@@ -29,6 +30,7 @@ swiftc -O -D SWASH_HTML_LITE -module-name main \
   Swash/Markdown/*.swift \
   Tests/CommonMarkSpec/SpecRunner.swift \
   Tests/CommonMarkSpec/ParserChecks.swift \
+  Tests/CommonMarkSpec/CodeHighlighterChecks.swift \
   -o "$BUILD_DIR/commonmark-spec-runner-lite"
 
 echo "--- HTML conversion with HTMLLiteDOM ---"

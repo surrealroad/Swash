@@ -27,6 +27,10 @@ struct ListMarkerInfo {
     let text: String
     let indent: CGFloat
     var color: PlatformColor? = nil
+    
+    /// Task items keep a ☐/☑ glyph (written out by rich-text copies) but are drawn as checkboxes.
+    var isTask: Bool { text == "☐" || text == "☑" }
+    var isChecked: Bool { text == "☑" }
 }
 
 /// An attachment that stands in for a span of Markdown source (a table or an image).

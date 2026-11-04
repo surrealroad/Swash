@@ -519,6 +519,24 @@ struct StyledTextView: UIViewRepresentable {
                         image = MarkdownParser.placeholderImage(alt: alt)
                     }
                     attachment = ImageTextAttachment(image: image, alt: alt, urlString: urlString, rawMarkdown: rawMarkdown)
+                case .mermaid(let source, let rawMarkdown):
+                    // Rendered by RichContentRenderer; the last good render (or a placeholder) stands in until it lands
+                    let location = request.range.location
+                    let render = RichContentRenderer.Request(kind: .mermaid, source: source, dark: textView.traitCollection.userInterfaceStyle == .dark, fontSize: 13)
+                    var image: UIImage
+                    switch RichContentRenderer.cachedOrRequest(render, owner: RichContentRenderer.RichPreviewSlot(owner: ObjectIdentifier(self), location: location)) {
+                    case .rendered(let rendered):
+                        image = rendered.image
+                        richPreviewMemory[location] = rendered
+                    case .failed:
+                        image = richPreviewMemory[location]?.image ?? MarkdownParser.placeholderImage(alt: "Mermaid Diagram")
+                    case nil:
+                        image = richPreviewMemory[location]?.image ?? MarkdownParser.placeholderImage(alt: "Mermaid Diagram")
+                        if RichContentRenderer.isAvailable { pendingRichPreviews.append((location, render)) }
+                    }
+                    let available = max(120, textView.bounds.width - textView.textContainerInset.left - textView.textContainerInset.right - 24)
+                    image = MarkdownParser.scaleImageForEditor(image, maxWidth: min(550, available))
+                    attachment = ImageTextAttachment(image: image, alt: "Mermaid Diagram", urlString: "", rawMarkdown: rawMarkdown)
                 }
                 let replacement = NSMutableAttributedString(attachment: attachment)
                 replacement.addAttributes(Self.baseAttributes, range: NSRange(location: 0, length: replacement.length))

@@ -22,13 +22,14 @@ swiftc $EXTRAS \
   Swash/MarkdownParser.swift \
   Swash/Markdown/*.swift \
   Swash/MarkdownEditorStyler.swift \
+  Swash/CodeHighlightTheme.swift \
   Swash/RichContentRenderer.swift \
   Swash/FormatCommands.swift \
   Swash/MarkdownPreviewView.swift \
   Swash/DetectedLink.swift \
   Swash/BubbleMenuView.swift \
   Swash/InteractiveTableView.swift \
-  Swash/SwashTextView.swift \
+  Swash/SwashTextView.swift Swash/FolderIndex.swift Swash/WritingModes.swift Swash/EditorTypography.swift Swash/ImageInsertion.swift \
   Tests/GFMSpec/GFMSpecRunner.swift \
   -o "$BIN"
 

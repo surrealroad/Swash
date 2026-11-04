@@ -50,6 +50,21 @@ struct CreateDocumentIntent: AppIntent {
     }
 }
 
+#if os(macOS)
+/// Opens the macOS Quick Note panel (iOS has the Quick Note widget instead).
+struct QuickNoteIntent: AppIntent {
+    static var title: LocalizedStringResource = "Quick Note"
+    static var description = IntentDescription("Opens Swash's Quick Note panel to jot something down.")
+    static var openAppWhenRun: Bool = true
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        QuickCaptureController.shared.show()
+        return .result()
+    }
+}
+#endif
+
 struct GetWordCountIntent: AppIntent {
     static var title: LocalizedStringResource = "Get Word & Character Count"
     static var description = IntentDescription("Calculates word, character, and line count for input Markdown text.")
@@ -102,6 +117,17 @@ struct SwashShortcuts: AppShortcutsProvider {
             shortTitle: "Create Document",
             systemImageName: "square.and.pencil"
         )
+        #if os(macOS)
+        AppShortcut(
+            intent: QuickNoteIntent(),
+            phrases: [
+                "Quick note in \(.applicationName)",
+                "Jot something down in \(.applicationName)"
+            ],
+            shortTitle: "Quick Note",
+            systemImageName: "note.text.badge.plus"
+        )
+        #endif
         AppShortcut(
             intent: GetWordCountIntent(),
             phrases: [

@@ -40,6 +40,16 @@ func previews(in tv: NSTextView) -> [(Int, RichPreviewInfo)] {
     return found
 }
 
+/// Mermaid blocks collapse into image attachments in Edit Text, like tables and images.
+@MainActor
+func diagrams(in tv: NSTextView) -> [ImageTextAttachment] {
+    var found: [ImageTextAttachment] = []
+    tv.textStorage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: tv.textStorage?.length ?? 0), options: []) { value, _, _ in
+        if let attachment = value as? ImageTextAttachment, attachment.alt == "Mermaid Diagram" { found.append(attachment) }
+    }
+    return found
+}
+
 @MainActor
 func opaquePixelFraction(_ image: NSImage) -> Double {
     guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return 0 }
@@ -119,6 +129,46 @@ func run() async {
     async let b = renderer.render(shared)
     let (ra, rb) = await (a, b)
     check("duplicate requests coalesce", ra.rendered != nil && rb.rendered != nil && renderer.renderCount == countBefore + 1)
+    // Formulas queued together are typeset as one batch and snapshotted once; each cropped image
+    // matches the size of the same formula rendered on its own (here, in the other appearance)
+    let batchSources = ["\\frac{a}{b}", "x^{2}+y^{2}", "\\sum_{k=1}^{n} k", "\\sqrt{2}", "e^{i\\theta}", "\\int_0^1 f"]
+    var alone: [CGSize] = []
+    for source in batchSources {
+        alone.append(await renderer.render(.init(kind: .displayMath, source: source, dark: false, fontSize: 16)).rendered?.image.size ?? .zero)
+    }
+    let batchCount = renderer.renderCount
+    let batched = await withTaskGroup(of: (Int, CGSize).self) { group -> [CGSize] in
+        for (index, source) in batchSources.enumerated() {
+            group.addTask { @MainActor in
+                (index, await renderer.render(.init(kind: .displayMath, source: source, dark: true, fontSize: 16)).rendered?.image.size ?? .zero)
+            }
+        }
+        var sizes = [CGSize](repeating: .zero, count: batchSources.count)
+        for await (index, size) in group { sizes[index] = size }
+        return sizes
+    }
+    let sameSizes = zip(alone, batched).allSatisfy { abs($0.width - $1.width) <= 1 && abs($0.height - $1.height) <= 1 && $1.width > 0 }
+    check("formulas queued together share snapshots", renderer.renderCount - batchCount <= 2, "\(renderer.renderCount - batchCount) snapshots for \(batchSources.count) formulas")
+    check("batched formulas match their single renders", sameSizes, "\(alone) vs \(batched)")
+    // Typing in a formula: a newer request from the same slot replaces the older queued one, so
+    // only the state already rendering and the latest one are snapshotted
+    let typedCount = renderer.renderCount
+    let states = ["a", "a+", "a+b", "a+b^", "a+b^2"].map { RichContentRenderer.Request(kind: .displayMath, source: "\\sqrt{\($0)}", dark: false) }
+    for state in states { _ = RichContentRenderer.cachedOrRequest(state, owner: "typing-slot") }
+    _ = await renderer.render(states[states.count - 1])
+    check("typing in a formula skips intermediate states", renderer.renderCount - typedCount <= 2 && renderer.cached(states[2]) == nil,
+          "\(renderer.renderCount - typedCount) renders")
+    // A cancelled wait drops its queued render
+    let blocker = RichContentRenderer.Request(kind: .mermaid, source: "graph TD\n  P --> Q\n  Q --> R\n  R --> S", dark: false)
+    let abandoned = RichContentRenderer.Request(kind: .displayMath, source: "\\frac{abandoned}{1}", dark: false)
+    let blockerTask = Task { await renderer.render(blocker) }
+    let abandonedTask = Task { await renderer.render(abandoned) }
+    for _ in 0..<5 { await Task.yield() }   // both are queued; the blocker is rendering
+    abandonedTask.cancel()
+    _ = await blockerTask.value
+    _ = await abandonedTask.value
+    try? await Task.sleep(for: .milliseconds(300))
+    check("cancelled requests are not rendered", renderer.cached(abandoned) == nil)
 
     // MARK: Edit Text
     let source = "# Math\n\n$$\n\\sum_{i=1}^n i\n$$\n\nText after\n\n```mermaid\ngraph LR\n  A --> B\n```\n\nEnd\n"
@@ -135,9 +185,10 @@ func run() async {
     let tv = findTextView(in: host)!
     window.makeFirstResponder(tv)
     let coordinator = tv.delegate as! SwashTextView.Coordinator
-    let settled = await wait { previews(in: tv).count == 2 && previews(in: tv).allSatisfy { $0.1.alpha == 1 } && coordinator.pendingRichPreviews.isEmpty }
-    check("editor shows rendered math and Mermaid", settled, "\(previews(in: tv).map { "\(Int($0.1.size.width))×\(Int($0.1.size.height)) α\($0.1.alpha)" })")
-    check("rendering leaves the Markdown untouched", tv.string == source && box.text == source)
+    let settled = await wait { previews(in: tv).count == 1 && previews(in: tv).allSatisfy { $0.1.alpha == 1 } && diagrams(in: tv).count == 1 && coordinator.pendingRichPreviews.isEmpty }
+    check("editor shows rendered math and Mermaid", settled, "\(previews(in: tv).map { "\(Int($0.1.size.width))×\(Int($0.1.size.height)) α\($0.1.alpha)" }), \(diagrams(in: tv).count) diagrams")
+    check("the diagram keeps its Markdown", diagrams(in: tv).first?.rawMarkdown == "```mermaid\ngraph LR\n  A --> B\n```")
+    check("rendering leaves the Markdown untouched", box.text == source, box.text.debugDescription)
     if let (location, info) = previews(in: tv).first, let lm = tv.layoutManager {
         let style = tv.textStorage?.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle
         check("space is reserved below the formula", (style?.paragraphSpacing ?? 0) >= info.size.height, "spacing \(style?.paragraphSpacing ?? 0)")
@@ -170,8 +221,8 @@ func run() async {
     // Undo restores the source; renders never enter the undo stack
     tv.undoManager?.undo()
     tv.undoManager?.undo()
-    _ = await wait(timeout: 2) { tv.string == source }
-    check("undo returns to the original source", tv.string == source, tv.string.debugDescription)
+    _ = await wait(timeout: 2) { box.text == source }
+    check("undo returns to the original source", box.text == source, box.text.debugDescription)
 
     // MARK: Preview
     let preview = NSHostingView(rootView: MarkdownPreviewView(text: "Inline $e^{i\\pi} + 1 = 0$ math.\n\n## Heading with $x^2$\n\n" + source, flavor: .github).frame(width: 600, height: 700))

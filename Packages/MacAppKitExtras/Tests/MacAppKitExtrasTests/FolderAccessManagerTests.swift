@@ -19,15 +19,17 @@ struct FolderAccessManagerTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let folder = try makeFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
-        let manager = FolderAccessManager(configuration: .init(bookmarksDefaultsKey: "test_bookmarks", defaults: defaults))
+        var hookedURL: URL?
+        let manager = FolderAccessManager(configuration: .init(bookmarksDefaultsKey: "test_bookmarks", defaults: defaults, onAccessGranted: { hookedURL = $0 }))
         let before = manager.accessGrantedTrigger
 
-        let notification = NotificationCenter.default.notifications(named: FolderAccessManager.accessGrantedNotification, object: manager)
+        let notification = NotificationCenter.default.notifications(named: FolderAccessManager.accessGrantedNotification)
         let granted = await withCheckedContinuation { continuation in
             manager.grantAccess(to: folder) { continuation.resume(returning: $0) }
         }
 
         #expect(granted)
+        #expect(hookedURL == folder.standardizedFileURL)
         let saved = defaults.dictionary(forKey: "test_bookmarks") as? [String: Data]
         #expect(saved?[folder.standardizedFileURL.path] != nil)
         #expect(manager.accessGrantedTrigger != before)

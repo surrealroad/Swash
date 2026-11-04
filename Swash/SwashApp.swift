@@ -15,6 +15,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.servicesProvider = servicesProvider
+        GlobalHotKey.shared.register(QuickCaptureShortcut.current)
         DispatchQueue.main.async {
             DefaultAppManager.shared.checkAndPromptIfNecessary()
         }
@@ -25,22 +26,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if url.scheme == "swash" {
                 handleSwashURL(url)
             } else {
-                NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
+                DocumentOpener.shared.open([url])
             }
         }
     }
     
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
-        for filename in filenames {
-            let url = URL(fileURLWithPath: filename)
-            NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
-        }
+        DocumentOpener.shared.open(filenames.map { URL(fileURLWithPath: $0) })
         sender.reply(toOpenOrPrint: .success)
     }
     
     func application(_ sender: NSApplication, openFile filename: String) -> Bool {
-        let url = URL(fileURLWithPath: filename)
-        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
+        DocumentOpener.shared.open([URL(fileURLWithPath: filename)])
         return true
     }
     
@@ -65,8 +62,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else if url.host == "open" {
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             if let path = components?.queryItems?.first(where: { $0.name == "path" })?.value {
-                let fileURL = URL(fileURLWithPath: path)
-                NSDocumentController.shared.openDocument(withContentsOf: fileURL, display: true) { _, _, _ in }
+                DocumentOpener.shared.open([URL(fileURLWithPath: path)])
             }
         }
     }
@@ -76,6 +72,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 struct SwashApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var sparkleUpdater = SparkleUpdater.shared
+    @AppStorage("showMenuBarExtra") private var showMenuBarExtra = false
     
     var body: some Scene {
         DocumentGroup(newDocument: SwashDocument()) { file in
@@ -92,6 +89,11 @@ struct SwashApp: App {
                 .disabled(!sparkleUpdater.canCheckForUpdates)
             }
             FormatMenuCommands()
+            DocumentMenuCommands()
+            FileMenuCommands()
+            ExportCommands()
+            WritingModeCommands()
+            TypographyCommands()
             OpenFolderCommands()
             CommandGroup(after: .saveItem) {
                 Button("Grant Folder Access…") {
@@ -118,6 +120,10 @@ struct SwashApp: App {
 
         Settings {
             SettingsView()
+        }
+        
+        MenuBarExtra("Swash", systemImage: "square.and.pencil", isInserted: $showMenuBarExtra) {
+            SwashMenuBarMenu()
         }
     }
 }

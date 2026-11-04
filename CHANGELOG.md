@@ -1,5 +1,192 @@
 # swash
 
+## 1.19.0
+
+### Minor Changes
+
+- 7045fa1: Adopt the shared `@pixerate/markdown-conformance` package. The Format menu, keyboard shortcuts, bubble menu labels and code-block languages now come from its format-command manifest (generated into `FormatManifest.generated.swift`), and its editing corpus runs against Swash in `scripts/run_conformance_tests.sh` and the PR build.
+  
+  Editing fixes found by the corpus:
+  - Leaving a list or quote with Return on an empty item now adds a blank line, so the next paragraph no longer joins the list.
+  - Tab on a list item that can't be nested no longer inserts a tab character.
+  - Nesting a numbered item starts the nested list at 1, and moving it back out renumbers it after its parent.
+  - Adding, editing or removing a link keeps the selection on the link text.
+  - Format ▸ Code Block (⌥⌘C) on a caret wraps the whole line and keeps the caret; inside a code block it removes the fences. Formatting commands that don't apply inside code (bold, italic, strikethrough) do nothing there.
+
+## 1.18.0
+
+### Minor Changes
+
+- d6f45aa: Add typography settings (Settings › Appearance): a system, serif (New York) or monospaced font, a text size with View › Bigger (⌘+), Smaller (⌘−) and Actual Size (⌘0), a readable centred column or full width, and accent themes (Graphite, Ocean, Forest, Rose and Paper) that follow Light and Dark Mode. Changes apply live to Edit Text, Edit Markdown and the Preview of open documents; Quick Look keeps the standard look.
+
+## 1.17.0
+
+### Minor Changes
+
+- 0e74962: Syntax highlighting for many more code languages. A new built-in tokenizer colours JavaScript, TypeScript, Python, Swift, Go, Rust, Ruby, Java, Kotlin, C, C++, C#, Objective-C, PHP, Scala, Dart, SQL, Bash/shell, HTML, XML, CSS/SCSS, JSON, YAML, TOML/INI, Markdown and diff (with common aliases such as `js`, `ts`, `py`, `sh`, `zsh`, `yml`, `c++` and `cs`), including block comments, multi-line, template and triple-quoted strings, numbers, keywords, types and built-ins. The same colours, adapted for Light and Dark Mode, are used in Edit Text, the Preview and Quick Look, and exported HTML and PDF colour code too. The code-language menus list the new languages.
+
+## 1.16.0
+
+### Minor Changes
+
+- 31f9a14: Folder windows now work like a notes workspace. The sidebar shows subfolders as a collapsible tree, and a filter field narrows it by file name. Search (⇧⌘F) looks through the text of every note in the folder and lists each match with its line. Choosing a match opens the note with the match selected. Clicking a relative link to another Markdown file, or a `[[wiki link]]` naming a note, opens that note in the same window. You can rename a file or folder, move it to the Trash (after confirming) or show it in Finder from the sidebar's context menu. Hidden folders, `.git`, `node_modules` and build folders are skipped, and very large folders are listed only up to a limit, so they stay fast.
+- c03772b: On the Mac, File › Open Folder… (⇧⌘O) opens a folder of Markdown files in one window. The first file opens straight away, and a sidebar lists the others so you can switch between them. Edits are saved automatically. Files that are added, renamed, deleted or changed in other apps show up right away, and the New File button adds a Markdown file to the folder.
+
+## 1.15.1
+
+### Patch Changes
+
+- d704ab3: Size table columns to fit their content and only display add row/column controls when focused while preserving layout space
+
+## 1.15.0
+
+### Minor Changes
+
+- 007c708: Add images by dragging them onto a document or pasting them, including screenshots. Swash copies the image into an `assets` folder beside the document and inserts a relative `![](assets/…)` link; images already in the document's folder are linked where they are. The folder can be changed (or left empty to use the document's own folder) in Settings › General › Images. If Swash doesn't have permission to write to the folder, it asks for access first. An untitled document has to be saved before a screenshot can be pasted into it.
+- a4d06c7: Export and print documents. File › Export as PDF… and Export as HTML… save the document as it looks in the Preview, with math, Mermaid diagrams, alerts, footnotes and images included. HTML exports are a single self-contained file. File › Print… (⌘P) prints it, and Edit › Copy as Rich Text and Copy as HTML put the whole document on the clipboard for Mail, Pages or Google Docs.
+- 52f24eb: New writing modes in the View menu on the Mac. Focus Mode (⇧⌘D) dims everything except the paragraph or sentence you're writing (choose which under Focus On). Typewriter Scrolling (⌃⌘T) keeps the line you're typing in the middle of the window. Distraction-Free Writing (⌃⇧⌘F) goes full screen, hides the toolbar, outline and status bar, and centres the text in a readable column; press Esc to leave it.
+
+### Patch Changes
+
+- db72882: Showing or hiding the outline sidebar now widens or narrows the window by the sidebar's width, so the document keeps its width and stays in place, as it already does when switching to and from Split view.
+- cf772aa: The README's screenshot now shows Swash in Light or Dark Mode to match the reader's system, with the outline, a callout, a table, math and a Mermaid diagram, and the feature list covers exporting, printing, writing modes and adding images.
+
+## 1.14.5
+
+### Patch Changes
+
+- d1ca2b6: Rewrite the README for people using Swash rather than building it: it now leads with what Swash does, lists its current features and keyboard shortcuts, explains how to install it, and previews the iPhone and iPad app. Release and code-signing notes moved to `docs/RELEASING.md`.
+
+## 1.14.4
+
+### Patch Changes
+
+- f3af456: Restore the original thin line thickness for horizontal dividers (thematic breaks) in the formatted editor.
+
+## 1.14.3
+
+### Patch Changes
+
+- c166ff3: Fix vertical alignment of checkboxes, bullet/numbered list markers, and alert callout icons to align accurately with the text baseline and cap height.
+
+## 1.14.2
+
+### Patch Changes
+
+- 4e4c975: Improve vertical rhythm and text spacing in formatted editor mode:
+  - Add generous paragraph spacing before and after headings
+  - Increase line spacing and paragraph spacing for body text and list items
+  - Reduce contrast and add balanced padding for horizontal rules (thematic breaks)
+  - Refine block quote, alert callout, and code block vertical margins
+  - Update GFM editor snapshot baselines
+
+## 1.14.1
+
+### Patch Changes
+
+- 4c92adb: Increase text line height and reduce divider contrast in preview mode for a more comfortable and elegant reading rhythm.
+
+## 1.14.0
+
+### Minor Changes
+
+- fe835ff: Render Mermaid diagrams as inline image attachments and use system accent color for inline code:
+  
+  - Formatted view collapses Mermaid fenced code blocks into an interactive image attachment showing the rendered diagram (or placeholder while rendering) rather than displaying source code text and fences beneath it.
+  - Selecting, cutting, copying, or deleting the diagram operates like inline images, preserving the raw Markdown when copied or edited.
+  - Raw mode (Source view) retains direct plain text editing of Mermaid code blocks.
+  - Inline code text in formatted mode and preview view now uses the system accent color (`NSColor.controlAccentColor` / `Color.accentColor`) instead of hardcoded purple.
+
+## 1.13.0
+
+### Minor Changes
+
+- ae37e74: Fix editor issues in the shipping version and add missing controls:
+  
+  - The cursor is an arrow over the bubble menu and the editor margins.
+  - Clicking an image in the Formatted view selects it and shows an image bubble menu: alt text, size presets (written as `<img width>`), Replace…, Show in Finder and Copy Path.
+  - The View menu lists Formatted (⌘1), Source (⌘2) and Split (⌘3).
+  - Callouts get their own bubble menu context with a type menu (Note, Tip, Important, Warning, Caution, Plain Quote, Remove Callout), plus a Format ▸ Callout submenu. Removing the quote from a callout no longer leaves `[!NOTE]` behind.
+  - Callouts and quotes in the Split preview draw their bar the full height of the box, and the preview re-measures when the divider moves.
+  - Clicking into a table cell clears the editor's text selection, no longer shifts the table, and is faster (measured table height, cached cell parses, fewer notifications, tables kept while typing after them).
+  - To-do items in the Formatted view use native macOS checkboxes.
+  - Footnotes: Format ▸ Insert Footnote, a "/" menu item and a bubble menu button add a numbered footnote; clicking a reference jumps to its definition and back; the bubble menu can jump to or delete a footnote.
+
+## 1.12.1
+
+### Patch Changes
+
+- 909c90f: Align app icon squircle to standard macOS Human Interface Guidelines (824×824 px on 1024×1024 grid) with subtle drop shadow
+
+## 1.12.0
+
+### Minor Changes
+
+- 93b031e: Math editing: inside `$…$`, `$$` blocks and math code blocks, typing `{` inserts a matching `}` (wrapping any selection), and typing `}` steps over an existing one. After a backslash, the system completion shortcut (Esc or ⌥Esc) lists KaTeX commands such as `\frac`, `\alpha` and `\rightarrow`.
+- 93b031e: Translate: the formatting bubble has a Translate button for selected text. It opens the system translation popover, and Replace puts the translation into the document as a single undoable edit. Markdown syntax in the selection isn't sent for translation, and formatting within the replaced text isn't kept.
+
+### Patch Changes
+
+- 93b031e: Performance: formulas waiting to render are typeset together and captured in one snapshot (up to 16 at a time) instead of one snapshot each, so documents with a lot of math show their formulas sooner.
+- 93b031e: Performance: the formatting bubble finds code blocks and code spans once per document change, instead of rescanning the document several times each time it updates.
+- 93b031e: Performance: while you type, Swash no longer looks for a link under the caret after every keystroke. That check scanned the whole document and was the main cost of typing in Source and Slack modes. The bubble menu for a link now appears once typing pauses.
+
+## 1.11.0
+
+### Minor Changes
+
+- 6b144c8: Editor: the system find bar (⌘F, with incremental search) is now enabled. Writing Tools leaves code, math, HTML, front matter, tables and images untouched, and Swash holds off restyling and saving until a rewrite finishes. VoiceOver gets Headings, Links and Tables rotors for moving around a document.
+- 6b144c8: Outline and statistics: a heading outline sidebar (View ▸ Show Outline, ⌃⌘S) follows the caret and jumps to a heading when you click it. The status bar now counts only the text readers see. Click the count to switch between words, characters, characters without spaces, paragraphs and reading time; with text selected it shows "selected of total". Format ▸ Insert Table of Contents adds a linked list of headings. The Edit menu gains Copy Heading Link (⌃⌘C), Copy as Markdown Link and Copy File Path.
+- 6b144c8: Quick Note, importing and safer opening:
+  
+  - **Quick Note:** a floating panel opened with a global shortcut (⌃⌥⌘N by default, changeable in Settings), an optional menu bar item, or the Quick Note shortcut. It saves a note as a new document or appends it to the last document you used. Settings can also turn on Open at Login.
+  - **Import:** File ▸ Import… (⇧⌘I) converts Word, RTF, HTML and OpenDocument files into new Markdown documents.
+  - **Reopen:** File ▸ Reopen Closed Document (⇧⌘T) brings back recently closed files.
+  - **Opening files:** requests are gathered together, and Swash asks before opening more than ten at once. A file that can't be opened gets a specific reason: missing, a folder, no permission, too large, or not text.
+  - **File types:** `.mkd`, `.mdwn`, `.mdtext`, `.mdtxt` and `.rmd` now open as Markdown, and UTF-16 and legacy-encoded files are decoded instead of rejected.
+  - **iCloud conflicts:** a banner offers to choose which conflicting version to keep, and keeping another version can be undone.
+
+## 1.10.3
+
+### Patch Changes
+
+- 1f0b69a: Performance: typing does less work per keystroke. The editor parses each revision once and shares that parse with styling, link detection, the bubble menu and Backspace/Enter handling, and it skips rebuilding the document when SwiftUI only echoes back its own edit. Tables cache their Markdown. Images are cached by path and modification date instead of being reread and rescaled on every restyle, so typing next to an image is about 4× faster. Backspace in an ordinary paragraph no longer parses the whole document. Saved folder permissions are resolved when first needed, once each, which fixes access handles accumulating with every render. The scroll position is only restored after full restyles, so it no longer fights autoscroll while typing.
+- 1f0b69a: Performance: an unsaved window no longer looks up its document on every update.
+- 1f0b69a: Performance: the window no longer checks the folder permissions of every linked image on every keystroke (it rechecks once typing pauses, and straight away when the file moves or access is granted), the share icon is drawn once, and finding the document's title stops at its first heading.
+- 1f0b69a: Performance: the Split view preview no longer rebuilds and re-measures the whole document on every keystroke. It updates once typing pauses, and only the blocks that changed are re-rendered, which uses about 4.5× less CPU while typing on a 900-line document.
+- 1f0b69a: Performance: Quick Look previews read at most the first 256 KB of a file, noting when a preview is cut short, and decode and parse it in the background. They show math and Mermaid source instead of starting WebKit, so the Quick Look extension no longer bundles KaTeX, Mermaid and their fonts (about 6 MB). Finder thumbnails read only the first 4 KB of a file.
+- 1f0b69a: Performance: typing inside a formula or Mermaid diagram no longer queues a render of every intermediate state, since each block's newest request replaces its older queued one. Renders for views that have gone away are dropped, and finished renders are announced in batches rather than one at a time, so opening a document with many formulas restyles it a few times instead of once per formula.
+- 1f0b69a: Performance: scrolling no longer looks up links or recomputes the selection on every frame; it just moves the bubble menu. In Source and Split modes, typing no longer restyles the whole document on every keystroke.
+- 1f0b69a: Performance: Slack-formatted documents are restyled once typing pauses (after about 0.1 s) instead of after every keystroke, since Slack styling always covers the whole document.
+- 1f0b69a: Performance: editing a table cell no longer makes the next keystroke restyle the whole document, rebuild every table and reload every image.
+- 1f0b69a: Add a performance audit (`docs/PERFORMANCE_AUDIT.md`) covering per-keystroke editor work, the preview, image loading, the Markdown parser, math and Mermaid rendering, and the extensions, with a phased improvement plan.
+
+## 1.10.2
+
+### Patch Changes
+
+- 24168d9: Performance: finding code blocks and code spans, which the editor does on styling passes, is about 20% faster.
+- 24168d9: Performance: the Markdown parser is about 20% faster on ordinary documents, and inputs that used to take time proportional to the square of their length (long runs of unmatched `*`, `_`, `&` or `<`, many `[` before links, long lists of reference definitions, deeply nested quotes) now parse in linear time. Checking block formats on a long selection is about 40× faster.
+- 24168d9: Performance: tables, HTML blocks, link definitions and image titles are parsed without compiling a regular expression each time, and detecting a document's Markdown flavor when it opens examines only its first 32 KB, with patterns compiled once.
+
+## 1.10.1
+
+### Patch Changes
+
+- 85ea2e0: Remove the "Metadata extraction skipped" build warnings from the QuickLook, Share and Thumbnail extensions by skipping App Intents metadata extraction for targets that don't use App Intents.
+
+## 1.10.0
+
+### Minor Changes
+
+- 0fadaf6: Move Markdown flavor switching from the toolbar dropdown to Format ▸ Markdown Flavor. When switching changes the text, Swash asks whether to keep the formatting (rewriting the Markdown for the new flavor) or keep the raw text unchanged. Switching flavor, including the rewrite, can be undone with Edit ▸ Undo.
+
+## 1.9.0
+
+### Minor Changes
+
+- 9afcba8: Redesign the Settings window in the modern macOS style. It now has General and Updates tabs in the toolbar, and each tab uses grouped form sections with explanatory footers. The Updates tab also shows the current version.
+
 ## 1.8.6
 
 ### Patch Changes

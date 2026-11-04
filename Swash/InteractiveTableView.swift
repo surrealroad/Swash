@@ -19,6 +19,8 @@ struct InteractiveTableView: View {
     let flavor: MarkdownFlavor
     var isEditable: Bool = true
     var onChange: ((MarkdownTableData) -> Void)? = nil
+    /// Called when a cell starts editing, so the editor can end its own selection.
+    var onBeginEditing: (() -> Void)? = nil
 
     @State private var headers: [String]
     @State private var alignments: [TableAlignment]
@@ -34,11 +36,12 @@ struct InteractiveTableView: View {
         let col: Int
     }
 
-    init(tableData: MarkdownTableData, flavor: MarkdownFlavor, isEditable: Bool = true, onChange: ((MarkdownTableData) -> Void)? = nil) {
+    init(tableData: MarkdownTableData, flavor: MarkdownFlavor, isEditable: Bool = true, onChange: ((MarkdownTableData) -> Void)? = nil, onBeginEditing: (() -> Void)? = nil) {
         self.initialData = tableData
         self.flavor = flavor
         self.isEditable = isEditable
         self.onChange = onChange
+        self.onBeginEditing = onBeginEditing
         
         _headers = State(initialValue: tableData.headers)
         _alignments = State(initialValue: tableData.alignments)
@@ -46,19 +49,20 @@ struct InteractiveTableView: View {
     }
 
     var body: some View {
+        let widths = columnWidths
         VStack(alignment: .leading, spacing: 6) {
             ScrollView(.horizontal, showsIndicators: true) {
                 // Main Table Container
                 VStack(spacing: 0) {
                     // Header Row
-                    headerView
+                    headerView(widths: widths)
                     
                     Divider()
                         .background(Color.secondary.opacity(0.3))
 
                     // Data Rows
                     ForEach(0..<rows.count, id: \.self) { rowIndex in
-                        rowView(for: rowIndex)
+                        rowView(for: rowIndex, widths: widths)
                         
                         if rowIndex < rows.count - 1 {
                             Divider()
@@ -66,7 +70,6 @@ struct InteractiveTableView: View {
                         }
                     }
                 }
-                .frame(minWidth: 300, maxWidth: .infinity)
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
@@ -76,6 +79,7 @@ struct InteractiveTableView: View {
 
             // Table Controls Footer (Visible when editable)
             if isEditable {
+                let isFocused = editingCell != nil
                 HStack(spacing: 12) {
                     Button(action: { addRow() }) {
                         HStack(spacing: 4) {
@@ -110,8 +114,9 @@ struct InteractiveTableView: View {
                     Spacer()
                 }
                 .padding(.top, 2)
-                .opacity(isHovered || editingCell != nil ? 1.0 : 0.6)
-                .animation(.easeInOut(duration: 0.15), value: isHovered)
+                .opacity(isFocused ? 1.0 : 0.0)
+                .allowsHitTesting(isFocused)
+                .animation(.easeInOut(duration: 0.15), value: isFocused)
             }
         }
         .onHover { hovering in
@@ -124,16 +129,45 @@ struct InteractiveTableView: View {
         }
     }
 
+    // MARK: - Column Sizing
+    private var columnWidths: [CGFloat] {
+        let headerFont = PlatformFont.systemFont(ofSize: 13, weight: .bold)
+        let rowFont = PlatformFont.systemFont(ofSize: 13, weight: .regular)
+        let cellPadding: CGFloat = 24 // 12 pt leading + 12 pt trailing
+        let menuWidth: CGFloat = isEditable ? 18 : 0 // 14 pt menu button + 4 pt spacing
+        let minColWidth: CGFloat = 110
+
+        return (0..<headers.count).map { colIndex in
+            let headerText = headers[colIndex]
+            var maxContentWidth = ceil((headerText as NSString).size(withAttributes: [.font: headerFont]).width) + menuWidth
+
+            for row in rows {
+                if colIndex < row.count {
+                    let cellText = row[colIndex]
+                    if !cellText.isEmpty {
+                        let textWidth = ceil((cellText as NSString).size(withAttributes: [.font: rowFont]).width)
+                        if textWidth > maxContentWidth {
+                            maxContentWidth = textWidth
+                        }
+                    }
+                }
+            }
+            return max(minColWidth, maxContentWidth + cellPadding)
+        }
+    }
+
     // MARK: - Header View
-    private var headerView: some View {
+    private func headerView(widths: [CGFloat]) -> some View {
         HStack(spacing: 0) {
             ForEach(0..<headers.count, id: \.self) { colIndex in
                 let alignment = colIndex < alignments.count ? alignments[colIndex] : .defaultAlignment
+                let colWidth = colIndex < widths.count ? widths[colIndex] : 110
                 
                 HStack(spacing: 4) {
                     cellContent(text: headers[colIndex], index: CellIndex(row: -1, col: colIndex), isHeader: true)
                     
-                    if isEditable && (hoveredColumn == colIndex || editingCell?.col == colIndex) {
+                    if isEditable {
+                        let showsMenu = hoveredColumn == colIndex || editingCell?.col == colIndex
                         Menu {
                             Button("Align Left") { setAlignment(.left, for: colIndex) }
                             Button("Align Center") { setAlignment(.center, for: colIndex) }
@@ -155,11 +189,14 @@ struct InteractiveTableView: View {
                         #endif
                         .menuIndicator(.hidden)
                         .frame(width: 14)
+                        // Always laid out, so showing it doesn't reflow the header
+                        .opacity(showsMenu ? 1 : 0)
+                        .allowsHitTesting(showsMenu)
                     }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .frame(minWidth: 110, maxWidth: .infinity, alignment: frameAlignment(for: alignment))
+                .frame(width: colWidth, alignment: frameAlignment(for: alignment))
                 .onHover { hovering in
                     if hovering { hoveredColumn = colIndex }
                 }
@@ -188,18 +225,19 @@ struct InteractiveTableView: View {
     }
 
     // MARK: - Row View
-    private func rowView(for rowIndex: Int) -> some View {
+    private func rowView(for rowIndex: Int, widths: [CGFloat]) -> some View {
         HStack(spacing: 0) {
             let row = rowIndex < rows.count ? rows[rowIndex] : []
             
             ForEach(0..<headers.count, id: \.self) { colIndex in
                 let cellText = colIndex < row.count ? row[colIndex] : ""
                 let alignment = colIndex < alignments.count ? alignments[colIndex] : .defaultAlignment
+                let colWidth = colIndex < widths.count ? widths[colIndex] : 110
 
                 cellContent(text: cellText, index: CellIndex(row: rowIndex, col: colIndex), isHeader: false)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .frame(minWidth: 110, maxWidth: .infinity, alignment: frameAlignment(for: alignment))
+                    .frame(width: colWidth, alignment: frameAlignment(for: alignment))
                     .contextMenu {
                         if isEditable {
                             Button("Insert Row Above") { insertRow(at: rowIndex) }
@@ -234,6 +272,8 @@ struct InteractiveTableView: View {
                     set: { newText in updateCellText(newText, at: index) }
                 ),
                 flavor: flavor,
+                isHeader: isHeader,
+                alignment: index.col < alignments.count ? alignments[index.col] : .defaultAlignment,
                 onCommit: {
                     editingCell = nil
                 },
@@ -244,18 +284,24 @@ struct InteractiveTableView: View {
                     moveFocus(from: index, forward: false)
                 }
             )
-            .font(.system(size: 13, weight: isHeader ? .bold : .regular))
         } else {
             InlineMarkdownText(text: text.isEmpty ? " " : text, flavor: flavor)
+                .equatable()
                 .font(.system(size: 13, weight: isHeader ? .bold : .regular))
                 .foregroundColor(.primary)
+                .frame(height: CellTextField.lineHeight)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     if isEditable {
-                        editingCell = index
+                        beginEditing(index)
                     }
                 }
         }
+    }
+
+    private func beginEditing(_ index: CellIndex) {
+        if editingCell == nil { onBeginEditing?() }
+        editingCell = index
     }
 
     // MARK: - Helpers & Data Operations
@@ -278,6 +324,7 @@ struct InteractiveTableView: View {
     private func addRow() {
         let newRow = [String](repeating: "", count: headers.count)
         rows.append(newRow)
+        editingCell = CellIndex(row: rows.count - 1, col: 0)
         notifyChange()
     }
 
@@ -300,6 +347,7 @@ struct InteractiveTableView: View {
         for i in 0..<rows.count {
             rows[i].append("")
         }
+        editingCell = CellIndex(row: -1, col: headers.count - 1)
         notifyChange()
     }
 
@@ -387,20 +435,32 @@ struct InteractiveTableView: View {
 struct CellTextField: View {
     @Binding var text: String
     var flavor: MarkdownFlavor
+    var isHeader: Bool = false
+    var alignment: TableAlignment = .defaultAlignment
     var onCommit: () -> Void
     var onNextCell: () -> Void
     var onPrevCell: () -> Void
+    
+    /// Height of one line of 13 pt cell text. Display and edit cells both use it, so clicking into a
+    /// cell doesn't change the row height.
+    #if os(macOS)
+    static let lineHeight: CGFloat = ceil(NSLayoutManager().defaultLineHeight(for: NSFont.systemFont(ofSize: 13)))
+    #else
+    static let lineHeight: CGFloat = ceil(UIFont.systemFont(ofSize: 13).lineHeight)
+    #endif
 
     var body: some View {
         #if os(macOS)
         CellTextView(
             text: $text,
             flavor: flavor,
+            isHeader: isHeader,
+            alignment: alignment,
             onCommit: onCommit,
             onNextCell: onNextCell,
             onPrevCell: onPrevCell
         )
-        .frame(minHeight: 20)
+        .frame(height: Self.lineHeight)
         #else
         IOSCellTextField(text: $text, onCommit: onCommit, onNextCell: onNextCell, onPrevCell: onPrevCell)
         #endif
@@ -450,6 +510,8 @@ private struct IOSCellTextField: View {
 struct CellTextView: NSViewRepresentable {
     @Binding var text: String
     var flavor: MarkdownFlavor
+    var isHeader: Bool = false
+    var alignment: TableAlignment = .defaultAlignment
     var onCommit: () -> Void
     var onNextCell: () -> Void
     var onPrevCell: () -> Void
@@ -472,10 +534,15 @@ struct CellTextView: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
-        textView.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+        textView.font = NSFont.systemFont(ofSize: 13, weight: isHeader ? .bold : .regular)
         textView.textColor = NSColor.textColor
         textView.textContainerInset = NSSize(width: 0, height: 0)
         textView.focusRingType = .none
+        switch alignment {
+        case .center: textView.alignment = .center
+        case .right: textView.alignment = .right
+        case .left, .defaultAlignment: textView.alignment = .left
+        }
         textView.delegate = context.coordinator
         
         textView.string = text
@@ -488,6 +555,7 @@ struct CellTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ textView: NSTextView, context: Context) {
+        context.coordinator.parent = self
         if let swashTextView = textView as? SwashNSTextView {
             swashTextView.isStyled = true
             swashTextView.flavor = flavor
@@ -520,8 +588,28 @@ struct CellTextView: NSViewRepresentable {
         }
 
         func textDidEndEditing(_ notification: Notification) {
-            NotificationCenter.default.post(name: .cellSelectionDidChange, object: nil, userInfo: [:])
+            postSelection(nil)
             parent.onCommit()
+        }
+        
+        /// The last selection posted, so caret moves and typing don't repost an unchanged one
+        /// (each post updates `ContentView` state).
+        private var lastPosted: (rect: NSRect, formats: Set<FormatAction>)?? = nil
+        
+        private func postSelection(_ selection: (rect: NSRect, formats: Set<FormatAction>, range: NSRange, text: String)?) {
+            let posted = selection.map { (rect: $0.rect, formats: $0.formats) }
+            if let last = lastPosted, last?.rect == posted?.rect, last?.formats == posted?.formats { return }
+            lastPosted = .some(posted)
+            if let selection = selection {
+                NotificationCenter.default.post(name: .cellSelectionDidChange, object: nil, userInfo: [
+                    "range": selection.range,
+                    "rect": selection.rect,
+                    "text": selection.text,
+                    "formats": selection.formats
+                ])
+            } else {
+                NotificationCenter.default.post(name: .cellSelectionDidChange, object: nil, userInfo: [:])
+            }
         }
 
         private func findMainScrollView(from view: NSView) -> NSScrollView? {
@@ -559,16 +647,11 @@ struct CellTextView: NSViewRepresentable {
                         )
                         
                         let activeFormats = detectActiveFormats(in: textView, range: range)
-                        NotificationCenter.default.post(name: .cellSelectionDidChange, object: nil, userInfo: [
-                            "range": range,
-                            "rect": swiftUIRect,
-                            "text": textView.string,
-                            "formats": activeFormats
-                        ])
+                        postSelection((swiftUIRect, activeFormats, range, textView.string))
                     }
                 }
             } else {
-                NotificationCenter.default.post(name: .cellSelectionDidChange, object: nil, userInfo: [:])
+                postSelection(nil)
             }
         }
 
@@ -720,9 +803,18 @@ struct CellTextView: NSViewRepresentable {
             guard fullRange.length > 0 else { return }
             
             textStorage.beginEditing()
+            // Same weight and alignment as the cell shows when it isn't being edited
+            let paragraph = NSMutableParagraphStyle()
+            switch parent.alignment {
+            case .center: paragraph.alignment = .center
+            case .right: paragraph.alignment = .right
+            case .left, .defaultAlignment: paragraph.alignment = .left
+            }
+            let baseFont = NSFont.systemFont(ofSize: 13, weight: parent.isHeader ? .bold : .regular)
             textStorage.setAttributes([
-                .font: NSFont.systemFont(ofSize: 13, weight: .regular),
-                .foregroundColor: NSColor.textColor
+                .font: baseFont,
+                .foregroundColor: NSColor.textColor,
+                .paragraphStyle: paragraph
             ], range: fullRange)
             
             func hideRange(_ range: NSRange) {
@@ -767,7 +859,7 @@ struct CellTextView: NSViewRepresentable {
                 let matches = italicRegex.matches(in: textView.string, options: [], range: fullRange)
                 for match in matches {
                     let contentRange = match.range(at: 1).location != NSNotFound ? match.range(at: 1) : match.range(at: 2)
-                    let italicFont = NSFontManager.shared.convert(NSFont.systemFont(ofSize: 13, weight: .regular), toHaveTrait: .italicFontMask)
+                    let italicFont = NSFontManager.shared.convert(baseFont, toHaveTrait: .italicFontMask)
                     textStorage.addAttribute(.font, value: italicFont, range: contentRange)
                     
                     hideRange(NSRange(location: match.range.location, length: 1))
@@ -861,52 +953,85 @@ final class TableAttachmentCell: NSTextAttachmentCell {
         fatalError("init(coder:) has not been implemented")
     }
     
+    /// Height of the table view at `width`, measured from its SwiftUI content. Reused until the
+    /// table's data or the width changes, since layout asks for it often.
+    private var measured: (data: MarkdownTableData, width: CGFloat, height: CGFloat)?
+    
     nonisolated override func cellFrame(for textContainer: NSTextContainer, proposedLineFragment lineFrag: NSRect, glyphPosition position: CGPoint, characterIndex charIndex: Int) -> NSRect {
         let width = lineFrag.width > 0 ? lineFrag.width : 500
-        let rowCount = MainActor.assumeIsolated { tableData.rows.count } + 1
-        let estimatedHeight = CGFloat(max(100, rowCount * 36 + 60))
-        return NSRect(x: 0, y: 0, width: width, height: estimatedHeight)
+        let height = MainActor.assumeIsolated { self.height(forWidth: width) }
+        return NSRect(x: 0, y: 0, width: width, height: height)
+    }
+    
+    @MainActor private func height(forWidth width: CGFloat) -> CGFloat {
+        if let measured = measured, measured.data == tableData, measured.width == width { return measured.height }
+        let view = makeHostingView()
+        view.frame.size.width = width
+        let height = ceil(max(44, view.fittingSize.height))
+        measured = (tableData, width, height)
+        return height
+    }
+    
+    /// The table's view, created on first use. It is added to the text view when first drawn.
+    @MainActor private func makeHostingView() -> TableHostingView<InteractiveTableView> {
+        if let hv = hostingView { return hv }
+        let hv = TableHostingView(rootView: InteractiveTableView(
+            tableData: tableData,
+            flavor: flavor,
+            isEditable: true,
+            onChange: { [weak self] newTableData in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    self.tableData = newTableData
+                    self.onUpdate?(newTableData)
+                    // Rows or columns may have been added or removed: measure and lay out again
+                    if let parentView = self.parentView, let location = self.characterLocation(in: parentView) {
+                        let range = NSRange(location: location, length: 1)
+                        parentView.layoutManager?.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
+                        parentView.layoutManager?.invalidateDisplay(forCharacterRange: range)
+                    }
+                }
+            },
+            onBeginEditing: { [weak self] in
+                // Editing a cell ends the editor's own selection (its highlight and bubble menu)
+                guard let self = self, let parentView = self.parentView,
+                      let location = self.characterLocation(in: parentView) else { return }
+                if parentView.selectedRange() != NSRange(location: location, length: 0) {
+                    parentView.setSelectedRange(NSRange(location: location, length: 0))
+                }
+            }
+        ))
+        hostingView = hv
+        return hv
+    }
+    
+    /// The text view the table is drawn in.
+    private weak var parentView: NSTextView?
+    
+    /// Storage location of this table's attachment character.
+    @MainActor private func characterLocation(in textView: NSTextView) -> Int? {
+        guard let storage = textView.textStorage else { return nil }
+        var found: Int? = nil
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length), options: []) { value, range, stop in
+            if (value as? TableTextAttachment)?.cell === self {
+                found = range.location
+                stop.pointee = true
+            }
+        }
+        return found
     }
     
     nonisolated override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
         guard let parentView = controlView as? NSTextView else { return }
         
         MainActor.assumeIsolated {
-            if self.hostingView == nil {
-                let hv = TableHostingView(rootView: InteractiveTableView(
-                    tableData: self.tableData,
-                    flavor: self.flavor,
-                    isEditable: true,
-                    onChange: { [weak self, weak parentView] newTableData in
-                        DispatchQueue.main.async {
-                            self?.tableData = newTableData
-                            self?.onUpdate?(newTableData)
-                            
-                            if let parentView = parentView, let layoutManager = parentView.layoutManager, let textStorage = parentView.textStorage {
-                                let fullRange = NSRange(location: 0, length: textStorage.length)
-                                textStorage.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
-                                    if (value as? TableTextAttachment)?.cell === self {
-                                        layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
-                                        layoutManager.invalidateDisplay(forCharacterRange: range)
-                                        parentView.needsLayout = true
-                                        parentView.needsDisplay = true
-                                    }
-                                }
-                            }
-                        }
-                    }
-                ))
-                self.hostingView = hv
+            self.parentView = parentView
+            let hv = self.makeHostingView()
+            if hv.superview != parentView {
                 parentView.addSubview(hv, positioned: .above, relativeTo: nil)
             }
-            
-            if let hv = self.hostingView {
-                if hv.superview != parentView {
-                    parentView.addSubview(hv, positioned: .above, relativeTo: nil)
-                }
-                if hv.frame != cellFrame {
-                    hv.frame = cellFrame
-                }
+            if hv.frame != cellFrame {
+                hv.frame = cellFrame
             }
         }
     }
@@ -915,7 +1040,9 @@ final class TableAttachmentCell: NSTextAttachmentCell {
 final class TableTextAttachment: NSTextAttachment, RawMarkdownAttachment {
     static let fileTypeIdentifier = "com.surrealroad.swash.table"
     
-    var tableData: MarkdownTableData
+    var tableData: MarkdownTableData {
+        didSet { cachedRawMarkdown = nil }
+    }
     var flavor: MarkdownFlavor
     var onUpdate: ((MarkdownTableData) -> Void)?
     var cell: TableAttachmentCell
@@ -924,11 +1051,20 @@ final class TableTextAttachment: NSTextAttachment, RawMarkdownAttachment {
     let originalMarkdown: String?
     private let originalTableData: MarkdownTableData
 
+    /// Serialised once per change of `tableData`: it is read for every raw-Markdown rebuild and
+    /// offset map, several times per keystroke.
+    private var cachedRawMarkdown: String?
+    
     var rawMarkdown: String {
+        if let cached = cachedRawMarkdown { return cached }
+        let markdown: String
         if let original = originalMarkdown, tableData == originalTableData {
-            return original
+            markdown = original
+        } else {
+            markdown = MarkdownParser.tableToMarkdown(headers: tableData.headers, alignments: tableData.alignments, rows: tableData.rows)
         }
-        return MarkdownParser.tableToMarkdown(headers: tableData.headers, alignments: tableData.alignments, rows: tableData.rows)
+        cachedRawMarkdown = markdown
+        return markdown
     }
 
     init(tableData: MarkdownTableData, flavor: MarkdownFlavor, originalMarkdown: String? = nil, onUpdate: ((MarkdownTableData) -> Void)?) {

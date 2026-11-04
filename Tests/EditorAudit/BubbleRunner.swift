@@ -88,6 +88,8 @@ let cases: [Case] = [
     Case(id: "ctx-list-in-quote", md: "> - item in quote", select: "item", press: nil),
     Case(id: "ctx-heading-in-quote", md: "> ## Heading", select: "Heading", press: nil),
     Case(id: "ctx-alert-body", md: "> [!TIP]\n> tip body", select: "body", press: nil),
+    Case(id: "callout-quote-off", md: "> [!NOTE]\n> alert body", select: "alert body", press: "quote", expect: "alert body"),
+    Case(id: "ctx-image", md: "Before ![logo](missing.png) after", select: "\u{FFFC}", press: nil),
     Case(id: "heading-in-list-item", md: "- list item", select: "list", press: "H", arg: "2", expect: "## list item"),
     // Keyboard shortcuts (key events sent to the editor like real key presses)
     Case(id: "key-bold", md: "Plain beta gamma.", select: "beta", press: "KEY", arg: "b:11:cmd", expect: "Plain **beta** gamma."),
@@ -128,7 +130,7 @@ struct BubbleRunner {
             out += "## \(c.id)\nINPUT: \(c.md.debugDescription)  SELECT: \(c.select.debugDescription) (storage range \(r))\n"
             out += "STATE: \(TestHooks.state)\n"
             let expectedContexts = ["ctx-tilde-code-block": "context=codeBlock", "ctx-ordered-paren": "context=listItem", "ctx-pipe-text": "context=standard", "ctx-task": "context=listItem", "ctx-inline-code": "code=inline",
-                                    "ctx-list-in-quote": "context=listItem", "ctx-heading-in-quote": "context=heading", "ctx-alert-body": "context=blockquote", "ctx-heading": "heading=H2", "ctx-link": "link=https://a.com", "ctx-plain": "context=standard"]
+                                    "ctx-list-in-quote": "context=listItem", "ctx-heading-in-quote": "context=heading", "ctx-alert-body": "context=callout(", "ctx-image": "context=image", "ctx-quote": "context=blockquote", "ctx-heading": "heading=H2", "ctx-link": "link=https://a.com", "ctx-plain": "context=standard"]
             if let ctx = expectedContexts[c.id], !TestHooks.state.contains(ctx) {
                 failures.append("\(c.id): expected \(ctx), got \(TestHooks.state)")
             }

@@ -10,7 +10,7 @@ Status: **in progress** on the `feat/universal-ios` branch. The phase checklists
 |---|---|---|
 | Approach | AppKit on macOS, UIKit and SwiftUI on iOS and iPadOS. No Mac Catalyst. | The Mac app is the reference experience and must not get worse. |
 | Targets | One `Swash` app target that builds for both macOS and iOS. macOS-only frameworks and extensions are excluded from iOS builds with platform filters. | One scheme and one version number. Shared code is compiled once per platform. |
-| Code sharing | Shared sources stay in `Swash/` (synchronized folder). Platform-specific code is either a whole file wrapped in `#if os(macOS)` / `#if os(iOS)`, or lives under `Swash/iOS/`. | Avoids reworking the hand-written file lists in the test scripts for now (GOTCHAS #14). Moving shared code into a `SwashCore` Swift package is deferred. See GOTCHAS #25. |
+| Code sharing | Shared sources stay in `Swash/` (synchronized folder). Platform-specific code is either a whole file wrapped in `#if os(macOS)` / `#if os(iOS)`, or lives under `Swash/iOS/`. | Avoids reworking the hand-written file lists in the test scripts for now (GOTCHAS #14). Moving shared code into a `SwashCore` Swift package is deferred. See GOTCHAS #47. |
 | Platform types | `PlatformTypes.swift` defines `PlatformColor`, `PlatformFont` and `PlatformImage`, plus helpers that hide UIKit/AppKit differences (semantic colours, `Image(platformImage:)`, pasteboard). | Most of the AppKit dependency in shared code is just type names. |
 | Minimum OS | iOS / iPadOS 26.0. macOS stays at 15.7. | Gets iPadOS menu-bar and windowing behaviour, and keeps `#available` checks to a minimum. |
 | Editor engine on iOS | `UITextView` on TextKit 1 (`NSLayoutManager`), mirroring the AppKit editor. | The styler and the raw/storage offset mapping (GOTCHAS #9, #20) assume TextKit 1, which iOS also supports. A TextKit 2 rewrite is not needed. |
@@ -20,7 +20,7 @@ Status: **in progress** on the `feat/universal-ios` branch. The phase checklists
 
 | Area | Files | Portability |
 |---|---|---|
-| Markdown core | `Swash/Markdown/*` | Foundation only, except `HTMLToMarkdown`'s use of `XMLDocument`. iOS uses `HTMLLiteDOM` instead (GOTCHAS #26). |
+| Markdown core | `Swash/Markdown/*` | Foundation only, except `HTMLToMarkdown`'s use of `XMLDocument`. iOS uses `HTMLLiteDOM` instead (GOTCHAS #48). |
 | Document model, flavour, settings | `SwashDocument`, `MarkdownFlavor`, `SettingsView` | SwiftUI. Mostly portable. |
 | Preview ("Formatted") | `MarkdownPreviewView` | SwiftUI views. Only the scroll container, scroll sync, nested-scroll routing and a few colours are AppKit. |
 | Rich rendering | `RichContentRenderer` | WebKit works on iOS. The only differences are image types and the snapshot sizing. |

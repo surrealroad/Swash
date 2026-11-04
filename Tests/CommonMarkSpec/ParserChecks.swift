@@ -98,18 +98,24 @@ enum ParserChecks {
         ("- spl|it", "enter", "- spl\n- |it"),
         ("> quote|", "enter", "> quote\n> |"),
         ("> - in quote|", "enter", "> - in quote\n> - |"),
-        ("- a\n- |", "enter", "- a\n|"),
+        ("- a\n- |", "enter", "- a\n\n|"),
+        ("- |", "enter", "|"),
+        ("> - a\n> - |", "enter", "> - a\n>\n> |"),
         ("- a\n  - |", "enter", "- a\n- |"),
-        ("> a\n> |", "enter", "> a\n|"),
+        ("> a\n> |", "enter", "> a\n\n|"),
+        ("> > a\n> > |", "enter", "> > a\n>\n> |"),
         ("plain|", "enter", "default"),
         ("## Heading|", "enter", "default"),
         ("```\n- not a list|\n```", "enter", "default"),
         ("- a\n- b|", "tab", "- a\n  - b|"),
-        ("1. a\n2. b|", "tab", "1. a\n   2. b|"),
+        ("1. a\n2. b|", "tab", "1. a\n   1. b|"),
+        ("1. a\n2. b|\n3. c", "tab", "1. a\n   1. b|\n2. c"),
+        ("1. a\n   1. b\n3. c|", "tab", "1. a\n   1. b\n   2. c|"),
         ("- a\n  - b\n- c|", "tab", "- a\n  - b\n  - c|"),
-        ("- only|", "tab", "default"),
+        ("- only|", "tab", "- only|"),
         ("- a\n  - b|", "shift-tab", "- a\n- b|"),
         ("- a\n  - b\n    - c|", "shift-tab", "- a\n  - b\n  - c|"),
+        ("1. a\n   1. b|\n2. c", "shift-tab", "1. a\n2. b|\n3. c"),
         ("- |item", "backspace", "|item"),
         ("## |Title", "backspace", "|Title"),
         ("- [ ] |todo", "backspace", "|todo"),
@@ -305,8 +311,86 @@ enum ParserChecks {
         return failures
     }
     
+    private static func runOutline() -> Int {
+        var failures = 0
+        func expect(_ ok: Bool, _ message: @autoclosure () -> String) {
+            if !ok { failures += 1; print("❌ outline: \(message())") }
+        }
+        let text = "# Title\n\nIntro text.\n\n## Getting Started\n\n```\n# not a heading\n```\n\n## Getting Started\n\n### C++ & [Links]\n\n> ## Quoted\n"
+        let outline = MarkdownOutline(text: text)
+        expect(outline.headings.map(\.level) == [1, 2, 2, 3, 2], "levels \(outline.headings.map(\.level))")
+        expect(outline.headings.map(\.anchor) == ["title", "getting-started", "getting-started-1", "c--links", "quoted"], "anchors \(outline.headings.map(\.anchor))")
+        expect(outline.headings.map(\.title).last == "Quoted", "titles \(outline.headings.map(\.title))")
+        let introLocation = (text as NSString).range(of: "Intro").location
+        expect(outline.headingIndex(containing: introLocation) == 0, "section of intro")
+        expect(outline.headingIndex(containing: 0) == 0, "section at start")
+        expect(MarkdownOutline(text: "Text\n\n# Later").headingIndex(containing: 0) == nil, "no section before first heading")
+        let toc = outline.tableOfContents()
+        let expectedTOC = "- [Getting Started](#getting-started)\n- [Getting Started](#getting-started-1)\n  - [C++ & \\[Links\\]](#c--links)\n- [Quoted](#quoted)"
+        expect(toc == expectedTOC, "toc \(toc.debugDescription)")
+        expect(MarkdownOutline(text: "# A\n\n# B").tableOfContents() == "- [A](#a)\n- [B](#b)", "two H1s are both kept")
+        expect(MarkdownOutline.slug("Über Café 2.0!") == "über-café-20", "unicode slug \(MarkdownOutline.slug("Über Café 2.0!"))")
+
+        let stats = MarkdownStatistics(text: "---\ntitle: Ignored words here\n---\n# Hello **world**\n\nA [link](https://example.com) and `code`.\n\n| a | b |\n|---|---|\n| one | two |\n")
+        expect(stats.words == 10, "words \(stats.words)")
+        expect(stats.paragraphs == 3, "paragraphs \(stats.paragraphs)")
+        expect(MarkdownStatistics(text: "").readingMinutes == 0, "empty reading time")
+        expect(MarkdownStatistics(text: "one two").readingMinutes == 1, "short reading time")
+        expect(MarkdownStatistics(text: "a b").charactersExcludingSpaces == 2, "characters excluding spaces")
+        print("Outline and statistics checks: \(failures == 0 ? "all passed" : "\(failures) failed")")
+        return failures
+    }
+
+    private static func runMathEditing() -> Int {
+        var failures = 0
+        // "|" marks the caret (or "[…]" a selection); expected nil means default typing
+        let cases: [(String, String, String?)] = [
+            ("Energy $E=mc^|$ here", "{", "Energy $E=mc^{|}$ here"),
+            ("Typing $\\frac|", "{", "Typing $\\frac{|}"),
+            ("$$\nx^|\n$$", "{", "$$\nx^{|}\n$$"),
+            ("```math\na_|\n```", "{", "```math\na_{|}\n```"),
+            ("$x^{2|}$", "}", "$x^{2}|$"),
+            ("Plain {text|", "{", nil),
+            ("`$code^|$`", "{", nil),
+            ("Costs $ 5 and |", "{", nil),
+            ("Closed $x$ then |", "{", nil),
+            ("$a+[b]$", "{", "$a+{[b]}$"),
+            ("```swift\nlet x = |\n```", "{", nil),
+        ]
+        for (input, typed, expected) in cases {
+            var text = input
+            var selection: NSRange
+            if let caret = text.range(of: "|") {
+                selection = NSRange(location: text.utf16.distance(from: text.utf16.startIndex, to: caret.lowerBound.samePosition(in: text.utf16)!), length: 0)
+                text.removeSubrange(caret)
+            } else {
+                let open = (text as NSString).range(of: "["), close = (text as NSString).range(of: "]")
+                selection = NSRange(location: open.location, length: close.location - open.location - 1)
+                text = text.replacingOccurrences(of: "[", with: "").replacingOccurrences(of: "]", with: "")
+            }
+            let edit = MarkdownEditingCommands.mathBrace(typed, text: text, selection: selection)
+            let actual = edit.map { e -> String in
+                let ns = NSMutableString(string: e.text)
+                if e.selection.length > 0 {
+                    ns.insert("]", at: NSMaxRange(e.selection)); ns.insert("[", at: e.selection.location)
+                } else {
+                    ns.insert("|", at: e.selection.location)
+                }
+                return ns as String
+            }
+            if actual != expected {
+                failures += 1
+                print("❌ math brace \(typed) in \(input.debugDescription): expected \(expected.debugDescription), got \(actual.debugDescription)")
+            }
+        }
+        if MarkdownMath.completions(for: "fr").first != "frac" { failures += 1; print("❌ completion fr → \(MarkdownMath.completions(for: "fr"))") }
+        if !MarkdownMath.completions(for: "Del").contains("Delta") { failures += 1; print("❌ completion Del") }
+        print("Math editing checks: \(failures == 0 ? "all passed" : "\(failures) failed") (\(cases.count) cases)")
+        return failures
+    }
+
     static func run() -> Int {
-        var failures = runFormatting() + runEditing() + runHTML()
+        var failures = runFormatting() + runEditing() + runHTML() + runOutline() + runMathEditing()
         // 1. Marker ranges
         for (markdown, nodeName, expected) in markerCases {
             let document = MarkdownDocument.parse(markdown)
@@ -383,6 +467,51 @@ enum ParserChecks {
             if !ok { failures += 1 }
             print(String(format: "  %@ %-20@ %7.1f ms", ok ? "✓" : "❌", name as NSString, ms))
         }
+        failures += runGrowth()
+        return failures
+    }
+
+    /// Parse time must grow roughly linearly: quadrupling the input may cost at most ~6× (a
+    /// quadratic path costs ~16×). Patterns from the performance audit (§5).
+    private static func runGrowth() -> Int {
+        func best(_ input: String) -> Double {
+            var best = Double.infinity
+            for _ in 0..<3 {
+                let start = Date()
+                _ = MarkdownDocument.parse(input)
+                best = min(best, Date().timeIntervalSince(start) * 1000)
+            }
+            return best
+        }
+        let patterns: [(String, (Int) -> String)] = [
+            ("emphasis text runs", { String(repeating: "*a ", count: $0) }),
+            ("open brackets", { String(repeating: "[", count: $0) }),
+            ("intraword underscores", { String(repeating: "a_ b", count: $0) }),
+            ("entities", { String(repeating: "&amp; ", count: $0) }),
+            ("angle brackets", { String(repeating: "< ", count: $0) }),
+            ("brackets then links", { String(repeating: "[", count: $0 / 2) + String(repeating: "[a](b)", count: $0 / 2) }),
+            ("reference definitions", { (0..<($0 / 4)).map { "[r\($0)]: /u\($0)" }.joined(separator: "\n") + "\n\ntext" }),
+            ("nested quotes", { String(repeating: ">", count: $0 / 10) + " a" }),
+        ]
+        var failures = 0
+        for (name, make) in patterns {
+            let small = best(make(5000))
+            let large = best(make(20000))
+            let ratio = large / max(small, 0.01)
+            // Below a few milliseconds timing noise dominates, so only the ratio of slow cases counts
+            let ok = large < 5 || ratio < 6
+            if !ok { failures += 1 }
+            print(String(format: "  %@ growth %-22@ 5k %6.1f ms  20k %6.1f ms  ×%.1f", ok ? "✓" : "❌", name as NSString, small, large, ratio))
+        }
+        // activeBlockFormat on a long selection walked the tree once per selected line (§5.3)
+        let lines = (0..<400).map { "Line \($0) of a long selection with **bold** text" }.joined(separator: "\n\n")
+        let formatting = MarkdownFormatting(text: lines)
+        let start = Date()
+        _ = formatting.activeBlockFormat(selection: NSRange(location: 0, length: (lines as NSString).length))
+        let ms = Date().timeIntervalSince(start) * 1000
+        let ok = ms < 15
+        if !ok { failures += 1 }
+        print(String(format: "  %@ activeBlockFormat, 400 lines selected %6.1f ms", ok ? "✓" : "❌", ms))
         return failures
     }
 }

@@ -16,6 +16,8 @@ extension FolderAccessManager {
         bookmarksDefaultsKey: "swash_security_scoped_folder_bookmarks",
         panelMessage: { folderName in
             "Swash needs permission to access images and linked files in “\(folderName)”. Please select this folder and click “Grant Access”."
-        }
+        },
+        // Images that failed to load before the grant are cached as failures
+        onAccessGranted: { _ in ImageCache.shared.removeAll() }
     ))
 }

@@ -98,58 +98,151 @@
 - **Issue**: `MARKETING_VERSION` is `1.0` in the project; `Build & Release` passes the changesets version (`MARKETING_VERSION=…`) on the `xcodebuild` command line. Extension `Info.plist` files that hard-coded `CFBundleShortVersionString` stayed at `1.0` and triggered "must match that of its containing parent app" warnings.
 - **Solution**: Every target's `Info.plist` must use `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)` so the command-line override reaches the app and all extensions.
 
-## 25. One Target, Two Platforms: Keep macOS-Only Code Behind `#if os(macOS)`
+## 25. "Metadata extraction skipped" Warnings From App Extensions
+- **Issue**: Xcode runs `ExtractAppIntentsMetadata` for every Swift target. Extensions that don't link AppIntents (QuickLook, Share, Thumbnail) log `appintentsmetadataprocessor warning: Metadata extraction skipped, no AppIntents.framework dependency found` on every build, including CI. `LM_FILTER_WARNINGS = YES` (`--quiet-warnings`) does **not** silence it.
+- **Solution**: Set `LM_SKIP_METADATA_EXTRACTION = YES` on those extension targets (Debug and Release) so the step doesn't run. Leave it unset on `Swash` and `SwashWidgetExtension`, which do use App Intents. A new extension that adopts App Intents must remove the setting, or Shortcuts won't see its intents.
+
+## 26. Images Go Through `ImageCache`
+- **Issue**: Loading and scaling images directly (`NSImage(contentsOfFile:)` plus `scaleImageForEditor`) in a styling pass or a SwiftUI `body` re-reads the file on every keystroke near the image and on every preview render.
+- **Solution**: Resolve images with `MarkdownParser.resolveImageFile`, which checks candidate paths cheaply and loads through `ImageCache.shared`; scale with `ImageCache.shared.editorImage(_:path:maxWidth:)`. Entries are validated by modification date and size. Folder access is started once per folder per session by `FolderAccessManager.ensureAccess`; don't call `startAccessingSecurityScopedResource()` elsewhere.
+
+## 27. Test Harnesses Compile `SwashTextView.swift` for macOS 14
+- **Issue**: `run_audit.sh` (render, interact, perf) and `run_spec_tests.sh` build with `-target arm64-apple-macos14.0`, while the app targets macOS 15. macOS 15-only APIs such as the Writing Tools delegate methods (`textViewWritingToolsWillBegin`, `writingToolsIgnoredRangesInEnclosingRange`) break those builds even though Xcode succeeds.
+- **Solution**: Mark macOS 15-only members of the shared editor files `@available(macOS 15.0, *)` (delegate methods can be declared this way), or guard calls with `if #available`.
+
+## 28. The Bubble Harness Compiles `ContentView`'s Dependencies Explicitly
+- **Issue**: `run_audit.sh bubble` compiles `ContentView.swift` with a hand-written file list. Any new type that `ContentView` uses (outline sidebar, document commands, quick note, conflict banner, document opening) has to be in that list, or the harness fails with "cannot find type".
+- **Solution**: When `ContentView` starts using a new file, add it to the `bubble` `swiftc` line. Keep app-only machinery (Carbon hot keys, `SMAppService`, menu bar) in files that still compile outside the app.
+
+## 29. Writing Tools Edits the Text Storage In Place
+- **Issue**: Apple Intelligence Writing Tools rewrites `NSTextView` storage directly, with its own animation attributes. Restyling during a session (which replaces attributes, collapses tables and images into attachments, and pushes `document.text` and autosaves) fights it and can corrupt the rewrite.
+- **Solution**: `Coordinator.isWritingToolsActive` is set between `textViewWritingToolsWillBegin`/`DidEnd`. While it is set, `highlightMarkdown` and `textDidChange` do nothing; after the session one full restyle and document update runs. Code, math, HTML, front matter and attachments are reported as ignored ranges, in storage coordinates.
+
+## 30. Untitled Documents With Initial Text
+- **Issue**: `DocumentGroup` creates new documents from `SwashDocument()`, so there's no direct way to open an untitled document that already has text (quick notes, imports). Writing a temporary file and opening it makes Save write into the temporary folder.
+- **Solution**: `NewDocumentSeed.createDocument(with:)` queues the text and calls `NSDocumentController.newDocument(_:)`. `ContentView.onAppear` takes the next seed when its document is untitled and empty.
+
+## 31. macOS App Icon HIG Grid Dimensions & Drop Shadow
+- **Issue**: Exporting app icons with generic or iOS squircle padding (e.g. 75% scale or 768px body with 128px margins on a 1024x1024 canvas) makes the icon appear ~6.3% smaller than surrounding apps in the macOS Dock and Launchpad. Additionally, macOS does not automatically synthesize dock drop shadows for custom icons, so icons without Apple's subtle downward drop shadow appear ungrounded and floating.
+- **Solution**: Follow Apple's macOS Human Interface Guidelines (HIG) App Icon grid specifications: the squircle body must occupy 824 × 824 px centered on a 1024 × 1024 canvas (100 px margins top/bottom/sides, ~80.5% fill). Include the standard Apple HIG downward drop shadow (offset `dy = +10`, Gaussian blur `radius = 16`, opacity `~28%`) in the asset artwork so the icon sits seamlessly on the Dock shelf alongside native system apps.
+
+## 32. SwiftUI Overlays Don't Change the Text View's Cursor
+- **Issue**: The bubble menu is a SwiftUI `.overlay` drawn over the `NSTextView`'s scroll view, not an `NSView` with its own cursor rects. The text view keeps setting the I-beam, including over its 20 pt inset margins.
+- **Solution**: `SwashNSTextView.overrideCursor(at:)` returns the arrow over the margins and over `bubbleMenuFrame` (in overlay coordinates, kept up to date through `SwashEditorController.bubbleMenuFrame`), and the pointing hand over checkboxes and footnote links. `mouseMoved` and `cursorUpdate` apply it. `BubbleMenuView` also sets the arrow with `onContinuousHover`.
+
+## 33. Table Attachments Are Sized From Their SwiftUI Content
+- **Issue**: `TableAttachmentCell` used to guess its height (36 pt per row). The hosting view then held content of a different height, so any state change (a cell entering edit mode, the header chevron appearing) moved the whole table. The edit cell (`NSTextView`) was also taller than the display `Text`, and had a different weight and alignment.
+- **Solution**: The cell measures `hostingView.fittingSize` (cached per table data and width). Display and edit cells share `CellTextField.lineHeight`, and the edit cell copies the header weight and the column alignment. The column menu is always laid out and only hidden. Cell parses are cached (`InlineMarkdownText`), and `.cellSelectionDidChange` is posted only when the selection actually changes.
+
+## 34. Custom Attributed-String Values Must Be `Hashable`
+- **Issue**: Storing an `Equatable`-only Swift struct as an attribute value logs "Obj-C `-hash` invoked on a Swift value … that is Equatable but not Hashable", and attribute run coalescing gets slow.
+- **Solution**: Make attribute value types (`FootnoteLink`, …) `Hashable`.
+
+## 35. An `<img>` Alone on a Line Is an HTML Block
+- **Issue**: CommonMark parses a line holding just `<img …>` as an HTML block (type 7), not inline HTML. The image menu writes exactly that when an image gets a width, and the editor used to show the tag as source.
+- **Solution**: `MarkdownEditorStyler` turns an HTML block holding a single `<img>` into an image attachment, and `MarkdownFormatting.image(exactly:)` accepts both `htmlInline` and `htmlBlock` images.
+
+## 36. `NSTextBlock` Background Expands Into `paragraphSpacingBefore`
+- **Issue**: Setting `paragraphSpacingBefore` on an `NSMutableParagraphStyle` that contains an `NSTextBlock` causes AppKit's text system to include the leading paragraph spacing inside the text block's bounding rectangle. Consequently, the text block's `backgroundColor` fills the entire spacing area above the line, turning a 1-2 pt horizontal divider line (`thematicBreak`) into an unexpectedly thick (12+ pt) block.
+- **Solution**: Keep `paragraphSpacingBefore = 0` (and `paragraphSpacing = 0`) on paragraph styles containing `NSTextBlock` dividers, and size the line via font height (`font = NSFont.systemFont(ofSize: 2)`) and line height metrics.
+
+## 37. Edit Text Display String Isn't the Markdown
+- **Issue**: Tables, images and (since 1.14.0) Mermaid blocks are replaced in the editor's text storage by an attachment character (`U+FFFC`), so `NSTextView.string` no longer equals the document. Tests that compared `tv.string` with the source started failing in `scripts/run_rich_render_tests.sh` once Mermaid became an attachment, and the PR build stayed red.
+- **Solution**: Compare the Markdown written back through the editor's text binding (`box.text` in the harnesses), and find diagrams as `ImageTextAttachment`s (alt `"Mermaid Diagram"`) rather than `.richPreview` overlays.
+
+## 38. `NSPrintOperation` Calls Back on Its Own Thread
+- **Issue**: `DocumentExporter` prints a `WKWebView` with `runModal(for:delegate:didRun:contextInfo:)` (`run()` gives blank pages). With no panel shown, AppKit calls the `didRun` selector on the print operation's thread, not the main thread. Under default main-actor isolation, touching the window there crashed with `EXC_BREAKPOINT` in `WKWindowVisibilityObserver`.
+- **Solution**: Declare the callback `@objc nonisolated` and hop to the main queue before touching the web view, window or continuation. The web view lives in an offscreen borderless window while it prints, and the print operation's view needs a non-zero frame.
+
+## 39. `ContentView.body` Is Near the Type-Checker's Limit
+- **Issue**: Adding a few more `.focusedSceneValue` and `.onReceive` modifiers to `ContentView.body` failed the build with "the compiler is unable to type-check this expression in reasonable time".
+- **Solution**: Group new modifiers in a small `ViewModifier` (such as `ExportAndWritingCommandsModifier`) and apply it with `.modifier(...)`, rather than extending the chain.
+
+## 40. Sandboxed Apps Can't Read Files Passed on the Command Line
+- **Issue**: Launching the app binary directly with a document path (`Swash.app/Contents/MacOS/Swash file.md`) shows "Swash doesn't have permission to read it": only Launch Services grants the sandbox access. `pkill -x Swash` in scripts also quits the user's own copy of Swash.
+- **Solution**: Open documents with `open -n -a <app> <file> --args …`, find the new process with `pgrep -n -f <app path>`, and quit only that PID (`scripts/generate_readme_screenshots.sh`). `-NSRequiresAquaSystemAppearance YES` and `-AppleInterfaceStyle Dark` force Light or Dark Mode for one launch.
+
+
+## 41. Folder Windows: Watching Subfolders, Links and Headless Snapshots
+- **Issue**: A `DispatchSource` file-system source on the folder only reports changes directly inside it, so files added or saved in subfolders went unnoticed. `NSTextView` opens a clicked `.link` with `NSWorkspace`, which can't open a relative URL such as `Other.md`. In headless snapshots (`cacheDisplay`), the `NavigationSplitView` sidebar's material draws as an empty white column even though the list has rows.
+- **Solution**: `FolderWorkspace` watches the whole tree with an `FSEventStream` (it works in the sandbox for a folder whose security-scoped access is active) and rescans off the main thread with `FolderScanner` (`FolderIndex.swift`). Folder windows pass a `noteLinkHandler` and a `textRevealRequest` to the editor through the SwiftUI environment rather than through `ContentView`'s parameters (see #39). `SwashTextView.Coordinator` handles `textView(_:clickedOnLink:at:)` and marks `[[wiki]]` links as `swash-note:` links only while a handler is set. Because `SwashTextView.swift` now uses `NoteLinkResolver`, `Swash/FolderIndex.swift` is in every harness's file list (#14). In harnesses, check the sidebar through its `NSTableView` row count, not the snapshot.
+
+## 42. Colour Runs Inside an `NSTextBlock` Make Layout Quadratic
+- **Issue**: AppKit finds the extent of a paragraph's `NSTextBlock` (`rangeOfTextBlock:atIndex:`) by walking the text storage's attribute runs, and TextKit 1 does this once per laid-out line. Every syntax-colour run inside a code block therefore slows typing in that block: a 2,000-line JavaScript block went from ~0.7 s to ~2.2 s per keystroke with full colouring. Moving the colours to layout-manager temporary attributes was slower still (each call invalidates display).
+- **Solution**: `CodeHighlighter` (`Swash/Markdown/`, Foundation only) tokenizes the whole block in one linear scan; `MarkdownCodeHighlighter.highlight(block:…)` (`Swash/CodeHighlightTheme.swift`, AppKit) colours a block in Edit Text only when it has at most `editorTokenLimit` tokens, and leaves larger blocks plain (the Preview, Quick Look and export still colour them). `Tests/EditorAudit/run_audit.sh perf` checks a 300-line block (coloured, under 100 ms) and a 2,000-line block (plain). `CodeHighlightTheme.swift` is in the explicit `swiftc` lists (GOTCHAS #14).
+
+## 43. Typography Reaches the Editor and Preview as a Value, Not the Environment
+- **Issue**: `PreviewScrollView` hosts the preview in its own `NSHostingView`, so SwiftUI environment values set by `ContentView` never reach the blocks. `MarkdownBlockView` is also `Equatable` (compared by source), so a settings change would not re-render unchanged blocks.
+- **Solution**: `EditorTypography` (Settings › Appearance) is passed explicitly: `SwashTextView(typography:)`, `MarkdownPreviewView(typography:)` and `MarkdownRenderContext.typography`. It is part of the preview's `contentKey` and of `MarkdownBlockView ==`, and `updateNSView` treats a change like a flavor change (`forceFullRestyle`). The defaults (`EditorTypography()`) must reproduce the original styling exactly; `scaled(_:)` returns the size unchanged at 14 pt. Quick Look has no app group, so it can't read the app's defaults and always uses `EditorTypography()`.
+
+## 44. Checking That Rendering Is Unchanged
+- **Issue**: The tracked GFM snapshots were made on another machine, so a local run differs from them in every pixel even when nothing changed (see #8), and can't show whether a change altered the default rendering.
+- **Solution**: Make a baseline on the same machine: commit work in progress, check out `origin/main`'s sources, run `scripts/run_spec_tests.sh` (and `run_audit.sh render`), copy `Tests/GFMSpec/snapshots` and `build/editor-audit/render-out` aside, restore your commit, run again and compare the PNGs pixel by pixel (decoded through `CGImage`; the files' bytes differ on every run).
+
+## 45. Format Commands Come From a Generated Manifest
+- **Issue**: The Format menu, keyboard shortcuts (`FormatCommand.command(for:)`), bubble-menu labels and tooltips, and the code-block language list are generated from `@pixerate/markdown-conformance`'s `manifest.json`, shared with the Pixerate web editor. Editing labels or shortcuts in `FormatCommands.swift` or `BubbleMenuView.swift` no longer has any effect, and hand-editing `Swash/Markdown/FormatManifest.generated.swift` fails the PR build's stale check.
+- **Solution**: Change the manifest upstream, bump the exact pin in `package.json`, run `npm ci` and `node scripts/generate_format_manifest.mjs`, and commit the regenerated file (Xcode never runs Node). The generator fails when the manifest names a surface or `enabledWhen` condition that `FormatSurface`/`FormatCondition` (in `FormatManifest.swift`) don't have, or a command id that `FormatCommand(manifestID:params:)` doesn't map; add the case (and, for a condition, its check in `MarkdownFormatting.satisfies(_:selection:)`) first. Letters in shortcuts match by character and digits/punctuation by ANSI key code (`FormatShortcut.keyCodes`), so shifted keys work on any layout. Swash-only commands (callouts, footnotes, table of contents) stay hand-written. The code-language menu lists the manifest's languages first, with the manifest's labels, then `CodeHighlighter`'s other languages (`CodeFormat.allCases`). The manifest type is `ManifestCodeLanguage`, so it doesn't clash with the highlighter's `CodeLanguage`. The conformance runner fails if a manifest language has no `CodeLanguage`.
+
+## 46. The Conformance Runner Models the Text View's Fallbacks
+- **Issue**: `MarkdownEditingCommands.newline`/`indent`/`backspace` return nil when the editor should fall back to the default key behaviour, so comparing their raw result with the shared corpus reports false failures (and hides real ones: Tab on an unnestable list item used to insert a tab character).
+- **Solution**: `Tests/MarkdownConformance/ConformanceRunner.swift` applies the `NSTextView` default when an `edit.*` command returns nil (Return inserts `\n`, Backspace deletes, Tab inserts `\t`, Shift-Tab does nothing) and runs Backspace with `markersHidden: true`, as in Edit Text. Intended differences from the corpus go in the runner's `localSkips` with a reason until a `variants.swash` entry lands upstream; the runner warns about local skips that no longer match a case. `FormatCommand`, `FormatCommandEdits` and the manifest types live in `Swash/Markdown/` (Foundation only), so every `swiftc` harness picks them up through the glob (GOTCHAS #14).
+
+## 47. One Target, Two Platforms: Keep macOS-Only Code Behind `#if os(macOS)`
 - **Issue**: The `Swash` app target builds for macOS and iOS (`SUPPORTED_PLATFORMS = iphoneos iphonesimulator macosx`, `SDKROOT = auto`). Every file in the synchronised `Swash/` folder compiles for both platforms, so any new AppKit use breaks the iOS build. Sparkle and the four extensions are macOS-only through `platformFilters = (macos, )` on their build files and target dependencies.
 - **Solution**: Wrap AppKit-only files completely in `#if os(macOS)`, and put iOS-only UI in `Swash/iOS/` inside `#if os(iOS)`. Shared code uses `PlatformColor`, `PlatformFont`, `PlatformImage`, `Image(platformImage:)` and `PlatformPasteboard` from `PlatformTypes.swift`. Build both platforms before committing: `-destination 'generic/platform=macOS'` and `-destination 'generic/platform=iOS Simulator'`. The iOS app uses `Swash/Info-iOS.plist` (`INFOPLIST_FILE[sdk=iphone*]`), so document types and URL schemes must be added to both plists.
 
-## 26. `XMLDocument` Is macOS-Only
+## 48. `XMLDocument` Is macOS-Only
 - **Issue**: `HTMLToMarkdown` parses with Foundation's `XMLDocument` (`.documentTidyHTML`), which iOS does not have. The preview uses it for raw HTML blocks.
 - **Solution**: On other platforms the converter uses `HTMLLiteDOM` through file-private type aliases with the same API. `scripts/run_commonmark_spec.sh` also builds the checks with `-D SWASH_HTML_LITE` so both parsers must pass the same HTML cases. Add new cases there when changing the converter.
 
-## 27. Offscreen WebKit Rendering on iOS and iPadOS
+## 49. Offscreen WebKit Rendering on iOS and iPadOS
 - **Issue**: Without a viewport meta tag, iOS lays the render page out at 980 px and scales it to the view, so math and diagram snapshots came out cropped. On iPad, desktop-class browsing scaled them down to a fraction of their size. The first render also takes a few seconds while the WebContent process starts.
 - **Solution**: `swash-render.html` declares `width=device-width, initial-scale=1` and `-webkit-text-size-adjust: 100%`. On iOS, `RichContentRenderer` sets `preferredContentMode = .mobile`. `UIImage.size` is read-only, so the snapshot is rebuilt with `scale = pixel width ÷ point width`. Check new rendering features on both an iPhone and an iPad simulator.
 
-## 28. SwiftUI Text in Horizontal Scroll Views Under UIKit Hosting
+## 50. SwiftUI Text in Horizontal Scroll Views Under UIKit Hosting
 - **Issue**: In the iOS preview (a `UIHostingController` sized by intrinsic content size inside a `UIScrollView`), a multi-line `Text` inside `ScrollView(.horizontal)` was squeezed to one line with an ellipsis.
 - **Solution**: Give such text `.fixedSize()` (code blocks), or `.fixedSize(horizontal: false, vertical: true)` where it should wrap.
 
-## 29. Don't Make a UITextView Subclass Its Own Gesture Delegate
+## 51. Don't Make a UITextView Subclass Its Own Gesture Delegate
 - **Issue**: `StyledUITextView` implemented `gestureRecognizer(_:shouldReceive:)` to limit its task-checkbox tap to checkboxes. A scroll view is already the delegate of its own pan and text-interaction recognizers, so the override filtered those too. The editor stopped scrolling, with no error and no `scrollViewDidScroll` calls.
 - **Solution**: Give extra recognizers on a text or scroll view a separate delegate object (`TaskTapFilter`). Never implement `UIGestureRecognizerDelegate` methods on the scroll view subclass itself.
 
-## 30. UITextView in UIViewRepresentable Must Fill the Proposed Size
+## 52. UITextView in UIViewRepresentable Must Fill the Proposed Size
 - **Issue**: SwiftUI can size a representable `UITextView` to its fitting size, which is the whole text height, so the view grows instead of scrolling.
 - **Solution**: Both iOS editors implement `sizeThatFits(_:uiView:context:)` and return the proposed width and height.
 
-## 31. Edit Text Blocks on iOS: Decorations Instead of NSTextBlock
+## 53. Edit Text Blocks on iOS: Decorations Instead of NSTextBlock
 - **Issue**: iOS has no `NSTextBlock`, which the styler uses on macOS for quotes, alerts, code blocks and rules.
 - **Solution**: On iOS, `MarkdownEditorStyler.pushBox`/`pushRule` add a `BlockDecoration` (outermost first) to the context instead. `setParagraphStyle(_ context:…)` sets the paragraph indents for the box's border and padding and writes `.blockDecorations` over the paragraphs. `padBoxes()` turns top and bottom padding into paragraph spacing, and `StyledLayoutManager` paints each box over its paragraphs' line fragments. Always set paragraph styles through `setParagraphStyle(context:…)`. When adjusting a paragraph style later, adjust the indents (`tailIndent -= …`) rather than replacing them, or the box insets are lost on iOS. macOS keeps its `NSTextBlock` path unchanged; check it with `Tests/EditorAudit/run_audit.sh`.
 
-## 32. Default MainActor Isolation and Callbacks on Background Queues
+## 54. Default MainActor Isolation and Callbacks on Background Queues
 - **Issue**: Every target builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. Closures in a type that isn't marked otherwise are treated as main-actor code, and Swift traps (`EXC_BREAKPOINT`) when a framework calls them off the main thread. The thumbnail extension crashed this way on macOS: Quick Look runs `QLThumbnailReply`'s drawing block on a background queue.
 - **Solution**: Mark extension principal classes whose callbacks arrive on background queues `nonisolated` (as `ThumbnailProvider` is), or mark the specific closures `@Sendable`/`nonisolated`. Check new extension points or framework callbacks for the queue they run on.
 
-## 33. ShareLink in a Collapsed Toolbar Menu Crashes on iPhone
+## 55. ShareLink in a Collapsed Toolbar Menu Crashes on iPhone
 - **Issue**: A `ShareLink` in a `.secondaryAction` toolbar item, which collapses into the overflow menu on iPhone, presents `UIActivityViewController` as a popover with no source view. UIKit throws an uncaught `NSGenericException`.
 - **Solution**: Use a `Button` that presents `UIActivityViewController` itself with `popoverPresentationController.sourceView`/`sourceRect` set (`IOSContentView.presentShareSheet()`).
 
-## 34. Opening Documents From Code on iOS
+## 56. Opening Documents From Code on iOS
 - **Issue**: SwiftUI's `openDocument` and `newDocument` environment actions are macOS-only. On iOS, `onOpenURL` on a document view doesn't fire while the document browser is showing, and the browser is a presented card on the launch screen but absent from the hierarchy once a document is open.
 - **Solution**: `DocumentOpener` receives `swash://` URLs in a `UIWindowSceneDelegate` (installed through `@UIApplicationDelegateAdaptor` and `configurationForConnecting`). It finds the browser through `UIDocumentViewController.launchOptions.browserViewController`, which works whether or not a document is open. It then calls the browser delegate's `documentBrowser(_:didPickDocumentsAt:)` with the file. Pass files in the app's own Documents folder directly: `revealDocument(at:importIfNeeded: true)` copies them ("Name 2.md").
 
-## 35. iOS Prefers Its Own Quick Look Viewer for Markdown
+## 57. iOS Prefers Its Own Quick Look Viewer for Markdown
 - **Issue**: iOS has a built-in Markdown previewer and thumbnailer. In Files, they take precedence over a third-party Quick Look preview or thumbnail extension for `net.daringfireball.markdown`, so Swash's extensions registered but never ran.
 - **Solution**: The Quick Look and thumbnail extensions are filtered to macOS (`platformFilters = (macos, )`). Only the share extension and widget are built and embedded for iOS.
 
-## 36. Confluence and Jira Copy Images Without an `<img>` Tag
+## 58. Confluence and Jira Copy Images Without an `<img>` Tag
 - **Issue**: Atlassian's editor puts each image on the pasteboard as an empty `<div data-node-type="media">` with `data-file-name`/`data-alt` and `data-context-id` (the page ID). There is no `src` and no image data, so a converter that only reads `<img>` drops the images.
 - **Solution**: `HTMLToMarkdown` turns media nodes into `https://<site>[/wiki]/download/attachments/<pageID>/<file>`. It takes the site from the `org.chromium.source-url` pasteboard type, which Chromium browsers write. Safari does not write this type, so without it the image keeps only its file name. The attachment needs a signed-in browser, so Swash shows a placeholder for it.
 
-## 37. Don't Re-Identify a View That Declares a Customizable Toolbar
+## 59. Don't Re-Identify a View That Declares a Customizable Toolbar
 - **Issue**: The folder window first gave `ContentView` an `.id(file)` so each file got fresh editor state. Every switch rebuilt `ContentView`'s `.toolbar(id: "mainToolbar")`, and AppKit threw `NSInternalInconsistencyException` (`index>=0 && index<[_currentItems count]` in `-[NSToolbar _removeItemAtIndex:]`) while SwiftUI removed the old items. A headless `NSHostingView` harness doesn't crash, because it has no window toolbar.
 - **Solution**: Keep the view that owns the toolbar stable and reset only the part below it. `ContentView` takes a `documentID` and applies `.id(documentID)` to the editor area, clears its selection state in `onChange(of: documentID)`, and keeps one `ScrollSync` per file (`ScrollSyncStore`). Reproduce toolbar issues in the real app, for example by launching the Debug build binary under `lldb`.
 
-## 38. MacAppKitExtras Is a Separate Module
-- **Issue**: `FolderAccessManager`, `DefaultAppManager`, `ScrollSync` and `NestedScrollRouter` live in the local package `Packages/MacAppKitExtras`, not the app target. The swiftc-based runners (`run_spec_tests.sh`, `run_rich_render_tests.sh`, `Tests/EditorAudit/run_audit.sh`) compile app sources directly, so `import MacAppKitExtras` fails unless the module is built first. They also compile without the app's `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so calling the package's `@MainActor` scroll helpers from an unannotated callback fails there (`call to main actor-isolated instance method ... in a synchronous nonisolated context`) even though the app builds.
+## 60. MacAppKitExtras Is a Separate Module
+- **Issue**: `FolderAccessManager`, `DefaultAppManager`, `ScrollSync` and `NestedScrollRouter` live in the local package `Packages/MacAppKitExtras`, not the app target. The swiftc-based runners that compile app sources (`run_spec_tests.sh`, `run_rich_render_tests.sh`, `run_export_tests.sh`, `Tests/EditorAudit/run_audit.sh`) compile app sources directly, so `import MacAppKitExtras` fails unless the module is built first. They also compile without the app's `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so calling the package's `@MainActor` scroll helpers from an unannotated callback fails there (`call to main actor-isolated instance method ... in a synchronous nonisolated context`) even though the app builds.
 - **Solution**: Runners get `EXTRAS="$(scripts/build_mac_appkit_extras.sh)"` and pass `$EXTRAS` to `swiftc`. Annotate app code that calls the package's `@MainActor` APIs explicitly with `@MainActor`. Swash's configuration (the bookmarks defaults key, alert and panel text) is in `Swash/FolderAccessManager.swift` and `Swash/DefaultAppManager.swift` as `static let shared` extensions; keep the `swash_security_scoped_folder_bookmarks` key, or users lose folders they already granted. Run the package's own tests with `swift test --package-path Packages/MacAppKitExtras`.
+
+## 61. Unnamed Dynamic Colours Aren't Equal
+- **Issue**: `PlatformColor.appearanceAware(light:dark:)` (an unnamed `NSColor(name: nil)` / `UIColor { traits in … }`) returns a new colour on every call, and two such colours never compare equal. Code that checks `textView.backgroundColor != color` before assigning, or a test that compares against `EditorTheme.paper.background`, then sees a change every time.
+- **Solution**: Create each dynamic colour once (a `static let`) and hand out that instance, as `EditorTheme.paperBackground` and `CodeHighlightTheme`'s table do.
