@@ -5,15 +5,16 @@ set -eo pipefail
 cd "$(dirname "$0")/../.."
 OUT="build/editor-audit"; mkdir -p "$OUT"
 SDK="$(xcrun --show-sdk-path --sdk macosx)"
+EXTRAS="$(scripts/build_mac_appkit_extras.sh)"
 CORE="Swash/Markdown/*.swift Swash/PlatformTypes.swift Swash/EditorSupport.swift Swash/RichContentRenderer.swift Swash/MarkdownEditorStyler.swift Swash/FormatCommands.swift Swash/MarkdownFlavor.swift Swash/FolderAccessManager.swift Swash/MarkdownParser.swift Swash/MarkdownPreviewView.swift Swash/DetectedLink.swift Swash/InteractiveTableView.swift Swash/SwashTextView.swift"
 what="${1:-all}"
 
 if [[ $what == render || $what == all ]]; then
-  swiftc -O -target arm64-apple-macos14.0 -sdk "$SDK" $CORE Swash/BubbleMenuView.swift Tests/EditorAudit/AuditRunner.swift -o "$OUT/render"
+  swiftc $EXTRAS -O -target arm64-apple-macos14.0 -sdk "$SDK" $CORE Swash/BubbleMenuView.swift Tests/EditorAudit/AuditRunner.swift -o "$OUT/render"
   "$OUT/render" "$OUT/render-out" | sed -n "/^RENDER/,\$p"; echo "Rendering report: $OUT/render-out/report.md (side-by-side PNGs in shots/)"
 fi
 if [[ $what == interact || $what == all ]]; then
-  swiftc -O -target arm64-apple-macos14.0 -sdk "$SDK" $CORE Swash/BubbleMenuView.swift Tests/EditorAudit/InteractionRunner.swift -o "$OUT/interact"
+  swiftc $EXTRAS -O -target arm64-apple-macos14.0 -sdk "$SDK" $CORE Swash/BubbleMenuView.swift Tests/EditorAudit/InteractionRunner.swift -o "$OUT/interact"
   "$OUT/interact" "$OUT/interaction.md" | sed -n "/^INTERACTION/,\$p"; echo "Interaction report: $OUT/interaction.md"
 fi
 if [[ $what == bubble || $what == all ]]; then
@@ -39,10 +40,10 @@ enum TestHooks {
 '''
 open(sys.argv[1], "w").write(s)
 PY
-  swiftc -O -target arm64-apple-macos15.0 -sdk "$SDK" $CORE "$OUT/BubbleMenuView.hooked.swift" Swash/SwashDocument.swift Swash/ViewMode.swift Swash/ContentView.swift Tests/EditorAudit/BubbleRunner.swift -o "$OUT/bubble"
+  swiftc $EXTRAS -O -target arm64-apple-macos15.0 -sdk "$SDK" $CORE "$OUT/BubbleMenuView.hooked.swift" Swash/SwashDocument.swift Swash/ViewMode.swift Swash/ContentView.swift Tests/EditorAudit/BubbleRunner.swift -o "$OUT/bubble"
   "$OUT/bubble" "$OUT/bubble-out" | sed -n "/^BUBBLE/,\$p"; echo "Bubble menu report: $OUT/bubble-out/bubble.md"
 fi
 if [[ $what == perf || $what == all ]]; then
-  swiftc -O -target arm64-apple-macos14.0 -sdk "$SDK" $CORE Swash/BubbleMenuView.swift Tests/EditorAudit/PerfRunner.swift -o "$OUT/perf"
+  swiftc $EXTRAS -O -target arm64-apple-macos14.0 -sdk "$SDK" $CORE Swash/BubbleMenuView.swift Tests/EditorAudit/PerfRunner.swift -o "$OUT/perf"
   "$OUT/perf" 2>/dev/null | grep "lines\|PERF"
 fi

@@ -8,6 +8,7 @@
 
 #if os(iOS)
 import SwiftUI
+import MacAppKitExtras
 import UIKit
 
 struct SourceTextView: UIViewRepresentable {

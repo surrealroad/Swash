@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import MacAppKitExtras
 #if os(macOS)
 import AppKit
 #else

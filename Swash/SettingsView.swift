@@ -5,6 +5,7 @@
 
 #if os(macOS)
 import SwiftUI
+import MacAppKitExtras
 
 struct SettingsView: View {
     @ObservedObject private var defaultAppManager = DefaultAppManager.shared
@@ -35,7 +36,7 @@ struct SettingsView: View {
                             .font(.body)
                             .fontWeight(.medium)
                         
-                        if defaultAppManager.isDefaultAppStatus {
+                        if defaultAppManager.isDefaultApp {
                             Label("Swash is currently your default Markdown application.", systemImage: "checkmark.circle.fill")
                                 .font(.subheadline)
                                 .foregroundColor(.green)
@@ -48,9 +49,9 @@ struct SettingsView: View {
                     
                     Spacer()
                     
-                    if !defaultAppManager.isDefaultAppStatus {
+                    if !defaultAppManager.isDefaultApp {
                         Button("Make Default") {
-                            defaultAppManager.makeSwashDefaultApp()
+                            defaultAppManager.makeDefaultApp()
                         }
                         .buttonStyle(.borderedProminent)
                     }

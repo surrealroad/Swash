@@ -12,6 +12,8 @@
 		0460138130045F6800853817 /* SwashShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460138030045F6800853817 /* SwashShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0460139130045F6800853817 /* SwashThumbnailExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460139030045F6800853817 /* SwashThumbnailExtension.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		046013A130045F6800853817 /* SwashWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 046013A030045F6800853817 /* SwashWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0460AE0430045F6A00853817 /* MacAppKitExtras in Frameworks */ = {isa = PBXBuildFile; productRef = 0460AE0230045F6A00853817 /* MacAppKitExtras */; };
+		0460AE0530045F6A00853817 /* MacAppKitExtras in Frameworks */ = {isa = PBXBuildFile; productRef = 0460AE0330045F6A00853817 /* MacAppKitExtras */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -178,6 +180,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0460136230045F6A00853817 /* Sparkle in Frameworks */,
+				0460AE0430045F6A00853817 /* MacAppKitExtras in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -185,6 +188,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0460AE0530045F6A00853817 /* MacAppKitExtras in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -242,6 +246,7 @@
 			name = Swash;
 			packageProductDependencies = (
 				0460136130045F6A00853817 /* Sparkle */,
+				0460AE0230045F6A00853817 /* MacAppKitExtras */,
 			);
 			productName = Swash;
 			productReference = 0460134030045F6800853817 /* Swash.app */;
@@ -264,6 +269,9 @@
 				0460137630045F6800853817 /* SwashQuickLookExtension */,
 			);
 			name = SwashQuickLookExtension;
+			packageProductDependencies = (
+				0460AE0330045F6A00853817 /* MacAppKitExtras */,
+			);
 			productName = SwashQuickLookExtension;
 			productReference = 0460137030045F6800853817 /* SwashQuickLookExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -366,6 +374,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				0460136030045F6A00853817 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				0460AE0130045F6A00853817 /* XCLocalSwiftPackageReference "Packages/MacAppKitExtras" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0460134130045F6800853817 /* Products */;
@@ -1068,6 +1077,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		0460AE0130045F6A00853817 /* XCLocalSwiftPackageReference "Packages/MacAppKitExtras" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/MacAppKitExtras;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		0460136030045F6A00853817 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1084,6 +1100,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0460136030045F6A00853817 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		0460AE0230045F6A00853817 /* MacAppKitExtras */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0460AE0130045F6A00853817 /* XCLocalSwiftPackageReference "Packages/MacAppKitExtras" */;
+			productName = MacAppKitExtras;
+		};
+		0460AE0330045F6A00853817 /* MacAppKitExtras */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0460AE0130045F6A00853817 /* XCLocalSwiftPackageReference "Packages/MacAppKitExtras" */;
+			productName = MacAppKitExtras;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

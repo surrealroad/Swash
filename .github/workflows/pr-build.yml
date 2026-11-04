@@ -35,6 +35,9 @@ jobs:
       - name: Math and Mermaid rendering tests
         run: scripts/run_rich_render_tests.sh
 
+      - name: MacAppKitExtras package tests
+        run: swift test --package-path Packages/MacAppKitExtras
+
   build-ios:
     name: Build iOS App (Simulator)
     runs-on: macos-26

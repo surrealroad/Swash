@@ -1,4 +1,5 @@
 import Foundation
+import MacAppKitExtras
 import SwiftUI
 import AppKit
 

@@ -7,6 +7,7 @@
 
 #if os(macOS)
 import SwiftUI
+import MacAppKitExtras
 import AppKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {

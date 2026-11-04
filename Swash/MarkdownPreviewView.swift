@@ -6,120 +6,12 @@
 //
 
 import SwiftUI
+import MacAppKitExtras
 #if os(macOS)
 import AppKit
 #endif
 
 #if os(macOS)
-/// Keeps the editor and preview scroll positions in step by scrolling the clip views directly.
-/// Scroll positions never pass through SwiftUI state, so scrolling doesn't re-evaluate
-/// `ContentView` (which would re-parse and re-measure the whole preview on every frame).
-/// Held in `@State` like `SwashEditorController`; the stored origin restores the position
-/// when the view mode changes.
-final class ScrollSync {
-    private(set) var originY: CGFloat = 0
-    private let scrollViews = NSHashTable<NSScrollView>.weakObjects()
-    private var isSyncing = false
-
-    /// Adds a scroll view and moves it to the shared position once it has laid out.
-    func register(_ scrollView: NSScrollView) {
-        scrollViews.add(scrollView)
-        DispatchQueue.main.async { [weak self, weak scrollView] in
-            guard let self = self, let scrollView = scrollView else { return }
-            self.isSyncing = true
-            ScrollSync.scroll(scrollView, toY: self.originY)
-            self.isSyncing = false
-        }
-    }
-
-    /// Call from a scroll view's bounds-change observer; scrolls every other registered view.
-    func scrollViewDidScroll(_ scrollView: NSScrollView) {
-        guard !isSyncing else { return }
-        let y = scrollView.contentView.bounds.origin.y
-        guard abs(y - originY) > 0.5 else { return }
-        originY = y
-        isSyncing = true
-        for other in scrollViews.allObjects where other !== scrollView {
-            ScrollSync.scroll(other, toY: y)
-        }
-        isSyncing = false
-    }
-
-    private static func scroll(_ scrollView: NSScrollView, toY y: CGFloat) {
-        let clipView = scrollView.contentView
-        guard abs(clipView.bounds.origin.y - y) > 0.5 else { return }
-        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: y))
-        scrollView.reflectScrolledClipView(clipView)
-    }
-}
-
-/// Tables and code blocks in the preview sit in horizontal scroll views. AppKit sends a whole
-/// scroll gesture to the view under the pointer when it starts, so a vertical swipe that began
-/// over a table stalled there. This local monitor sends gestures that start mostly vertical over a
-/// nested scroll view to the preview's own scroll view, for the whole gesture including momentum,
-/// and leaves mostly horizontal gestures to the nested view.
-final class NestedScrollRouter {
-    private weak var scrollView: NSScrollView?
-    private var monitor: Any?
-    /// The decision for the trackpad gesture in progress, made at its `.began` event.
-    private var forwardingGesture = false
-
-    init(scrollView: NSScrollView) {
-        self.scrollView = scrollView
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            guard let self = self else { return event }
-            return self.route(event)
-        }
-    }
-
-    deinit {
-        if let monitor = monitor { NSEvent.removeMonitor(monitor) }
-    }
-
-    func route(_ event: NSEvent) -> NSEvent? {
-        guard let scrollView = scrollView, event.window != nil, event.window === scrollView.window,
-              shouldForward(phase: event.phase, momentumPhase: event.momentumPhase,
-                            deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY,
-                            pointInWindow: event.locationInWindow) else { return event }
-        scrollView.scrollWheel(with: event)
-        return nil
-    }
-
-    /// Whether this scroll event should go to the preview's scroll view instead of the view under the pointer.
-    func shouldForward(phase: NSEvent.Phase, momentumPhase: NSEvent.Phase, deltaX: CGFloat, deltaY: CGFloat, pointInWindow: NSPoint) -> Bool {
-        guard let scrollView = scrollView else { return false }
-        let isVertical = abs(deltaY) >= abs(deltaX)
-
-        // Mouse wheels have no phases and aren't latched, so decide per event.
-        if phase.isEmpty && momentumPhase.isEmpty {
-            return isVertical && isOverNestedScrollView(pointInWindow, in: scrollView)
-        }
-
-        if phase.contains(.began) {
-            forwardingGesture = isVertical && isOverNestedScrollView(pointInWindow, in: scrollView)
-        }
-        let forward = forwardingGesture
-        if momentumPhase.contains(.ended) || momentumPhase.contains(.cancelled) {
-            forwardingGesture = false
-        }
-        return forward
-    }
-
-    /// True when the pointer is over the preview content and the closest scroll view there is a
-    /// nested one rather than the preview's own.
-    private func isOverNestedScrollView(_ pointInWindow: NSPoint, in scrollView: NSScrollView) -> Bool {
-        guard let documentView = scrollView.documentView, let contentView = scrollView.window?.contentView else { return false }
-        let point = contentView.superview?.convert(pointInWindow, from: nil) ?? pointInWindow
-        guard let hit = contentView.hitTest(point), hit.isDescendant(of: documentView) else { return false }
-        var view: NSView? = hit
-        while let current = view {
-            if let nested = current as? NSScrollView { return nested !== scrollView }
-            view = current.superview
-        }
-        return false
-    }
-}
-
 struct PreviewScrollView<Content: View>: NSViewRepresentable {
     var scrollSync: ScrollSync?
     @ViewBuilder let content: () -> Content
@@ -171,6 +63,7 @@ struct PreviewScrollView<Content: View>: NSViewRepresentable {
         coordinator.router = nil
     }
 
+    @MainActor
     class Coordinator: NSObject {
         var scrollSync: ScrollSync?
         var router: NestedScrollRouter?
@@ -188,48 +81,6 @@ struct PreviewScrollView<Content: View>: NSViewRepresentable {
 
 #else
 import UIKit
-
-/// iOS counterpart of the AppKit `ScrollSync`: keeps the source editor and preview at the same
-/// vertical offset by setting `contentOffset` directly, never through SwiftUI state.
-final class ScrollSync {
-    private(set) var originY: CGFloat = 0
-    private let scrollViews = NSHashTable<UIScrollView>.weakObjects()
-    private var observations: [ObjectIdentifier: NSKeyValueObservation] = [:]
-    private var isSyncing = false
-
-    /// Adds a scroll view, moves it to the shared position once it has laid out, and follows it.
-    func register(_ scrollView: UIScrollView) {
-        scrollViews.add(scrollView)
-        observations[ObjectIdentifier(scrollView)] = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] view, _ in
-            MainActor.assumeIsolated { self?.scrollViewDidScroll(view) }
-        }
-        DispatchQueue.main.async { [weak self, weak scrollView] in
-            guard let self = self, let scrollView = scrollView else { return }
-            self.isSyncing = true
-            ScrollSync.scroll(scrollView, toY: self.originY)
-            self.isSyncing = false
-        }
-    }
-
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard !isSyncing, scrollView.isTracking || scrollView.isDecelerating else { return }
-        let y = scrollView.contentOffset.y + scrollView.adjustedContentInset.top
-        guard abs(y - originY) > 0.5 else { return }
-        originY = y
-        isSyncing = true
-        for other in scrollViews.allObjects where other !== scrollView {
-            ScrollSync.scroll(other, toY: y)
-        }
-        isSyncing = false
-    }
-
-    private static func scroll(_ scrollView: UIScrollView, toY y: CGFloat) {
-        let maxY = max(0, scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom)
-        let target = min(max(0, y), maxY) - scrollView.adjustedContentInset.top
-        guard abs(scrollView.contentOffset.y - target) > 0.5 else { return }
-        scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: target), animated: false)
-    }
-}
 
 /// Hosts the SwiftUI preview in a `UIScrollView` so it can join `ScrollSync`. The hosted content
 /// is pinned to the content layout guide and sized by its intrinsic height.

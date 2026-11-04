@@ -7,6 +7,7 @@
 
 #if os(macOS)
 import SwiftUI
+import MacAppKitExtras
 import AppKit
 
 func logDebug(_ message: String) {
@@ -275,10 +276,10 @@ class SwashNSTextView: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
-        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("SwashFolderAccessGranted"), object: nil)
+        NotificationCenter.default.removeObserver(self, name: FolderAccessManager.accessGrantedNotification, object: nil)
         guard let window = self.window else { return }
         NotificationCenter.default.addObserver(self, selector: #selector(handleWindowUpdated), name: NSWindow.didBecomeKeyNotification, object: window)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleFolderAccessGranted), name: NSNotification.Name("SwashFolderAccessGranted"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleFolderAccessGranted), name: FolderAccessManager.accessGrantedNotification, object: nil)
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.handleWindowUpdated()
@@ -955,7 +956,7 @@ struct SwashTextView: NSViewRepresentable {
             updateSelectionRect(for: textView)
         }
         
-        @objc func scrollViewDidScroll(_ notification: Notification) {
+        @MainActor @objc func scrollViewDidScroll(_ notification: Notification) {
             // Find current text view to recalculate selection rect during scrolling
             if let clipView = notification.object as? NSClipView,
                let scrollView = clipView.superview as? NSScrollView,

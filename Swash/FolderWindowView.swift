@@ -8,6 +8,7 @@
 
 #if os(macOS)
 import SwiftUI
+import MacAppKitExtras
 import AppKit
 
 struct FolderWindowView: View {

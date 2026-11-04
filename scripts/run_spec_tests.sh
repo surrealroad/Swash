@@ -8,8 +8,10 @@ BUILD_DIR="build/spec-runner"
 mkdir -p "$BUILD_DIR"
 BIN="$BUILD_DIR/gfm-spec-runner"
 
+EXTRAS="$(scripts/build_mac_appkit_extras.sh)"
+
 echo "Compiling GFM Spec Runner..."
-swiftc \
+swiftc $EXTRAS \
   -O \
   -target arm64-apple-macos14.0 \
   -sdk "$(xcrun --show-sdk-path --sdk macosx)" \
