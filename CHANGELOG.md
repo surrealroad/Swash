@@ -1,5 +1,22 @@
 # swash
 
+## 1.20.0
+
+### Minor Changes
+
+- a119514: Formatted mode on iPhone and iPad is now the full Edit Text editor, as on the Mac. You edit the text in place with its Markdown syntax hidden: headings, emphasis, links, quote and alert boxes, lists with bullets and tap-to-toggle checkboxes, code blocks with language badges, rules, images, editable tables and rendered math and Mermaid diagrams. Return, Backspace and Tab work on lists, the formatting bar and edit menu apply formatting in place, and edits restyle only the blocks they change. Slack mrkdwn documents still show the read-only preview in Formatted mode.
+- 191cd50: The iPhone and iPad editor gains the rest of the Mac's editing interactions. You can tap a code block's language badge to choose its language. Typing "/" at the start of an empty line offers block types: a menu at the caret on iPad, or a bar above the keyboard on iPhone. Table cells can be edited in place, moving between cells with Tab or the keyboard toolbar. Copying from the editor puts rich text and the Markdown source on the clipboard, and pasting rich text from other apps converts it to Markdown.
+- aa38505: Swash on iPhone and iPad now works with the rest of the system. `swash://new` and `swash://open` links, the Quick Note widget and the Create Markdown Document shortcut open their note directly, even with another document open. Other apps can share text or links to Swash with "Save to Swash", and the note opens the next time you switch to Swash. The share button no longer crashes on iPhone. On the Mac, Finder thumbnails for Markdown files no longer crash.
+- c03772b: On the Mac, File › Open Folder… (⇧⌘O) opens a folder of Markdown files in one window. The first file opens straight away, and a sidebar lists the others so you can switch between them. Edits are saved automatically. Files that are added, renamed, deleted or changed in other apps show up right away, and the New File button adds a Markdown file to the folder.
+- 020e073: Swash now builds for iPhone and iPad as well as the Mac, as a first step towards a universal app (see `docs/UNIVERSAL_PLAN.md`). On iOS and iPadOS you can open and create Markdown documents from the Files browser and switch between Source, Formatted (read-only for now) and, on iPad, Split views with synced scrolling. The Source editor continues lists and handles Backspace and Tab like the Mac editor, has a formatting bar above the keyboard and formatting actions in the edit menu, and supports the Format menu on iPad. The Mac app is unchanged.
+
+### Patch Changes
+
+- 95a0e45: Pasting from Confluence or Jira now keeps images. They paste as links to the page's attachments; the images used to be dropped.
+- 629bb6d: Moved folder access (security-scoped bookmarks), the default Markdown app prompt and the editor/preview scroll helpers into a reusable local Swift package, `Packages/MacAppKitExtras`. Folders granted earlier stay granted; the app behaves as before.
+- 3b36421: The heading outline is now a proper sidebar. In document windows the toolbar splits at its edge instead of running the title across it, and you can resize it. In folder windows the outline is a third tab in the sidebar, next to Files and Search. View ▸ Show Outline (⌃⌘S) switches to it.
+- The iPhone and iPad editor and preview now share the Mac's latest rendering: syntax highlighting for 26 languages, the updated paragraph spacing, and Mermaid diagrams shown as images in Edit Text.
+
 ## 1.19.1
 
 ### Patch Changes
