@@ -8,7 +8,7 @@
             <sparkle:version>170</sparkle:version>
             <sparkle:shortVersionString>1.21.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.7</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/surrealroad/Swash/releases/download/v1.21.0/Swash-macOS.zip" length="12388945" type="application/octet-stream" sparkle:edSignature="Sjj4xhAKIVsTVhL040zUvint9DKdMqcHuihjDrUTqhOoqONlwk6jHIYiDQkGu0V6PM93bVZuj7t1iY6uys6RBA=="/>
+            <enclosure url="https://github.com/Pixerate/Swash/releases/download/v1.21.0/Swash-macOS.zip" length="12388945" type="application/octet-stream" sparkle:edSignature="Sjj4xhAKIVsTVhL040zUvint9DKdMqcHuihjDrUTqhOoqONlwk6jHIYiDQkGu0V6PM93bVZuj7t1iY6uys6RBA=="/>
         </item>
     </channel>
 </rss>

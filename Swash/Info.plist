@@ -94,7 +94,7 @@
 		</dict>
 	</array>
 	<key>SUFeedURL</key>
-	<string>https://raw.githubusercontent.com/surrealroad/Swash/main/appcast.xml</string>
+	<string>https://raw.githubusercontent.com/Pixerate/Swash/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>1QmwmnULEnV1F3i3q/elJuv8Dur6oCP7OwJ5VINeAHw=</string>
 	<key>SUEnableAutomaticChecks</key>

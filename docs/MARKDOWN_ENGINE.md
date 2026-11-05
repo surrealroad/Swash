@@ -1,6 +1,6 @@
 # The Markdown engine lives in PixerateMarkdown
 
-Decision for [#50](https://github.com/surrealroad/Swash/issues/50), made on 4 November 2026, with
+Decision for [#50](https://github.com/Pixerate/Swash/issues/50), made on 4 November 2026, with
 [Pixerate/editor#546](https://github.com/Pixerate/editor/issues/546).
 
 ## Decision

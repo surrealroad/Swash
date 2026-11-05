@@ -4,7 +4,7 @@
 
 ### Write Markdown the way it looks.
 
-[![Platform](https://img.shields.io/badge/macOS-15.7+-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/surrealroad/Swash/releases)
+[![Platform](https://img.shields.io/badge/macOS-15.7+-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/Pixerate/Swash/releases)
 [![iPhone and iPad](https://img.shields.io/badge/iPhone_%26_iPad-coming_soon-555555?style=for-the-badge&logo=apple&logoColor=white)](#-on-iphone-and-ipad)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](./LICENSE)
 
@@ -12,7 +12,7 @@
   <b>Swash</b> is a fast, native Markdown editor for the Mac. You type in formatted text, with headings, lists, tables, images, math and diagrams shown as they'll look, while your notes stay plain <code>.md</code> files you can open anywhere.
 </p>
 
-[**Download for Mac**](https://github.com/surrealroad/Swash/releases/latest) • [Features](#-features) • [Shortcuts](#%EF%B8%8F-keyboard-shortcuts) • [Build from source](#-build-from-source)
+[**Download for Mac**](https://github.com/Pixerate/Swash/releases/latest) • [Features](#-features) • [Shortcuts](#%EF%B8%8F-keyboard-shortcuts) • [Build from source](#-build-from-source)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshot-dark.png">
@@ -82,13 +82,13 @@
 
 ## 📱 On iPhone and iPad
 
-Swash for iPhone and iPad is on its way. It has the same formatted editor, slash menu and editable tables as the Mac, a formatting bar above the keyboard, Split view on iPad, a Quick Note widget, Shortcuts, and a **Save to Swash** share option for other apps. Follow along in [#39](https://github.com/surrealroad/Swash/issues/39).
+Swash for iPhone and iPad is on its way. It has the same formatted editor, slash menu and editable tables as the Mac, a formatting bar above the keyboard, Split view on iPad, a Quick Note widget, Shortcuts, and a **Save to Swash** share option for other apps. Follow along in [#39](https://github.com/Pixerate/Swash/issues/39).
 
 ---
 
 ## 📥 Install
 
-1. Download **Swash-macOS.dmg** from the [latest release](https://github.com/surrealroad/Swash/releases/latest).
+1. Download **Swash-macOS.dmg** from the [latest release](https://github.com/Pixerate/Swash/releases/latest).
 2. Open it and drag Swash to your Applications folder.
 3. Open Swash. It can set itself as your default app for `.md` files in **Settings**, and it keeps itself up to date.
 
@@ -102,7 +102,7 @@ Swash for iPhone and iPad is on its way. It has the same formatted editor, slash
 You need macOS 15.7 or later and the latest Xcode.
 
 ```bash
-git clone https://github.com/surrealroad/Swash.git
+git clone https://github.com/Pixerate/Swash.git
 cd Swash
 xcodebuild -scheme Swash -configuration Release -derivedDataPath build CODE_SIGN_IDENTITY="-"
 open build/Build/Products/Release/Swash.app

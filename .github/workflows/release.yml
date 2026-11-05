@@ -210,7 +210,7 @@ jobs:
           if [ -z "$VERSION" ]; then
             VERSION=$(node -p "require('./package.json').version")
           fi
-          DOWNLOAD_URL_PREFIX="https://github.com/surrealroad/Swash/releases/download/v${VERSION}/"
+          DOWNLOAD_URL_PREFIX="https://github.com/Pixerate/Swash/releases/download/v${VERSION}/"
 
           if [ -n "$SPARKLE_PRIVATE_KEY" ]; then
             echo "Generating and signing appcast.xml with SPARKLE_PRIVATE_KEY..."
