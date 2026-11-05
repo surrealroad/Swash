@@ -8,7 +8,9 @@
 //  where they are.
 //
 
+#if os(macOS)
 import AppKit
+import MacAppKitExtras
 import UniformTypeIdentifiers
 import PixerateMarkdown
 
@@ -196,3 +198,4 @@ enum ImageInsertion {
         }
     }
 }
+#endif

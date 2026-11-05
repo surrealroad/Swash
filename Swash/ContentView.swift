@@ -5,40 +5,11 @@
 //  Created by Jack James on 13/07/2026.
 //
 
+#if os(macOS)
 import SwiftUI
+import MacAppKitExtras
 import UniformTypeIdentifiers
 import PixerateMarkdown
-
-enum ViewMode: String, CaseIterable, Identifiable {
-    case edit = "Source"
-    case preview = "Formatted"
-    case split = "Split"
-    
-    var id: String { self.rawValue }
-    
-    var icon: String {
-        switch self {
-        case .edit: return "text.alignleft"
-        case .preview: return "character.cursor.ibeam"
-        case .split: return "square.split.2x1"
-        }
-    }
-    
-    /// Order of the View menu items (⌘1, ⌘2, ⌘3): the default view first.
-    static let menuOrder: [ViewMode] = [.preview, .edit, .split]
-
-    var tooltip: String {
-        switch self {
-        case .edit: return "Show source"
-        case .preview: return "Edit text"
-        case .split: return "Side-by-side view"
-        }
-    }
-}
-
-
-
-
 
 struct BubbleMenuSizePreferenceKey: PreferenceKey {
     static var defaultValue: CGSize = .zero
@@ -72,6 +43,7 @@ struct WindowAccessor: NSViewRepresentable {
 
 /// One `ScrollSync` per file, so a window that switches files doesn't carry the scroll position over.
 /// A plain class, so asking for the current sync during a view update changes no SwiftUI state.
+@MainActor
 final class ScrollSyncStore {
     private var key: URL?
     private var sync = ScrollSync()
@@ -91,6 +63,9 @@ struct ContentView: View {
     /// Identifies the file shown, in windows that switch between files. Changing it gives the
     /// editor a fresh text view, selection and scroll position, while the window's toolbar stays.
     var documentID: URL? = nil
+    /// The outline shown by a sidebar outside this view (a folder window's). Without one, the
+    /// view shows its own outline in a leading split view column.
+    var hostedOutline: DocumentOutlineState? = nil
     
     @State private var viewMode: ViewMode = .preview
     @State private var selectedRange: NSRange? = nil
@@ -109,11 +84,11 @@ struct ContentView: View {
     @State private var editor = SwashEditorController()
     @State private var dismissedFolderBanner: URL? = nil
     @AppStorage("showOutline") private var showOutline = false
-    @State private var currentHeadingIndex: Int? = nil
+    @State private var ownOutline = DocumentOutlineState()
+    private var outlineState: DocumentOutlineState { hostedOutline ?? ownOutline }
     @State private var conflictCount = 0
     /// Outline and statistics of `insightsText`, refreshed once typing pauses so keystrokes don't
     /// pay for an extra whole-document parse.
-    @State private var outline = MarkdownOutline(text: "")
     @State private var statistics = MarkdownStatistics.empty
     @State private var insightsText: String? = nil
     @State private var showConflictSheet = false
@@ -171,7 +146,167 @@ struct ContentView: View {
         if folder != unreadableFolder { unreadableFolder = folder }
     }
 
+    // The body is split into stages so each modifier chain type-checks on its own: as one
+    // expression it exceeded the compiler's type-checking time limit on CI.
     var body: some View {
+        withLifecycle
+        .onChange(of: window) { _, window in
+            if window?.isKeyWindow == true { documentWindowBecameKey() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if let window = window, notification.object as? NSWindow === window { documentWindowBecameKey() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            guard let window = window, notification.object as? NSWindow === window else { return }
+            if let url = effectiveBaseURL { RecentlyClosedDocuments.shared.push(url) }
+            if QuickCaptureController.shared.target?.window === window { QuickCaptureController.shared.target = nil }
+        }
+        .sheet(isPresented: $showConflictSheet) {
+            if let url = effectiveBaseURL {
+                ConflictResolutionSheet(url: url, onKeep: { version in
+                    showConflictSheet = false
+                    resolveConflicts(keeping: version, at: url)
+                }, onCancel: { showConflictSheet = false })
+            }
+        }
+    }
+
+    /// The outline and document layout with the toolbar.
+    private var layoutWithToolbar: some View {
+        Group {
+            if hostedOutline != nil {
+                documentPane
+            } else {
+                NavigationSplitView(columnVisibility: outlineColumnVisibility) {
+                    DocumentOutlineView(state: outlineState)
+                        .navigationSplitViewColumnWidth(min: 160, ideal: 220, max: 360)
+                        // SwiftUI's own sidebar button gets the same identifier in every window, and
+                        // AppKit throws when windows sharing "mainToolbar" both add it. See GOTCHAS.
+                        .toolbar(removing: .sidebarToggle)
+                } detail: {
+                    documentPane
+                }
+            }
+        }
+        .toolbar(id: "mainToolbar") {
+            if hostedOutline == nil {
+                ToolbarItem(id: "outline", placement: .navigation) {
+                    Toggle(isOn: $showOutline) {
+                        Label("Outline", systemImage: "sidebar.left")
+                    }
+                    .help(showOutline ? "Hide the heading outline" : "Show the heading outline")
+                    .disabled(distractionFree)
+                }
+            }
+            
+            ToolbarItem(id: "flexibleSpace", placement: .automatic) {
+                Spacer()
+            }
+            
+            ToolbarItem(id: "viewMode", placement: .primaryAction) {
+                Picker("View", selection: $viewMode) {
+                    ForEach(ViewMode.allCases) { mode in
+                        Label(mode.rawValue, systemImage: mode.icon)
+                            .help(mode.tooltip)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .help("Choose how the document is shown")
+            }
+            
+            ToolbarItem(id: "share", placement: .primaryAction) {
+                ShareLink(
+                    item: document.text,
+                    subject: Text(documentTitle),
+                    message: Text(document.text),
+                    preview: SharePreview(Text(documentTitle), image: sharePreviewImage)
+                ) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                .help("Share raw Markdown text with other apps")
+            }
+        }
+    }
+
+    /// Table-cell selection and window tracking.
+    private var withSelectionTracking: some View {
+        layoutWithToolbar
+        .onReceive(NotificationCenter.default.publisher(for: .cellSelectionDidChange)) { notification in
+            // Editing a table cell ends the text selection: the bubble menu belongs to the cell now
+            if selectionRect != nil { selectionRect = nil }
+            if selectedRange != nil { selectedRange = nil }
+            if let userInfo = notification.userInfo, let rect = userInfo["rect"] as? NSRect {
+                self.cellSelectionRect = rect
+                if let formats = userInfo["formats"] as? Set<FormatAction> {
+                    self.cellActiveFormats = formats
+                } else {
+                    self.cellActiveFormats = []
+                }
+            } else {
+                self.cellSelectionRect = nil
+                self.cellActiveFormats = []
+            }
+        }
+        .background(WindowAccessor(window: $window))
+        .onChange(of: window) { _, _ in refreshWindowDocumentURL() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if let window = window, notification.object as? NSWindow === window { refreshWindowDocumentURL() }
+        }
+    }
+
+    /// Values the menu commands read from the focused document.
+    private var withFocusedValues: some View {
+        withSelectionTracking
+        .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
+        .modifier(exportAndWritingCommands)
+        .focusedSceneValue(\.documentCommandHandler, { handleDocumentCommand($0) })
+        .focusedSceneValue(\.documentFileURL, effectiveBaseURL)
+        .focusedSceneValue(\.outlineVisibility, hostedOutline == nil ? $showOutline : nil)
+        .focusedSceneValue(\.viewModeSelection, ViewModeSelection(current: viewMode) { viewMode = $0 })
+        .focusedSceneValue(\.markdownFlavorSelection, MarkdownFlavorSelection(current: document.flavor) { requestFlavorChange(to: $0) })
+    }
+
+    /// Mode changes, insights, the folder banner and first appearance.
+    private var withLifecycle: some View {
+        withFocusedValues
+        .onChange(of: documentID) {
+            selectedRange = nil
+            selectionRect = nil
+            cellSelectionRect = nil
+            cellActiveFormats = []
+        }
+        .onChange(of: viewMode) { oldMode, newMode in
+            handleViewModeChange(from: oldMode, to: newMode)
+        }
+        .task(id: document.text) {
+            // The first pass (document just opened) is immediate; edits wait for a pause in typing
+            if insightsText != nil {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+            }
+            refreshInsights()
+        }
+        .task(id: FolderBannerInputs(text: document.text, baseURL: effectiveBaseURL, access: folderAccessManager.accessGrantedTrigger)) {
+            // Only edits wait for a pause; opening, moving the file or granting access refresh at once
+            if let scanned = bannerScannedText, scanned != document.text {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+            }
+            bannerScannedText = document.text
+            refreshFolderBanner()
+        }
+        .onAppear {
+            outlineState.select = { heading in editor.reveal(rawLocation: heading.range.location) }
+            // An untitled document created for a quick note or an import starts with its text
+            if fileURL == nil, document.text.isEmpty, let seed = NewDocumentSeed.take() {
+                document.text = seed
+            }
+        }
+    }
+    
+    /// Banners, the editor and the status bar: the detail column of the document's split view.
+    private var documentPane: some View {
         VStack(spacing: 0) {
             if conflictCount > 0 {
                 ConflictBanner(count: conflictCount) { showConflictSheet = true }
@@ -180,18 +315,6 @@ struct ContentView: View {
                 folderAccessBanner(for: folderURL)
             }
             
-            HStack(spacing: 0) {
-            if showOutline && !distractionFree {
-                DocumentOutlineView(
-                    outline: outline,
-                    currentIndex: currentHeadingIndex,
-                    onSelect: { heading in
-                        currentHeadingIndex = outline.headings.firstIndex(of: heading)
-                        editor.reveal(rawLocation: heading.range.location)
-                    }
-                )
-                Divider()
-            }
             ZStack(alignment: .topLeading) {
                 if viewMode == .preview {
                     SwashTextView(
@@ -254,7 +377,6 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .id(documentID)
-            }
             
             // Premium Bottom Status Bar
             if !distractionFree {
@@ -262,126 +384,8 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 600, idealWidth: 800, minHeight: 600, idealHeight: 750)
-        .toolbar(id: "mainToolbar") {
-            ToolbarItem(id: "outline", placement: .navigation) {
-                Toggle(isOn: $showOutline) {
-                    Label("Outline", systemImage: "sidebar.left")
-                }
-                .help(showOutline ? "Hide the heading outline" : "Show the heading outline")
-            }
-            
-            ToolbarItem(id: "flexibleSpace", placement: .automatic) {
-                Spacer()
-            }
-            
-            ToolbarItem(id: "viewMode", placement: .primaryAction) {
-                Picker("View", selection: $viewMode) {
-                    ForEach(ViewMode.allCases) { mode in
-                        Label(mode.rawValue, systemImage: mode.icon)
-                            .help(mode.tooltip)
-                            .tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .help("Choose how the document is shown")
-            }
-            
-            ToolbarItem(id: "share", placement: .primaryAction) {
-                ShareLink(
-                    item: document.text,
-                    subject: Text(documentTitle),
-                    message: Text(document.text),
-                    preview: SharePreview(Text(documentTitle), image: sharePreviewImage)
-                ) {
-                    Label("Share", systemImage: "square.and.arrow.up")
-                }
-                .help("Share raw Markdown text with other apps")
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .cellSelectionDidChange)) { notification in
-            // Editing a table cell ends the text selection: the bubble menu belongs to the cell now
-            if selectionRect != nil { selectionRect = nil }
-            if selectedRange != nil { selectedRange = nil }
-            if let userInfo = notification.userInfo, let rect = userInfo["rect"] as? NSRect {
-                self.cellSelectionRect = rect
-                if let formats = userInfo["formats"] as? Set<FormatAction> {
-                    self.cellActiveFormats = formats
-                } else {
-                    self.cellActiveFormats = []
-                }
-            } else {
-                self.cellSelectionRect = nil
-                self.cellActiveFormats = []
-            }
-        }
-        .background(WindowAccessor(window: $window))
-        .onChange(of: window) { _, _ in refreshWindowDocumentURL() }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-            if let window = window, notification.object as? NSWindow === window { refreshWindowDocumentURL() }
-        }
-        .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
-        .modifier(exportAndWritingCommands)
-        .focusedSceneValue(\.documentCommandHandler, { handleDocumentCommand($0) })
-        .focusedSceneValue(\.documentFileURL, effectiveBaseURL)
-        .focusedSceneValue(\.viewModeSelection, ViewModeSelection(current: viewMode) { viewMode = $0 })
-        .focusedSceneValue(\.markdownFlavorSelection, MarkdownFlavorSelection(current: document.flavor) { requestFlavorChange(to: $0) })
-        .onChange(of: documentID) {
-            selectedRange = nil
-            selectionRect = nil
-            cellSelectionRect = nil
-            cellActiveFormats = []
-        }
-        .onChange(of: viewMode) { oldMode, newMode in
-            handleViewModeChange(from: oldMode, to: newMode)
-        }
-        .task(id: document.text) {
-            // The first pass (document just opened) is immediate; edits wait for a pause in typing
-            if insightsText != nil {
-                try? await Task.sleep(for: .milliseconds(300))
-                guard !Task.isCancelled else { return }
-            }
-            refreshInsights()
-        }
-        .task(id: FolderBannerInputs(text: document.text, baseURL: effectiveBaseURL, access: folderAccessManager.accessGrantedTrigger)) {
-            // Only edits wait for a pause; opening, moving the file or granting access refresh at once
-            if let scanned = bannerScannedText, scanned != document.text {
-                try? await Task.sleep(for: .milliseconds(300))
-                guard !Task.isCancelled else { return }
-            }
-            bannerScannedText = document.text
-            refreshFolderBanner()
-        }
-        .onChange(of: showOutline) { _, shown in
-            if shown, let caret = editor.currentRawSelection?.location { updateCurrentHeading(caret: caret) }
-            handleOutlineToggle(shown: shown)
-        }
-        .onAppear {
-            // An untitled document created for a quick note or an import starts with its text
-            if fileURL == nil, document.text.isEmpty, let seed = NewDocumentSeed.take() {
-                document.text = seed
-            }
-        }
-        .onChange(of: window) { _, window in
-            if window?.isKeyWindow == true { documentWindowBecameKey() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-            if let window = window, notification.object as? NSWindow === window { documentWindowBecameKey() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
-            guard let window = window, notification.object as? NSWindow === window else { return }
-            if let url = effectiveBaseURL { RecentlyClosedDocuments.shared.push(url) }
-            if QuickCaptureController.shared.target?.window === window { QuickCaptureController.shared.target = nil }
-        }
-        .sheet(isPresented: $showConflictSheet) {
-            if let url = effectiveBaseURL {
-                ConflictResolutionSheet(url: url, onKeep: { version in
-                    showConflictSheet = false
-                    resolveConflicts(keeping: version, at: url)
-                }, onCancel: { showConflictSheet = false })
-            }
-        }
     }
-    
+
     // MARK: - Window Focus, Quick Notes & Conflicts
     
     /// Remembers this document as the quick-note target and checks for iCloud conflicts.
@@ -2017,17 +2021,17 @@ struct ContentView: View {
         guard text != insightsText else { return }
         insightsText = text
         let newOutline = editor.outline(for: text)
-        if newOutline != outline { outline = newOutline }
+        if newOutline != outlineState.outline { outlineState.outline = newOutline }
         let newStatistics = editor.statistics(for: text)
         if newStatistics != statistics { statistics = newStatistics }
-        if showOutline, let caret = editor.currentRawSelection?.location { updateCurrentHeading(caret: caret) }
+        if let caret = editor.currentRawSelection?.location { updateCurrentHeading(caret: caret) }
     }
     
-    /// Tracks the heading around the caret; only real changes are published, so caret moves stay cheap.
+    /// Tracks the heading around the caret; only real changes are published, and only the outline
+    /// reads them, so caret moves stay cheap.
     private func updateCurrentHeading(caret: Int) {
-        guard showOutline else { return }
-        let index = outline.headingIndex(containing: caret)
-        if index != currentHeadingIndex { currentHeadingIndex = index }
+        let index = outlineState.outline.headingIndex(containing: caret)
+        if index != outlineState.currentIndex { outlineState.currentIndex = index }
     }
     
     /// Raw location of the caret (or selection start) in the live editor, else the end of the document.
@@ -2090,16 +2094,17 @@ struct ContentView: View {
         }
     }
     
-    /// Showing or hiding the outline resizes the window by the sidebar's width, on the left, so the
-    /// document keeps its width and position (as switching to and from Split does).
-    private func handleOutlineToggle(shown: Bool) {
-        guard !distractionFree, let window = self.window, !window.styleMask.contains(.fullScreen) else { return }
-        let sidebarWidth = DocumentOutlineView.width + 1   // and its divider
-        let targetWidth = window.frame.width + (shown ? sidebarWidth : -sidebarWidth)
-        animateWindowWidth(to: max(600, targetWidth), window: window, keepingRightEdge: true)
+    /// The outline column is shown while `showOutline` is on, and never in distraction-free mode.
+    private var outlineColumnVisibility: Binding<NavigationSplitViewVisibility> {
+        Binding(
+            get: { showOutline && !distractionFree ? .all : .detailOnly },
+            set: { visibility in
+                if !distractionFree { showOutline = visibility != .detailOnly }
+            }
+        )
     }
     
-    private func animateWindowWidth(to targetWidth: CGFloat, window: NSWindow, keepingRightEdge: Bool = false) {
+    private func animateWindowWidth(to targetWidth: CGFloat, window: NSWindow) {
         let currentFrame = window.frame
         var adjustedTargetWidth = targetWidth
         
@@ -2111,7 +2116,7 @@ struct ContentView: View {
         let deltaWidth = adjustedTargetWidth - currentFrame.width
         guard abs(deltaWidth) > 1 else { return }
         
-        var newOriginX = keepingRightEdge ? currentFrame.maxX - adjustedTargetWidth : currentFrame.origin.x - (deltaWidth / 2)
+        var newOriginX = currentFrame.origin.x - (deltaWidth / 2)
         
         if let screen = window.screen {
             let screenFrame = screen.visibleFrame
@@ -2164,3 +2169,4 @@ private struct FolderBannerInputs: Equatable {
     let baseURL: URL?
     let access: UUID
 }
+#endif

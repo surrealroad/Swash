@@ -6,7 +6,12 @@
 //
 
 import Foundation
+import MacAppKitExtras
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import PixerateMarkdown
 
 struct MarkdownTableData: Equatable {
@@ -21,9 +26,9 @@ final class ImageCache {
     static let shared = ImageCache()
     
     private final class Entry {
-        let image: NSImage
+        let image: PlatformImage
         let stamp: String
-        init(image: NSImage, stamp: String) { self.image = image; self.stamp = stamp }
+        init(image: PlatformImage, stamp: String) { self.image = image; self.stamp = stamp }
     }
     
     private let images = NSCache<NSString, Entry>()
@@ -43,16 +48,16 @@ final class ImageCache {
         return "\(date)|\(size)"
     }
     
-    func image(atPath path: String) -> NSImage? {
+    func image(atPath path: String) -> PlatformImage? {
         guard let stamp = stamp(forPath: path) else { return nil }
         if let entry = images.object(forKey: path as NSString), entry.stamp == stamp { return entry.image }
-        guard let image = NSImage(contentsOfFile: path) else { return nil }
+        guard let image = PlatformImage(contentsOfFile: path) else { return nil }
         images.setObject(Entry(image: image, stamp: stamp), forKey: path as NSString)
         return image
     }
     
     /// `image` (loaded from `path`) scaled down to `maxWidth` for the editor, made once per width.
-    func editorImage(_ image: NSImage, path: String, maxWidth: CGFloat) -> NSImage {
+    func editorImage(_ image: PlatformImage, path: String, maxWidth: CGFloat) -> PlatformImage {
         guard image.size.width > maxWidth else { return image }
         let stamp = self.stamp(forPath: path) ?? ""
         let key = "\(path)|\(Int(maxWidth.rounded()))" as NSString
@@ -217,18 +222,18 @@ struct MarkdownParser {
         return (trimmed, title)
     }
     
-    static func resolveImage(urlString: String, baseURL: URL? = nil, windowURL: URL? = nil) -> NSImage? {
+    static func resolveImage(urlString: String, baseURL: URL? = nil, windowURL: URL? = nil) -> PlatformImage? {
         resolveImageFile(urlString: urlString, baseURL: baseURL, windowURL: windowURL)?.image
     }
     
     /// The local image a Markdown image destination refers to, and the file it was loaded from.
     /// Candidate paths are checked with a cheap existence test, and images come from `ImageCache`,
     /// so restyling or re-rendering a block doesn't read the file again.
-    static func resolveImageFile(urlString: String, baseURL: URL? = nil, windowURL: URL? = nil) -> (image: NSImage, path: String)? {
+    static func resolveImageFile(urlString: String, baseURL: URL? = nil, windowURL: URL? = nil) -> (image: PlatformImage, path: String)? {
         let (cleanedURL, _) = cleanImageURLAndTitle(urlString)
         guard !cleanedURL.isEmpty else { return nil }
         
-        func load(_ path: String?) -> (image: NSImage, path: String)? {
+        func load(_ path: String?) -> (image: PlatformImage, path: String)? {
             guard let path = path, !path.isEmpty, let image = ImageCache.shared.image(atPath: path) else { return nil }
             return (image, path)
         }
@@ -252,6 +257,7 @@ struct MarkdownParser {
         if documentURL == nil {
             documentURL = windowURL
         }
+        #if os(macOS)
         if documentURL == nil, let keyWin = NSApp.keyWindow {
             documentURL = keyWin.representedURL ?? NSDocumentController.shared.document(for: keyWin)?.fileURL
         }
@@ -261,6 +267,7 @@ struct MarkdownParser {
         if documentURL == nil {
             documentURL = NSDocumentController.shared.documents.lazy.compactMap(\.fileURL).first
         }
+        #endif
         
         // 3. Resolve strictly relative to document folder
         if let docURL = documentURL {
@@ -304,6 +311,7 @@ struct MarkdownParser {
         return nil
     }
     
+    #if os(macOS)
     static func scaleImageForEditor(_ image: NSImage, maxWidth: CGFloat = 550) -> NSImage {
         let originalSize = image.size
         guard originalSize.width > 0, originalSize.height > 0 else { return image }
@@ -348,6 +356,35 @@ struct MarkdownParser {
         img.unlockFocus()
         return img
     }
+    #else
+    static func scaleImageForEditor(_ image: UIImage, maxWidth: CGFloat = 550) -> UIImage {
+        let originalSize = image.size
+        guard originalSize.width > 0, originalSize.height > 0, originalSize.width > maxWidth else { return image }
+        let targetSize = CGSize(width: maxWidth, height: ceil(originalSize.height * maxWidth / originalSize.width))
+        return UIGraphicsImageRenderer(size: targetSize).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+    }
+    
+    static func placeholderImage(alt: String) -> UIImage {
+        let displayText = alt.isEmpty ? "Image" : alt
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: UIColor.secondaryLabel
+        ]
+        let textSize = (displayText as NSString).size(withAttributes: attrs)
+        let size = CGSize(width: min(max(textSize.width + 44, 80), 550), height: 28)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            UIColor.secondaryLabel.withAlphaComponent(0.12).setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6).fill()
+            let configuration = UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+            UIImage(systemName: "photo", withConfiguration: configuration)?
+                .withTintColor(.secondaryLabel, renderingMode: .alwaysOriginal)
+                .draw(in: CGRect(x: 8, y: (size.height - 12) / 2, width: 14, height: 12))
+            (displayText as NSString).draw(at: CGPoint(x: 28, y: (size.height - textSize.height) / 2), withAttributes: attrs)
+        }
+    }
+    #endif
     
     static func parseAlignments(_ line: String) -> [TableAlignment] {
         let cells = parseTableCells(line)

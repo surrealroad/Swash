@@ -7,7 +7,11 @@
 //  `.tok-*` rules in `swash-export.css`.
 //
 
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import PixerateMarkdown
 
 enum CodeHighlightTheme {
@@ -31,32 +35,30 @@ enum CodeHighlightTheme {
         }
     }
 
-    private static func color(_ value: UInt32) -> NSColor {
-        NSColor(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    private static func color(_ value: UInt32) -> PlatformColor {
+        PlatformColor(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
     }
 
-    private static let resolved: [CodeTokenKind: (light: NSColor, dark: NSColor)] = {
-        var table: [CodeTokenKind: (light: NSColor, dark: NSColor)] = [:]
+    private static let resolved: [CodeTokenKind: (light: PlatformColor, dark: PlatformColor)] = {
+        var table: [CodeTokenKind: (light: PlatformColor, dark: PlatformColor)] = [:]
         for kind in CodeTokenKind.allCases { let pair = hex(kind); table[kind] = (color(pair.light), color(pair.dark)) }
         return table
     }()
 
-    private static let dynamic: [CodeTokenKind: NSColor] = {
-        var table: [CodeTokenKind: NSColor] = [:]
+    private static let dynamic: [CodeTokenKind: PlatformColor] = {
+        var table: [CodeTokenKind: PlatformColor] = [:]
         for kind in CodeTokenKind.allCases {
             let pair = resolved[kind]!
-            table[kind] = NSColor(name: "swash.code.\(kind.rawValue)") { appearance in
-                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? pair.dark : pair.light
-            }
+            table[kind] = PlatformColor.appearanceAware(light: pair.light, dark: pair.dark)
         }
         return table
     }()
 
     /// A colour that follows the appearance it is drawn in (for the editor's text storage).
-    static func color(for kind: CodeTokenKind) -> NSColor { dynamic[kind]! }
+    static func color(for kind: CodeTokenKind) -> PlatformColor { dynamic[kind]! }
 
     /// A fixed colour for one appearance (for views that already know their colour scheme).
-    static func color(for kind: CodeTokenKind, dark: Bool) -> NSColor {
+    static func color(for kind: CodeTokenKind, dark: Bool) -> PlatformColor {
         let pair = resolved[kind]!
         return dark ? pair.dark : pair.light
     }
@@ -94,7 +96,7 @@ enum MarkdownCodeHighlighter {
     /// Blocks with more than `maximumTokens` tokens stay plain: AppKit finds the extent of the block's
     /// `NSTextBlock` by walking attribute runs, once per laid-out line, so every colour run makes
     /// typing in a long block slower (see GOTCHAS.md).
-    static func highlight(block node: MarkdownNode, language: String?, source text: NSString, maximumTokens: Int = editorTokenLimit, apply: (NSRange, NSColor) -> Void) {
+    static func highlight(block node: MarkdownNode, language: String?, source text: NSString, maximumTokens: Int = editorTokenLimit, apply: (NSRange, PlatformColor) -> Void) {
         guard let language = CodeLanguage(name: language), !node.literal.isEmpty else { return }
         let code = node.literal as NSString
         // Raw content lines: the lines of the block that aren't fence lines

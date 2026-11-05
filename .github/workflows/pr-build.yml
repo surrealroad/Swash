@@ -49,5 +49,31 @@ jobs:
       - name: CommonMark and GFM spec tests
         run: scripts/run_commonmark_spec.sh
 
+      - name: Paste conversion tests (Swash's engine additions)
+        run: scripts/run_paste_tests.sh
+
       - name: Markdown conformance tests (@pixerate/markdown-conformance)
         run: scripts/run_conformance_tests.sh
+
+      - name: MacAppKitExtras package tests
+        run: swift test --package-path Packages/MacAppKitExtras
+
+  build-ios:
+    name: Build iOS App (Simulator)
+    runs-on: macos-26
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build (Release, iOS Simulator, unsigned)
+        run: |
+          xcodebuild -scheme Swash \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO

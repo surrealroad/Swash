@@ -7,9 +7,12 @@
 //
 
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 import PixerateMarkdown
 
+#if os(macOS)
 extension FormatCommand {
     /// Maps a key-down event to a command, using the manifest's shortcuts (letters by character,
     /// digits and punctuation by key code, so shifted keys work on any layout).
@@ -23,6 +26,7 @@ extension FormatCommand {
         return FormatManifest.command(charactersIgnoringModifiers: event.charactersIgnoringModifiers, keyCode: event.keyCode, modifiers: modifiers)
     }
 }
+#endif
 
 extension FormatShortcut {
     var keyEquivalent: KeyEquivalent { KeyEquivalent(key) }

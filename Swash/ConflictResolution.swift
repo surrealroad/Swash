@@ -6,6 +6,7 @@
 //  version to keep instead of leaving the conflict unresolved.
 //
 
+#if os(macOS)
 import SwiftUI
 import AppKit
 
@@ -133,3 +134,4 @@ struct ConflictResolutionSheet: View {
         .frame(width: 480)
     }
 }
+#endif

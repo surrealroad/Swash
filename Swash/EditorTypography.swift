@@ -8,7 +8,11 @@
 //
 
 import SwiftUI
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 
 enum TypographyFont: String, CaseIterable, Identifiable {
     case system
@@ -56,7 +60,7 @@ enum EditorTheme: String, CaseIterable, Identifiable {
     }
 
     /// Accent for code, quotes, tasks, footnotes and links; nil keeps each view's original colour.
-    var accent: NSColor? {
+    var accent: PlatformColor? {
         switch self {
         case .system: return nil
         case .graphite: return .systemGray
@@ -68,14 +72,15 @@ enum EditorTheme: String, CaseIterable, Identifiable {
     }
 
     /// Page colour; nil keeps the standard text background.
-    var background: NSColor? {
-        guard self == .paper else { return nil }
-        return NSColor(name: "SwashPaperBackground") { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(srgbRed: 0.16, green: 0.145, blue: 0.125, alpha: 1)
-                : NSColor(srgbRed: 0.98, green: 0.955, blue: 0.9, alpha: 1)
-        }
+    var background: PlatformColor? {
+        self == .paper ? Self.paperBackground : nil
     }
+
+    /// One instance, so the editor can tell when its background already matches.
+    private static let paperBackground = PlatformColor.appearanceAware(
+        light: PlatformColor(srgbRed: 0.98, green: 0.955, blue: 0.9, alpha: 1),
+        dark: PlatformColor(srgbRed: 0.16, green: 0.145, blue: 0.125, alpha: 1)
+    )
 }
 
 struct EditorTypography: Hashable {
@@ -129,32 +134,38 @@ struct EditorTypography: Hashable {
 
     var readableColumnWidth: CGFloat { (Self.readableWidth * scale).rounded() }
 
-    // MARK: AppKit (editor)
+    // MARK: AppKit / UIKit (editor)
 
     /// Body text font in the chosen family.
-    func font(ofSize size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+    func font(ofSize size: CGFloat, weight: PlatformFont.Weight = .regular) -> PlatformFont {
         switch font {
         case .system:
-            return NSFont.systemFont(ofSize: size, weight: weight)
+            return PlatformFont.systemFont(ofSize: size, weight: weight)
         case .serif:
-            let base = NSFont.systemFont(ofSize: size, weight: weight)
+            let base = PlatformFont.systemFont(ofSize: size, weight: weight)
+            #if os(macOS)
             if let descriptor = base.fontDescriptor.withDesign(.serif), let serif = NSFont(descriptor: descriptor, size: size) {
                 return serif
             }
+            #else
+            if let descriptor = base.fontDescriptor.withDesign(.serif) {
+                return UIFont(descriptor: descriptor, size: size)
+            }
+            #endif
             return base
         case .mono:
-            return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+            return PlatformFont.monospacedSystemFont(ofSize: size, weight: weight)
         }
     }
 
     /// The plain body font (and the default for text the styler does not touch).
-    var bodyFont: NSFont { font(ofSize: textSize) }
+    var bodyFont: PlatformFont { font(ofSize: textSize) }
 
     /// Source (Edit Markdown) mode stays monospaced; only its size follows the setting.
-    var sourceFont: NSFont { NSFont.monospacedSystemFont(ofSize: scaled(13.5), weight: .regular) }
+    var sourceFont: PlatformFont { PlatformFont.monospacedSystemFont(ofSize: scaled(13.5), weight: .regular) }
 
-    var accentColor: NSColor { theme.accent ?? .controlAccentColor }
-    var linkColor: NSColor { theme.accent ?? .systemBlue }
+    var accentColor: PlatformColor { theme.accent ?? .accentTintColor }
+    var linkColor: PlatformColor { theme.accent ?? .systemBlue }
 
     // MARK: SwiftUI (preview)
 
@@ -183,9 +194,9 @@ struct EditorTypography: Hashable {
         .system(size: scaled(size), weight: weight, design: design ?? .default)
     }
 
-    var previewAccent: Color { theme.accent.map { Color(nsColor: $0) } ?? .accentColor }
+    var previewAccent: Color { theme.accent.map { Color(platformColor: $0) } ?? .accentColor }
     var previewBackground: Color {
-        theme.background.map { Color(nsColor: $0) } ?? Color(NSColor.windowBackgroundColor).opacity(0.8)
+        theme.background.map { Color(platformColor: $0) } ?? Color(PlatformColor.windowBackgroundColor).opacity(0.8)
     }
 }
 
@@ -211,6 +222,7 @@ struct TypographyCommands: Commands {
     }
 }
 
+#if os(macOS)
 extension SwashTextView.Coordinator {
     /// The theme's page colour (the standard text background unless the theme has its own).
     func applyThemeBackground(_ typography: EditorTypography, in textView: NSTextView) {
@@ -220,3 +232,4 @@ extension SwashTextView.Coordinator {
         textView.enclosingScrollView?.backgroundColor = color
     }
 }
+#endif

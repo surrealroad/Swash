@@ -3,7 +3,9 @@
 //  Swash
 //
 
+#if os(macOS)
 import SwiftUI
+import MacAppKitExtras
 
 struct SettingsView: View {
     private enum Tab: Hashable {
@@ -58,18 +60,18 @@ private struct GeneralSettingsView: View {
 
             Section {
                 LabeledContent {
-                    if defaultAppManager.isDefaultAppStatus {
+                    if defaultAppManager.isDefaultApp {
                         Label("Default", systemImage: "checkmark.circle.fill")
                             .labelStyle(.titleAndIcon)
                             .foregroundStyle(.green)
                     } else {
                         Button("Make Default") {
-                            defaultAppManager.makeSwashDefaultApp()
+                            defaultAppManager.makeDefaultApp()
                         }
                     }
                 } label: {
                     Text("Default Markdown editor")
-                    Text(defaultAppManager.isDefaultAppStatus
+                    Text(defaultAppManager.isDefaultApp
                          ? "Markdown files open in Swash."
                          : "Markdown files open in another app.")
                 }
@@ -264,3 +266,4 @@ private extension View {
 #Preview {
     SettingsView()
 }
+#endif

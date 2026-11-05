@@ -6,118 +6,13 @@
 //
 
 import SwiftUI
+import MacAppKitExtras
+#if os(macOS)
 import AppKit
+#endif
 import PixerateMarkdown
 
-/// Keeps the editor and preview scroll positions in step by scrolling the clip views directly.
-/// Scroll positions never pass through SwiftUI state, so scrolling doesn't re-evaluate
-/// `ContentView` (which would re-parse and re-measure the whole preview on every frame).
-/// Held in `@State` like `SwashEditorController`; the stored origin restores the position
-/// when the view mode changes.
-final class ScrollSync {
-    private(set) var originY: CGFloat = 0
-    private let scrollViews = NSHashTable<NSScrollView>.weakObjects()
-    private var isSyncing = false
-
-    /// Adds a scroll view and moves it to the shared position once it has laid out.
-    func register(_ scrollView: NSScrollView) {
-        scrollViews.add(scrollView)
-        DispatchQueue.main.async { [weak self, weak scrollView] in
-            guard let self = self, let scrollView = scrollView else { return }
-            self.isSyncing = true
-            ScrollSync.scroll(scrollView, toY: self.originY)
-            self.isSyncing = false
-        }
-    }
-
-    /// Call from a scroll view's bounds-change observer; scrolls every other registered view.
-    func scrollViewDidScroll(_ scrollView: NSScrollView) {
-        guard !isSyncing else { return }
-        let y = scrollView.contentView.bounds.origin.y
-        guard abs(y - originY) > 0.5 else { return }
-        originY = y
-        isSyncing = true
-        for other in scrollViews.allObjects where other !== scrollView {
-            ScrollSync.scroll(other, toY: y)
-        }
-        isSyncing = false
-    }
-
-    private static func scroll(_ scrollView: NSScrollView, toY y: CGFloat) {
-        let clipView = scrollView.contentView
-        guard abs(clipView.bounds.origin.y - y) > 0.5 else { return }
-        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: y))
-        scrollView.reflectScrolledClipView(clipView)
-    }
-}
-
-/// Tables and code blocks in the preview sit in horizontal scroll views. AppKit sends a whole
-/// scroll gesture to the view under the pointer when it starts, so a vertical swipe that began
-/// over a table stalled there. This local monitor sends gestures that start mostly vertical over a
-/// nested scroll view to the preview's own scroll view, for the whole gesture including momentum,
-/// and leaves mostly horizontal gestures to the nested view.
-final class NestedScrollRouter {
-    private weak var scrollView: NSScrollView?
-    private var monitor: Any?
-    /// The decision for the trackpad gesture in progress, made at its `.began` event.
-    private var forwardingGesture = false
-
-    init(scrollView: NSScrollView) {
-        self.scrollView = scrollView
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            guard let self = self else { return event }
-            return self.route(event)
-        }
-    }
-
-    deinit {
-        if let monitor = monitor { NSEvent.removeMonitor(monitor) }
-    }
-
-    func route(_ event: NSEvent) -> NSEvent? {
-        guard let scrollView = scrollView, event.window != nil, event.window === scrollView.window,
-              shouldForward(phase: event.phase, momentumPhase: event.momentumPhase,
-                            deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY,
-                            pointInWindow: event.locationInWindow) else { return event }
-        scrollView.scrollWheel(with: event)
-        return nil
-    }
-
-    /// Whether this scroll event should go to the preview's scroll view instead of the view under the pointer.
-    func shouldForward(phase: NSEvent.Phase, momentumPhase: NSEvent.Phase, deltaX: CGFloat, deltaY: CGFloat, pointInWindow: NSPoint) -> Bool {
-        guard let scrollView = scrollView else { return false }
-        let isVertical = abs(deltaY) >= abs(deltaX)
-
-        // Mouse wheels have no phases and aren't latched, so decide per event.
-        if phase.isEmpty && momentumPhase.isEmpty {
-            return isVertical && isOverNestedScrollView(pointInWindow, in: scrollView)
-        }
-
-        if phase.contains(.began) {
-            forwardingGesture = isVertical && isOverNestedScrollView(pointInWindow, in: scrollView)
-        }
-        let forward = forwardingGesture
-        if momentumPhase.contains(.ended) || momentumPhase.contains(.cancelled) {
-            forwardingGesture = false
-        }
-        return forward
-    }
-
-    /// True when the pointer is over the preview content and the closest scroll view there is a
-    /// nested one rather than the preview's own.
-    private func isOverNestedScrollView(_ pointInWindow: NSPoint, in scrollView: NSScrollView) -> Bool {
-        guard let documentView = scrollView.documentView, let contentView = scrollView.window?.contentView else { return false }
-        let point = contentView.superview?.convert(pointInWindow, from: nil) ?? pointInWindow
-        guard let hit = contentView.hitTest(point), hit.isDescendant(of: documentView) else { return false }
-        var view: NSView? = hit
-        while let current = view {
-            if let nested = current as? NSScrollView { return nested !== scrollView }
-            view = current.superview
-        }
-        return false
-    }
-}
-
+#if os(macOS)
 struct PreviewScrollView<Content: View>: NSViewRepresentable {
     var scrollSync: ScrollSync?
     /// Identifies the content: the hosting view is only updated and re-measured when it (or the
@@ -196,6 +91,7 @@ struct PreviewScrollView<Content: View>: NSViewRepresentable {
         coordinator.router = nil
     }
 
+    @MainActor
     class Coordinator: NSObject {
         var scrollSync: ScrollSync?
         var router: NestedScrollRouter?
@@ -244,6 +140,52 @@ struct PreviewScrollView<Content: View>: NSViewRepresentable {
         }
     }
 }
+
+#else
+import UIKit
+
+/// Hosts the SwiftUI preview in a `UIScrollView` so it can join `ScrollSync`. The hosted content
+/// is pinned to the content layout guide and sized by its intrinsic height.
+struct PreviewScrollView<Content: View>: UIViewRepresentable {
+    var scrollSync: ScrollSync?
+    /// Accepted for parity with the macOS view, which uses it to skip re-measuring unchanged content.
+    var contentKey: AnyHashable? = nil
+    @ViewBuilder let content: () -> Content
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scrollView = UIScrollView()
+        scrollView.alwaysBounceVertical = true
+        scrollView.keyboardDismissMode = .interactive
+        scrollView.backgroundColor = .clear
+
+        let host = UIHostingController(rootView: content())
+        host.sizingOptions = .intrinsicContentSize
+        host.view.backgroundColor = .clear
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(host.view)
+        NSLayoutConstraint.activate([
+            host.view.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            host.view.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            host.view.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
+        ])
+        context.coordinator.host = host
+        scrollSync?.register(scrollView)
+        return scrollView
+    }
+
+    func updateUIView(_ scrollView: UIScrollView, context: Context) {
+        context.coordinator.host?.rootView = content()
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var host: UIHostingController<Content>?
+    }
+}
+#endif
 
 struct MarkdownPreviewView: View {
     let text: String
@@ -786,7 +728,7 @@ struct RichContentImage<Fallback: View>: View {
         Group {
             switch outcome {
             case .rendered(let rendered)?:
-                Image(nsImage: rendered.image)
+                Image(platformImage: rendered.image)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
@@ -1012,7 +954,7 @@ struct MarkdownImageView: View {
         MarkdownParser.cleanImageURLAndTitle(urlString)
     }
     
-    private var resolvedNSImage: NSImage? {
+    private var resolvedNSImage: PlatformImage? {
         MarkdownParser.resolveImage(urlString: cleanedData.url, baseURL: baseURL)
     }
     
@@ -1058,7 +1000,7 @@ struct MarkdownImageView: View {
             }
             .padding(.vertical, 6)
         } else if let nsImage = resolvedNSImage {
-            Image(nsImage: nsImage)
+            Image(platformImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: maxWidth ?? nsImage.size.width)
@@ -1263,7 +1205,7 @@ enum MarkdownInlineAttributes {
                 run = run.font(typography.previewFont(size: 10, weight: .semibold, design: typography.fontDesign)).baselineOffset(4)
                 if style.link != nil { run = run.foregroundColor(accent) }
             }
-            current = current.map { $0 + run } ?? run
+            current = current.map { Text("\($0)\(run)") } ?? run
         }
         /// Visits siblings, applying paired inline HTML tags (<kbd>…</kbd>) to the nodes between them.
         func visitChildren(_ children: [MarkdownNode], _ style: Style) {
@@ -1296,7 +1238,7 @@ enum MarkdownInlineAttributes {
                 style.strike = true
                 visitChildren(node.children, style)
             case .link(let destination, _, _):
-                style.link = MarkdownEditorStyler.url(destination)
+                style.link = MarkdownSyntax.url(destination)
                 visitChildren(node.children, style)
             case .image(let destination, _):
                 flush()
@@ -1314,8 +1256,8 @@ enum MarkdownInlineAttributes {
                 let request = RichContentRenderer.Request(kind: .inlineMath, source: node.literal, dark: dark, fontSize: mathFontSize)
                 switch RichContentRenderer.cachedOrRequest(request) {
                 case .rendered(let rendered)?:
-                    let run = Text(Image(nsImage: rendered.image)).baselineOffset(-rendered.descent)
-                    current = current.map { $0 + run } ?? run
+                    let run = Text(Image(platformImage: rendered.image)).baselineOffset(-rendered.descent)
+                    current = current.map { Text("\($0)\(run)") } ?? run
                 case .failed?:
                     style.math = true
                     append(MarkdownMath.unicode(node.literal), style)
@@ -1401,6 +1343,12 @@ struct TableView: View {
 
 // Copyable, beautifully styled monospaced Code Block component
 struct CodeBlockView: View {
+    #if os(macOS)
+    static let alwaysShowsCopyButton = false
+    #else
+    static let alwaysShowsCopyButton = true
+    #endif
+
     let code: String
     let language: String?
     var fontSize: CGFloat = 13
@@ -1413,10 +1361,10 @@ struct CodeBlockView: View {
         let mutableAttrString = NSMutableAttributedString(string: code)
         let fullRange = NSRange(location: 0, length: mutableAttrString.length)
         
-        let defaultColor = colorScheme == .dark ? NSColor(white: 0.9, alpha: 1.0) : NSColor.textColor.withAlphaComponent(0.9)
+        let defaultColor = colorScheme == .dark ? PlatformColor(white: 0.9, alpha: 1.0) : PlatformColor.textColor.withAlphaComponent(0.9)
         
         // Use monospaced font by default for syntax highlighting
-        mutableAttrString.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular), range: fullRange)
+        mutableAttrString.addAttribute(.font, value: PlatformFont.monospacedSystemFont(ofSize: fontSize, weight: .regular), range: fullRange)
         mutableAttrString.addAttribute(.foregroundColor, value: defaultColor, range: fullRange)
         MarkdownCodeHighlighter.highlight(mutableAttrString, language: language, dark: colorScheme == .dark)
         
@@ -1442,20 +1390,21 @@ struct CodeBlockView: View {
                     .foregroundColor(isCopied ? .green : .accentColor)
                 }
                 .buttonStyle(.plain)
-                .opacity(isHovering ? 1.0 : 0.0)
+                .opacity(Self.alwaysShowsCopyButton || isHovering ? 1.0 : 0.0)
                 .animation(.easeInOut(duration: 0.15), value: isHovering)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
-            .background(Color(NSColor.textColor).opacity(0.04))
+            .background(Color(PlatformColor.textColor).opacity(0.04))
             
             ScrollView(.horizontal, showsIndicators: true) {
                 Text(highlightedCode)
+                    .fixedSize()   // keep every line: UIKit hosting otherwise squeezes it to one
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
             }
         }
-        .background(Color(NSColor.textColor).opacity(0.02))
+        .background(Color(PlatformColor.textColor).opacity(0.02))
         .cornerRadius(6)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
@@ -1468,9 +1417,7 @@ struct CodeBlockView: View {
     }
     
     private func copyToClipboard() {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(code, forType: .string)
+        PlatformPasteboard.setString(code)
         
         withAnimation {
             isCopied = true

@@ -3,3 +3,7 @@ build/
 *.xcodeproj/project.xcworkspace
 *.xcodeproj/xcuserdata
 node_modules/
+
+# SwiftPM
+Packages/*/.build/
+Packages/*/.swiftpm/

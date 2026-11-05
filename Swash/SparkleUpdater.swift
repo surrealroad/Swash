@@ -3,6 +3,7 @@
 //  Swash
 //
 
+#if os(macOS)
 import Foundation
 import Sparkle
 import Combine
@@ -32,3 +33,4 @@ final class SparkleUpdater: ObservableObject {
         updaterController.checkForUpdates(nil)
     }
 }
+#endif

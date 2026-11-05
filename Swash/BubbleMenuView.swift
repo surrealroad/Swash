@@ -5,6 +5,7 @@
 //  Created by Jack James on 13/07/2026.
 //
 
+#if os(macOS)
 import SwiftUI
 import Translation
 import PixerateMarkdown
@@ -740,3 +741,4 @@ private struct TranslationPopover: ViewModifier {
         }
     }
 }
+#endif

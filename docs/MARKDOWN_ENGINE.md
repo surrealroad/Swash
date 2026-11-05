@@ -55,10 +55,13 @@ Pixerate needs from Swash is the model and the commands.
   checks, the editing corpus) run in the editor repo's Swift CI on macOS and in the iOS simulator.
   Swash's scripts still run them, against the pinned revision: `scripts/pixerate_markdown.sh`
   fetches the engine, its checks and the corpus into `build/pixerate-editor` and builds the module
-  with `swiftc`. Set `PIXERATE_EDITOR_DIR` to try a local checkout. See GOTCHAS #47.
+  with `swiftc`. Set `PIXERATE_EDITOR_DIR` to try a local checkout. See GOTCHAS #63.
 - **Universal app (#13).** It adds `HTMLLiteDOM` and an iOS build; the engine side of that
   (`HTMLLiteDOM`, the converter switch) is now in the package and builds for iOS, so #13 drops its
-  copies when it is rebased.
+  copies when it is rebased. Three engine additions from #13 aren't in the package yet: Confluence and
+  Jira image pastes (`HTMLToMarkdown.convert(_:sourceURL:)`), `FormatCommandEdits.activeLink` and
+  `MarkdownSyntax.url`. They sit in `Swash/PixerateMarkdownExtensions.swift` on top of the public API,
+  with checks in `scripts/run_paste_tests.sh`, until they move upstream.
 
 ## Alternatives considered
 

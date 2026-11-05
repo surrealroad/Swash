@@ -17,7 +17,14 @@ To quickly verify that the application compiles without code signing requirement
 xcodebuild -scheme Swash -configuration Debug build CODE_SIGN_IDENTITY="-"
 ```
 
-To compile specific app extensions:
+The `Swash` target is multiplatform (macOS, iOS, iPadOS). Build both platforms:
+```bash
+xcodebuild -scheme Swash -destination 'generic/platform=macOS' -configuration Debug build CODE_SIGN_IDENTITY="-"
+xcodebuild -scheme Swash -destination 'generic/platform=iOS Simulator' -configuration Debug build CODE_SIGNING_ALLOWED=NO
+```
+To run on a simulator, boot one (`xcrun simctl boot "iPhone 17"`), then install `build/.../Debug-iphonesimulator/Swash.app` with `xcrun simctl install booted <path>`. Sample documents can be copied into `$(xcrun simctl get_app_container booted com.surrealroad.Swash data)/Documents`, where the document browser lists them under On My iPhone › Swash.
+
+To compile specific app extensions (macOS only):
 ```bash
 # Quick Look Extension
 xcodebuild -scheme SwashQuickLookExtension -configuration Debug build CODE_SIGN_IDENTITY="-"
@@ -54,7 +61,7 @@ Swash's editing engine (`PixerateMarkdown`, from the Pixerate editor repo) is he
 
 This builds the `PixerateMarkdown` module and compiles `Tests/MarkdownConformance/ConformanceRunner.swift` against it (Foundation only, no app target). Each fixture's selection markers (`‸`, `⟦…⟧`) become a raw-Markdown UTF-16 range; `format.*` commands go through `FormatCommandEdits` and `edit.*` through `MarkdownEditingCommands`. Cases with `skip.swash` upstream, or in the runner's `localSkips`, are reported as skipped with their reason. It exits non-zero on any failure, and the PR build runs it.
 
-The Format menu, shortcuts, bubble-menu labels and code languages come from the manifest, generated into the engine in the editor repo (`scripts/gen-swift-markdown.mjs`). To take a new manifest or engine, bump the PixerateMarkdown dependency, then fix (or locally skip, with a reason) any new conformance failures. See GOTCHAS #45, #46 and #47.
+The Format menu, shortcuts, bubble-menu labels and code languages come from the manifest, generated into the engine in the editor repo (`scripts/gen-swift-markdown.mjs`). To take a new manifest or engine, bump the PixerateMarkdown dependency, then fix (or locally skip, with a reason) any new conformance failures. See GOTCHAS #45, #46 and #63.
 
 ## 4. Other Test Suites
 
@@ -63,6 +70,7 @@ The Format menu, shortcuts, bubble-menu labels and code languages come from the 
 ./Tests/EditorAudit/run_audit.sh   # render, interaction, bubble-menu and perf harnesses
 ./scripts/run_rich_render_tests.sh # math and Mermaid rendering
 ./scripts/run_export_tests.sh      # HTML and PDF export
+./scripts/run_paste_tests.sh       # Swash's paste additions to the engine (Confluence/Jira images)
 ```
 
 After `./scripts/run_spec_tests.sh`, restore the snapshots (GOTCHAS #8).

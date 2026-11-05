@@ -8,9 +8,14 @@
 //  attachment requests for tables and images.
 //
 
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import PixerateMarkdown
 
+#if os(macOS)
 /// An NSTextBlock whose background starts at its left margin, so blocks nested in list items are
 /// indented instead of painting their background under the list indentation. NSTextBlock fills its
 /// margin with `backgroundColor`, so indented blocks leave that nil and set `fillColor`, which
@@ -31,6 +36,40 @@ final class IndentedTextBlock: NSTextBlock {
         }
     }
 }
+#else
+/// iOS has no NSTextBlock. Quotes, alerts, code blocks and rules carry their box as this attribute
+/// (outermost first) over their paragraphs; the paragraph indents leave room for the border and
+/// padding, and the layout manager paints the box behind the text.
+final class BlockDecoration {
+    enum Kind { case box, rule }
+    let kind: Kind
+    let fill: UIColor?
+    let borderColor: UIColor?
+    /// Border on every edge (0 for none) and on the left edge.
+    let borderWidth: CGFloat
+    let leftBorderWidth: CGFloat
+    let padding: CGFloat
+    /// Box edges, measured in from the text container's line-fragment edges.
+    let left: CGFloat
+    let right: CGFloat
+
+    init(kind: Kind, fill: UIColor?, borderColor: UIColor?, borderWidth: CGFloat, leftBorderWidth: CGFloat, padding: CGFloat, left: CGFloat, right: CGFloat) {
+        self.kind = kind
+        self.fill = fill
+        self.borderColor = borderColor
+        self.borderWidth = borderWidth
+        self.leftBorderWidth = leftBorderWidth
+        self.padding = padding
+        self.left = left
+        self.right = right
+    }
+}
+
+extension NSAttributedString.Key {
+    /// `[BlockDecoration]` over the paragraphs of a quote, alert, code block or rule (iOS).
+    static let blockDecorations = NSAttributedString.Key("SwashBlockDecorationsKey")
+}
+#endif
 
 /// Value of `.footnoteLink`.
 struct FootnoteLink: Hashable {
@@ -52,9 +91,9 @@ extension NSAttributedString.Key {
 
 /// A rendered formula or diagram shown under its source in Edit Text.
 struct RichPreviewInfo {
-    let image: NSImage
+    let image: PlatformImage
     /// Display size (the image scaled down to fit the editor width).
-    let size: NSSize
+    let size: CGSize
     /// Below 1 while a newer render is pending or when the current source fails to render.
     let alpha: CGFloat
     let error: String?
@@ -62,8 +101,8 @@ struct RichPreviewInfo {
     static let spacing: CGFloat = 10
     static let errorHeight: CGFloat = 16
     static let errorAttributes: [NSAttributedString.Key: Any] = [
-        .font: NSFont.systemFont(ofSize: 11),
-        .foregroundColor: NSColor.systemOrange,
+        .font: PlatformFont.systemFont(ofSize: 11),
+        .foregroundColor: PlatformColor.systemOrange,
     ]
     
     /// Paragraph spacing reserved below the block's last line.
@@ -72,7 +111,7 @@ struct RichPreviewInfo {
 
 struct AlertIconInfo {
     let type: AlertType
-    let color: NSColor
+    let color: PlatformColor
     
     var symbolName: String {
         switch type {
@@ -84,9 +123,14 @@ struct AlertIconInfo {
         }
     }
     
-    var image: NSImage? {
+    var image: PlatformImage? {
+        #if os(macOS)
         let configuration = NSImage.SymbolConfiguration(pointSize: 12, weight: .bold).applying(.init(paletteColors: [color]))
         return NSImage(systemSymbolName: symbolName, accessibilityDescription: type.title)?.withSymbolConfiguration(configuration)
+        #else
+        let configuration = UIImage.SymbolConfiguration(pointSize: 12, weight: .bold).applying(UIImage.SymbolConfiguration(paletteColors: [color]))
+        return UIImage(systemName: symbolName, withConfiguration: configuration)
+        #endif
     }
 }
 
@@ -95,17 +139,17 @@ struct CodeBadgeInfo {
     var title: String { (language?.isEmpty == false ? language! : "plain").uppercased() }
     
     static let attributes: [NSAttributedString.Key: Any] = [
-        .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-        .foregroundColor: NSColor.tertiaryLabelColor,
+        .font: PlatformFont.systemFont(ofSize: 10, weight: .semibold),
+        .foregroundColor: PlatformColor.tertiaryTextColor,
         .kern: 0.6,
     ]
     
     var width: CGFloat { (title as NSString).size(withAttributes: Self.attributes).width + 4 }
     
     /// Badge rect in text-container coordinates for the line fragment holding the block's first line.
-    func rect(in lineRect: NSRect) -> NSRect {
+    func rect(in lineRect: CGRect) -> CGRect {
         let size = (title as NSString).size(withAttributes: Self.attributes)
-        return NSRect(x: lineRect.maxX - size.width - 10, y: lineRect.minY + 1, width: size.width + 4, height: size.height + 2)
+        return CGRect(x: lineRect.maxX - size.width - 10, y: lineRect.minY + 1, width: size.width + 4, height: size.height + 2)
     }
 }
 
@@ -123,13 +167,19 @@ struct EditorAttachmentRequest {
 final class MarkdownEditorStyler {
     /// Body text size at the default typography (see `EditorTypography`).
     static let baseFontSize: CGFloat = EditorTypography.defaultTextSize
+    /// Text sizes are designed for the Mac; iOS reads at a larger size (17 pt body text).
+    #if os(macOS)
+    static let fontScale: CGFloat = 1
+    #else
+    static let fontScale: CGFloat = 17.0 / 14.0
+    #endif
 
     private struct InlineStyle {
         var size: CGFloat = MarkdownEditorStyler.baseFontSize
         var bold = false
         var italic = false
         var mono = false
-        var color: NSColor? = nil
+        var color: PlatformColor? = nil
         var strike = false
         var link: URL? = nil
         var superscript = false
@@ -140,14 +190,14 @@ final class MarkdownEditorStyler {
         var smallText = false
         
         /// Applies an enclosing inline HTML tag (<kbd>, <sub>, <mark>…).
-        mutating func apply(_ html: InlineHTMLStyle, accent: NSColor) {
+        mutating func apply(_ html: InlineHTMLStyle, accent: PlatformColor) {
             switch html {
             case .keyboard: keyboard = true; mono = true
             case .lowered: subscriptText = true
             case .raised: superscript = true
             case .highlight: highlight = true
             case .underline: underline = true
-            case .strikethrough: strike = true; color = .secondaryLabelColor
+            case .strikethrough: strike = true; color = .secondaryTextColor
             case .bold: bold = true
             case .italic: italic = true
             case .small: smallText = true
@@ -160,7 +210,14 @@ final class MarkdownEditorStyler {
         var indent: CGFloat = 0
         var listDepth = 0
         var isTightList = false
+        #if os(macOS)
         var textBlocks: [NSTextBlock] = []
+        #else
+        var decorations: [BlockDecoration] = []
+        /// Left and right insets of the innermost box's content (its edges, borders and padding).
+        var boxLeft: CGFloat = 0
+        var boxRight: CGFloat = 0
+        #endif
         var inline = InlineStyle()
         /// Columns of leading indentation that belong to enclosing list items on continuation lines
         var hiddenIndentColumns = 0
@@ -218,6 +275,9 @@ final class MarkdownEditorStyler {
         for range in hidden {
             hide(range)
         }
+        #if os(iOS)
+        padBoxes()
+        #endif
     }
     
     /// Code-like ranges of the whole document (raw offsets), sorted: code, HTML, math and front matter
@@ -272,9 +332,9 @@ final class MarkdownEditorStyler {
         
         var size = image?.image.size ?? .zero
         if size.width > richPreviewMaxWidth, size.width > 0 {
-            size = NSSize(width: richPreviewMaxWidth, height: (size.height * richPreviewMaxWidth / size.width).rounded())
+            size = CGSize(width: richPreviewMaxWidth, height: (size.height * richPreviewMaxWidth / size.width).rounded())
         }
-        let info = RichPreviewInfo(image: image?.image ?? NSImage(size: .zero), size: image == nil ? .zero : size, alpha: alpha, error: error)
+        let info = RichPreviewInfo(image: image?.image ?? PlatformImage(), size: image == nil ? .zero : size, alpha: alpha, error: error)
         let anchor = valid(NSRange(location: last, length: 1))
         guard anchor.length > 0 else { return }
         storage.addAttribute(.richPreview, value: info, range: anchor)
@@ -298,8 +358,8 @@ final class MarkdownEditorStyler {
     private func hide(_ range: NSRange) {
         let r = valid(range)
         guard r.length > 0 else { return }
-        storage.addAttribute(.font, value: NSFont.systemFont(ofSize: 0.01), range: r)
-        storage.addAttribute(.foregroundColor, value: NSColor.clear, range: r)
+        storage.addAttribute(.font, value: PlatformFont.systemFont(ofSize: 0.01), range: r)
+        storage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: r)
     }
 
     /// Queues a marker for hiding; when it ends its line, the newline is hidden too so the line collapses.
@@ -315,22 +375,22 @@ final class MarkdownEditorStyler {
         hidden.append(r)
     }
 
-    private func font(for style: InlineStyle) -> NSFont {
-        var font: NSFont
-        var size = style.size
+    private func font(for style: InlineStyle) -> PlatformFont {
+        var font: PlatformFont
+        var size = style.size * Self.fontScale
         if style.smallText { size *= 0.85 }
         if style.subscriptText { size *= 0.75 }
         if style.keyboard { size -= 1 }
         if style.mono {
-            font = NSFont.monospacedSystemFont(ofSize: max(1, size - 1), weight: style.bold ? .bold : .regular)
+            font = PlatformFont.monospacedSystemFont(ofSize: max(1, size - 1), weight: style.bold ? .bold : .regular)
         } else {
             font = typography.font(ofSize: size, weight: style.bold ? .bold : .regular)
         }
         if style.italic {
-            font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+            font = PlatformFont.italicVariant(of: font)
         }
         if style.superscript {
-            font = typography.font(ofSize: max(9, style.size - 4), weight: .semibold)
+            font = typography.font(ofSize: max(9, style.size - 4) * Self.fontScale, weight: .semibold)
         }
         return font
     }
@@ -359,10 +419,10 @@ final class MarkdownEditorStyler {
             storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
         }
         if style.highlight {
-            storage.addAttribute(.backgroundColor, value: NSColor.systemYellow.withAlphaComponent(0.35), range: r)
+            storage.addAttribute(.backgroundColor, value: PlatformColor.systemYellow.withAlphaComponent(0.35), range: r)
         }
         if style.keyboard {
-            storage.addAttribute(.backgroundColor, value: NSColor.textColor.withAlphaComponent(0.08), range: r)
+            storage.addAttribute(.backgroundColor, value: PlatformColor.textColor.withAlphaComponent(0.08), range: r)
         }
     }
 
@@ -373,21 +433,115 @@ final class MarkdownEditorStyler {
         paragraphSpacingBefore: CGFloat = 0
     ) -> NSParagraphStyle {
         let p = NSMutableParagraphStyle()
+        #if os(macOS)
         p.headIndent = context.indent
         p.firstLineHeadIndent = context.indent
         p.textBlocks = context.textBlocks
+        #else
+        p.headIndent = context.boxLeft + context.indent
+        p.firstLineHeadIndent = context.boxLeft + context.indent
+        if context.boxRight > 0 { p.tailIndent = -context.boxRight }
+        #endif
         p.lineSpacing = lineSpacing
         p.paragraphSpacing = paragraphSpacing
         p.paragraphSpacingBefore = paragraphSpacingBefore
         return p
     }
 
-    private func setParagraphStyle(_ style: NSParagraphStyle, over range: NSRange) {
+    private func setParagraphStyle(
+        _ context: BlockContext,
+        lineSpacing: CGFloat = 5,
+        paragraphSpacing: CGFloat = 0,
+        paragraphSpacingBefore: CGFloat = 0,
+        over range: NSRange
+    ) {
         // Paragraph attributes must cover whole paragraphs, including the trailing newline
         let r = valid(text.paragraphRange(for: rawClamp(range)))
         guard r.length > 0 else { return }
+        let style = paragraphStyle(context, lineSpacing: lineSpacing, paragraphSpacing: paragraphSpacing, paragraphSpacingBefore: paragraphSpacingBefore)
+        storage.addAttribute(.paragraphStyle, value: style, range: r)
+        #if os(iOS)
+        if !context.decorations.isEmpty {
+            storage.addAttribute(.blockDecorations, value: context.decorations, range: r)
+        }
+        #endif
+    }
+
+    // MARK: - Block boxes
+
+    /// Starts a bordered, padded box (quote, alert, code block) inside `context`, indented by the
+    /// context's own indentation.
+    private func pushBox(_ context: inout BlockContext, over range: NSRange, fill: PlatformColor, borderColor: PlatformColor,
+                         borderWidth: CGFloat, leftBorderWidth: CGFloat, padding: CGFloat, leftPadding: CGFloat) {
+        #if os(macOS)
+        let block = IndentedTextBlock()
+        block.setFill(fill, leftMargin: context.indent)
+        block.setValue(100, type: .percentageValueType, for: .width)
+        if borderWidth > 0 {
+            for edge: NSRectEdge in [.minX, .maxX, .minY, .maxY] {
+                block.setBorderColor(borderColor, for: edge)
+            }
+            block.setWidth(borderWidth, type: .absoluteValueType, for: .border)
+        } else {
+            block.setBorderColor(borderColor, for: .minX)
+        }
+        block.setWidth(leftBorderWidth, type: .absoluteValueType, for: .border, edge: .minX)
+        block.setWidth(padding, type: .absoluteValueType, for: .padding)
+        block.setWidth(leftPadding, type: .absoluteValueType, for: .padding, edge: .minX)
+        context.textBlocks.append(block)
+        #else
+        let left = context.boxLeft + context.indent
+        let decoration = BlockDecoration(kind: .box, fill: fill, borderColor: borderColor, borderWidth: borderWidth,
+                                         leftBorderWidth: leftBorderWidth, padding: padding, left: left, right: context.boxRight)
+        context.decorations.append(decoration)
+        context.boxLeft = left + leftBorderWidth + leftPadding
+        context.boxRight += borderWidth + padding
+        boxes.append((decoration, range))
+        #endif
+        context.indent = 0
+    }
+
+    /// A horizontal rule across the context's width.
+    private func pushRule(_ context: inout BlockContext, over range: NSRange) {
+        #if os(macOS)
+        let block = NSTextBlock()
+        block.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.25)
+        block.setValue(100, type: .percentageValueType, for: .width)
+        block.setValue(1, type: .absoluteValueType, for: .height)
+        context.textBlocks.append(block)
+        #else
+        let decoration = BlockDecoration(kind: .rule, fill: UIColor.separatorLineColor.withAlphaComponent(0.25), borderColor: nil, borderWidth: 0,
+                                         leftBorderWidth: 0, padding: 6, left: context.boxLeft + context.indent, right: context.boxRight)
+        context.decorations.append(decoration)
+        boxes.append((decoration, range))
+        #endif
+    }
+
+    #if os(iOS)
+    /// Boxes started by this pass and the raw ranges they cover.
+    private var boxes: [(decoration: BlockDecoration, range: NSRange)] = []
+
+    /// NSTextBlock pads a box above its first line and below its last; here that space is paragraph
+    /// spacing, which the layout manager includes when it paints the box.
+    private func padBoxes() {
+        for (decoration, range) in boxes {
+            let r = valid(text.paragraphRange(for: rawClamp(range)))
+            guard r.length > 0 else { continue }
+            let first = (storage.string as NSString).paragraphRange(for: NSRange(location: r.location, length: 0))
+            let last = (storage.string as NSString).paragraphRange(for: NSRange(location: max(r.location, NSMaxRange(r) - 1), length: 0))
+            adjustParagraphStyle(in: first) { $0.paragraphSpacingBefore += decoration.padding }
+            adjustParagraphStyle(in: last) { $0.paragraphSpacing += decoration.padding }
+        }
+    }
+
+    private func adjustParagraphStyle(in range: NSRange, _ change: (NSMutableParagraphStyle) -> Void) {
+        let r = NSIntersectionRange(range, fullRange)
+        guard r.length > 0 else { return }
+        let style = ((storage.attribute(.paragraphStyle, at: r.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+        change(style)
         storage.addAttribute(.paragraphStyle, value: style, range: r)
     }
+    #endif
 
     private func lineStart(of location: Int) -> Int {
         text.lineRange(for: NSRange(location: min(location, max(0, text.length - 1)), length: 0)).location
@@ -432,10 +586,10 @@ final class MarkdownEditorStyler {
             for child in node.children { styleBlock(child, context) }
 
         case .frontMatter:
-            setParagraphStyle(paragraphStyle(context, lineSpacing: 3, paragraphSpacing: 6), over: node.range)
-            apply(InlineStyle(size: typography.scaled(12), mono: true, color: .secondaryLabelColor), to: node.range)
+            setParagraphStyle(context, lineSpacing: 3, paragraphSpacing: 6, over: node.range)
+            apply(InlineStyle(size: typography.scaled(12), mono: true, color: .secondaryTextColor), to: node.range)
             for marker in node.markers {
-                apply(InlineStyle(size: typography.scaled(12), mono: true, color: .tertiaryLabelColor), to: marker)
+                apply(InlineStyle(size: typography.scaled(12), mono: true, color: .tertiaryTextColor), to: marker)
             }
             codeRanges.append(node.range)
 
@@ -443,7 +597,7 @@ final class MarkdownEditorStyler {
             let inList = context.listDepth > 0
             let lineSpacing: CGFloat = 5
             let paragraphSpacing: CGFloat = inList ? (context.isTightList ? 6 : 4) : 4
-            setParagraphStyle(paragraphStyle(context, lineSpacing: lineSpacing, paragraphSpacing: paragraphSpacing), over: node.range)
+            setParagraphStyle(context, lineSpacing: lineSpacing, paragraphSpacing: paragraphSpacing, over: node.range)
             apply(context.inline, to: node.range)
             hideContinuationIndent(in: node.range, maxColumns: nil)
             styleInlines(node, context.inline)
@@ -473,10 +627,7 @@ final class MarkdownEditorStyler {
                 spacingAfter = 4
                 lineSpacing = 3
             }
-            setParagraphStyle(
-                paragraphStyle(context, lineSpacing: lineSpacing, paragraphSpacing: spacingAfter, paragraphSpacingBefore: spacingBefore),
-                over: node.range
-            )
+            setParagraphStyle(context, lineSpacing: lineSpacing, paragraphSpacing: spacingAfter, paragraphSpacingBefore: spacingBefore, over: node.range)
             apply(inline, to: node.range)
             for marker in node.markers {
                 hideMarker(marker, collapseLine: setext)
@@ -486,24 +637,17 @@ final class MarkdownEditorStyler {
 
         case .blockQuote, .alert:
             var inner = context
-            let color: NSColor
+            let color: PlatformColor
             if case .alert(let type) = node.kind {
                 color = Self.alertColor(type)
             } else {
                 color = typography.accentColor
-                inner.inline.color = .secondaryLabelColor
+                inner.inline.color = .secondaryTextColor
                 inner.inline.italic = true
             }
-            let block = IndentedTextBlock()
-            block.setFill(color.withAlphaComponent(0.07), leftMargin: context.indent)
-            block.setValue(100, type: .percentageValueType, for: .width)
-            block.setBorderColor(color, for: .minX)
-            block.setWidth(3.0, type: .absoluteValueType, for: .border, edge: .minX)
-            block.setWidth(6, type: .absoluteValueType, for: .padding)
-            block.setWidth(10, type: .absoluteValueType, for: .padding, edge: .minX)
-            inner.textBlocks.append(block)
-            inner.indent = 0
-            setParagraphStyle(paragraphStyle(inner, lineSpacing: 5, paragraphSpacing: 6, paragraphSpacingBefore: 4), over: node.range)
+            pushBox(&inner, over: node.range, fill: color.withAlphaComponent(0.07), borderColor: color,
+                    borderWidth: 0, leftBorderWidth: 3, padding: 6, leftPadding: 10)
+            setParagraphStyle(inner, lineSpacing: 5, paragraphSpacing: 6, paragraphSpacingBefore: 4, over: node.range)
             apply(inner.inline, to: node.range)
             // Quote markers, and the alert's [!TYPE] marker shown as a coloured title
             for marker in node.markers {
@@ -537,10 +681,10 @@ final class MarkdownEditorStyler {
             if let bullet = markers.first {
                 let markerRange = markers.count > 1 ? NSUnionRange(bullet, markers[1]) : bullet
                 let glyph: String
-                var color: NSColor? = nil
+                var color: PlatformColor? = nil
                 if let task = task {
                     glyph = task == .checked ? "☑" : "☐"
-                    color = task == .checked ? typography.accentColor : .secondaryLabelColor
+                    color = task == .checked ? typography.accentColor : .secondaryTextColor
                 } else if let parent = node.parent, case .list(let ordered, _, _, _, _) = parent.kind, ordered {
                     glyph = source(bullet).trimmingCharacters(in: .whitespaces)
                 } else {
@@ -563,12 +707,12 @@ final class MarkdownEditorStyler {
                 hideContinuationIndent(in: node.range, maxColumns: contentColumn)
             }
             let itemSpacing: CGFloat = inner.isTightList ? 6 : 4
-            setParagraphStyle(paragraphStyle(inner, lineSpacing: 5, paragraphSpacing: itemSpacing), over: node.range)
+            setParagraphStyle(inner, lineSpacing: 5, paragraphSpacing: itemSpacing, over: node.range)
             for (index, child) in node.children.enumerated() {
                 var childContext = inner
                 // A completed task's own text is dimmed; nested content keeps its colour
                 if task == .checked && index == 0, case .paragraph = child.kind {
-                    childContext.inline.color = .secondaryLabelColor
+                    childContext.inline.color = .secondaryTextColor
                 }
                 styleBlock(child, childContext)
             }
@@ -576,26 +720,16 @@ final class MarkdownEditorStyler {
         case .codeBlock(let fenced, let info):
             let language = info.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map { String($0).lowercased() }
             if language == "mermaid" {
-                setParagraphStyle(paragraphStyle(context, lineSpacing: 0, paragraphSpacing: 8, paragraphSpacingBefore: 8), over: node.range)
+                setParagraphStyle(context, lineSpacing: 0, paragraphSpacing: 8, paragraphSpacingBefore: 8, over: node.range)
                 attachments.append(EditorAttachmentRequest(range: node.range, kind: .mermaid(source: node.literal, rawMarkdown: source(node.range))))
                 codeRanges.append(node.range)
                 return
             }
-            let block = IndentedTextBlock()
-            block.setFill(NSColor.textColor.withAlphaComponent(0.04), leftMargin: context.indent)
-            block.setValue(100, type: .percentageValueType, for: .width)
-            for edge: NSRectEdge in [.minX, .maxX, .minY, .maxY] {
-                block.setBorderColor(NSColor.textColor.withAlphaComponent(0.12), for: edge)
-            }
-            block.setWidth(0.5, type: .absoluteValueType, for: .border)
-            block.setWidth(3.0, type: .absoluteValueType, for: .border, edge: .minX)
-            block.setWidth(8, type: .absoluteValueType, for: .padding)
-            block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
             var inner = context
-            inner.textBlocks.append(block)
-            inner.indent = 0
-            setParagraphStyle(paragraphStyle(inner, lineSpacing: 4, paragraphSpacing: 6, paragraphSpacingBefore: 4), over: node.range)
-            apply(InlineStyle(size: typography.scaled(14), mono: true, color: NSColor.labelColor.withAlphaComponent(0.85)), to: node.range)
+            pushBox(&inner, over: node.range, fill: PlatformColor.textColor.withAlphaComponent(0.04), borderColor: PlatformColor.textColor.withAlphaComponent(0.12),
+                    borderWidth: 0.5, leftBorderWidth: 3, padding: 8, leftPadding: 12)
+            setParagraphStyle(inner, lineSpacing: 4, paragraphSpacing: 6, paragraphSpacingBefore: 4, over: node.range)
+            apply(InlineStyle(size: typography.scaled(14), mono: true, color: PlatformColor.primaryTextColor.withAlphaComponent(0.85)), to: node.range)
             if fenced {
                 for marker in node.markers { hideMarker(marker, collapseLine: true) }
                 // Language badge, drawn at the top-right of the first visible line of the block
@@ -611,7 +745,7 @@ final class MarkdownEditorStyler {
                         let firstLine = valid(text.paragraphRange(for: NSRange(location: firstContent, length: 0)))
                         if badgeRange.length > 0,
                            let style = (storage.attribute(.paragraphStyle, at: badgeRange.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
-                            style.tailIndent = -(badge.width + 16)
+                            style.tailIndent -= badge.width + 16
                             storage.addAttribute(.paragraphStyle, value: style, range: firstLine)
                         }
                     }
@@ -624,31 +758,27 @@ final class MarkdownEditorStyler {
             codeRanges.append(node.range)
 
         case .htmlBlock:
-            setParagraphStyle(paragraphStyle(context, lineSpacing: 4, paragraphSpacing: 4), over: node.range)
+            setParagraphStyle(context, lineSpacing: 4, paragraphSpacing: 4, over: node.range)
             // A line holding just an <img> tag (what the image menu writes for a resized image) is an image
             if case .image(let src, let alt, let width) = InlineHTMLTag(node.literal.trimmingCharacters(in: .whitespacesAndNewlines)).kind {
                 attachments.append(EditorAttachmentRequest(range: node.range, kind: .image(alt: alt, urlString: src, rawMarkdown: source(node.range), width: width.map { CGFloat($0) })))
                 break
             }
-            apply(InlineStyle(size: typography.scaled(14), mono: true, color: .secondaryLabelColor), to: node.range)
+            apply(InlineStyle(size: typography.scaled(14), mono: true, color: .secondaryTextColor), to: node.range)
             codeRanges.append(node.range)
 
         case .thematicBreak:
-            let block = NSTextBlock()
-            block.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.25)
-            block.setValue(100, type: .percentageValueType, for: .width)
-            block.setValue(1, type: .absoluteValueType, for: .height)
             var inner = context
-            inner.textBlocks.append(block)
-            setParagraphStyle(paragraphStyle(inner, lineSpacing: 0, paragraphSpacing: 0, paragraphSpacingBefore: 0), over: node.range)
+            pushRule(&inner, over: node.range)
+            setParagraphStyle(inner, lineSpacing: 0, paragraphSpacing: 0, paragraphSpacingBefore: 0, over: node.range)
             let r = valid(node.range)
             if r.length > 0 {
-                storage.addAttribute(.foregroundColor, value: NSColor.clear, range: r)
-                storage.addAttribute(.font, value: NSFont.systemFont(ofSize: 2), range: r)
+                storage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: r)
+                storage.addAttribute(.font, value: PlatformFont.systemFont(ofSize: 2), range: r)
             }
 
         case .table(let alignments):
-            setParagraphStyle(paragraphStyle(context, lineSpacing: 0, paragraphSpacing: 8, paragraphSpacingBefore: 8), over: node.range)
+            setParagraphStyle(context, lineSpacing: 0, paragraphSpacing: 8, paragraphSpacingBefore: 8, over: node.range)
             var headers: [String] = []
             var rows: [[String]] = []
             for section in node.children {
@@ -666,9 +796,9 @@ final class MarkdownEditorStyler {
         case .footnoteDefinition:
             var inner = context
             inner.inline.size = typography.scaled(12)
-            inner.inline.color = .secondaryLabelColor
+            inner.inline.color = .secondaryTextColor
             if let marker = node.markers.first {
-                apply(InlineStyle(size: typography.scaled(11), bold: true, color: .secondaryLabelColor), to: marker)
+                apply(InlineStyle(size: typography.scaled(11), bold: true, color: .secondaryTextColor), to: marker)
                 hideMarker(NSRange(location: marker.location + 1, length: 1))   // the ^
                 if case .footnoteDefinition(let label) = node.kind {
                     let r = valid(marker)
@@ -676,12 +806,12 @@ final class MarkdownEditorStyler {
                 }
             }
             hideContinuationIndent(in: node.range, maxColumns: 4)
-            setParagraphStyle(paragraphStyle(inner, lineSpacing: 4, paragraphSpacing: 4), over: node.range)
+            setParagraphStyle(inner, lineSpacing: 4, paragraphSpacing: 4, over: node.range)
             for child in node.children { styleBlock(child, inner) }
 
         case .linkReferenceDefinition:
-            setParagraphStyle(paragraphStyle(context, lineSpacing: 3, paragraphSpacing: 3), over: node.range)
-            apply(InlineStyle(size: typography.scaled(12), color: .tertiaryLabelColor), to: node.range)
+            setParagraphStyle(context, lineSpacing: 3, paragraphSpacing: 3, over: node.range)
+            apply(InlineStyle(size: typography.scaled(12), color: .tertiaryTextColor), to: node.range)
 
         default:
             for child in node.children { styleBlock(child, context) }
@@ -739,7 +869,7 @@ final class MarkdownEditorStyler {
         case .strikethrough:
             var s = style
             s.strike = true
-            s.color = .secondaryLabelColor
+            s.color = .secondaryTextColor
             for marker in node.markers { hideMarker(marker) }
             styleInlines(node, s)
         case .link(let destination, _, _):
@@ -759,7 +889,7 @@ final class MarkdownEditorStyler {
                 return
             }
             var s = style
-            s.color = .secondaryLabelColor
+            s.color = .secondaryTextColor
             apply(s, to: node.range)
             codeRanges.append(node.range)
         case .math:
@@ -768,7 +898,7 @@ final class MarkdownEditorStyler {
             s.mono = true
             s.color = .systemTeal
             apply(s, to: node.range)
-            for marker in node.markers { apply(InlineStyle(size: style.size, mono: true, color: .tertiaryLabelColor), to: marker) }
+            for marker in node.markers { apply(InlineStyle(size: style.size, mono: true, color: .tertiaryTextColor), to: marker) }
             codeRanges.append(node.range)
         case .footnoteReference(let label):
             var s = style
@@ -809,7 +939,7 @@ final class MarkdownEditorStyler {
         }
     }
 
-    static func alertColor(_ type: AlertType) -> NSColor {
+    static func alertColor(_ type: AlertType) -> PlatformColor {
         switch type {
         case .note: return .systemBlue
         case .tip: return .systemGreen
@@ -820,6 +950,6 @@ final class MarkdownEditorStyler {
     }
 
     static func url(_ destination: String) -> URL? {
-        URL(string: destination) ?? URL(string: MarkdownSyntax.normalizeURI(destination))
+        MarkdownSyntax.url(destination)
     }
 }

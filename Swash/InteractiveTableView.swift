@@ -6,7 +6,9 @@
 //
 
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 import PixerateMarkdown
 
 extension Notification.Name {
@@ -130,8 +132,8 @@ struct InteractiveTableView: View {
 
     // MARK: - Column Sizing
     private var columnWidths: [CGFloat] {
-        let headerFont = NSFont.systemFont(ofSize: 13, weight: .bold)
-        let rowFont = NSFont.systemFont(ofSize: 13, weight: .regular)
+        let headerFont = PlatformFont.systemFont(ofSize: 13, weight: .bold)
+        let rowFont = PlatformFont.systemFont(ofSize: 13, weight: .regular)
         let cellPadding: CGFloat = 24 // 12 pt leading + 12 pt trailing
         let menuWidth: CGFloat = isEditable ? 18 : 0 // 14 pt menu button + 4 pt spacing
         let minColWidth: CGFloat = 110
@@ -183,7 +185,9 @@ struct InteractiveTableView: View {
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundColor(.secondary)
                         }
+                        #if os(macOS)
                         .menuStyle(.borderlessButton)
+                        #endif
                         .menuIndicator(.hidden)
                         .frame(width: 14)
                         // Always laid out, so showing it doesn't reflow the header
@@ -440,9 +444,14 @@ struct CellTextField: View {
     
     /// Height of one line of 13 pt cell text. Display and edit cells both use it, so clicking into a
     /// cell doesn't change the row height.
+    #if os(macOS)
     static let lineHeight: CGFloat = ceil(NSLayoutManager().defaultLineHeight(for: NSFont.systemFont(ofSize: 13)))
+    #else
+    static let lineHeight: CGFloat = ceil(UIFont.systemFont(ofSize: 13).lineHeight)
+    #endif
 
     var body: some View {
+        #if os(macOS)
         CellTextView(
             text: $text,
             flavor: flavor,
@@ -453,8 +462,50 @@ struct CellTextField: View {
             onPrevCell: onPrevCell
         )
         .frame(height: Self.lineHeight)
+        #else
+        IOSCellTextField(text: $text, onCommit: onCommit, onNextCell: onNextCell, onPrevCell: onPrevCell)
+        #endif
     }
 }
+
+#if os(iOS)
+/// iOS cell editor: focused as soon as it appears; Return commits, Tab / Shift-Tab move between
+/// cells on a hardware keyboard, and the keyboard toolbar offers the same moves on screen.
+private struct IOSCellTextField: View {
+    @Binding var text: String
+    var onCommit: () -> Void
+    var onNextCell: () -> Void
+    var onPrevCell: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        TextField("", text: $text)
+            .textFieldStyle(.plain)
+            .autocorrectionDisabled()
+            .focused($isFocused)
+            .submitLabel(.done)
+            .onSubmit(onCommit)
+            .onKeyPress(keys: [.tab]) { press in
+                press.modifiers.contains(.shift) ? onPrevCell() : onNextCell()
+                return .handled
+            }
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Button(action: onPrevCell) { Image(systemName: "chevron.left") }
+                        .accessibilityLabel("Previous Cell")
+                    Button(action: onNextCell) { Image(systemName: "chevron.right") }
+                        .accessibilityLabel("Next Cell")
+                    Spacer()
+                    Button("Done", action: onCommit)
+                }
+            }
+            .frame(minHeight: 20)
+            .onAppear { isFocused = true }
+    }
+}
+#endif
+
+#if os(macOS)
 
 // MARK: - CellTextView with Live Inline Markdown Formatting
 struct CellTextView: NSViewRepresentable {
@@ -987,7 +1038,7 @@ final class TableAttachmentCell: NSTextAttachmentCell {
     }
 }
 
-final class TableTextAttachment: NSTextAttachment {
+final class TableTextAttachment: NSTextAttachment, RawMarkdownAttachment {
     static let fileTypeIdentifier = "com.surrealroad.swash.table"
     
     var tableData: MarkdownTableData {
@@ -1035,4 +1086,4 @@ final class TableTextAttachment: NSTextAttachment {
         fatalError("init(coder:) has not been implemented")
     }
 }
-
+#endif

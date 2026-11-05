@@ -7,6 +7,7 @@
 //  Also the menu bar item itself and the Open at Login setting.
 //
 
+#if os(macOS)
 import AppKit
 import SwiftUI
 import Carbon.HIToolbox
@@ -283,3 +284,4 @@ struct SwashMenuBarMenu: View {
         Button("Quit Swash") { NSApp.terminate(nil) }
     }
 }
+#endif

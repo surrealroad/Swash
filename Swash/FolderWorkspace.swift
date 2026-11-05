@@ -11,6 +11,7 @@
 //  `FolderAccessManager` when the window opens: everything here stays inside `folderURL`.
 //
 
+#if os(macOS)
 import Foundation
 import Combine
 #if canImport(CoreServices)
@@ -362,3 +363,4 @@ final class FolderWorkspace: ObservableObject {
         return text
     }
 }
+#endif

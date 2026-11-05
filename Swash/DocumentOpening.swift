@@ -7,6 +7,7 @@
 //  Word, RTF and HTML files are imported as new Markdown documents.
 //
 
+#if os(macOS)
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -237,3 +238,4 @@ struct FileMenuCommands: Commands {
         }
     }
 }
+#endif

@@ -7,13 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0460136230045F6A00853817 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0460136130045F6A00853817 /* Sparkle */; };
+		0460136230045F6A00853817 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = 0460136130045F6A00853817 /* Sparkle */; };
 		046013C230045F6A00853817 /* PixerateMarkdown in Frameworks */ = {isa = PBXBuildFile; productRef = 046013C130045F6A00853817 /* PixerateMarkdown */; };
 		046013C430045F6A00853817 /* PixerateMarkdown in Frameworks */ = {isa = PBXBuildFile; productRef = 046013C330045F6A00853817 /* PixerateMarkdown */; };
-		0460137130045F6800853817 /* SwashQuickLookExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460137030045F6800853817 /* SwashQuickLookExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0460137130045F6800853817 /* SwashQuickLookExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460137030045F6800853817 /* SwashQuickLookExtension.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0460138130045F6800853817 /* SwashShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460138030045F6800853817 /* SwashShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		0460139130045F6800853817 /* SwashThumbnailExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460139030045F6800853817 /* SwashThumbnailExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0460139130045F6800853817 /* SwashThumbnailExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0460139030045F6800853817 /* SwashThumbnailExtension.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		046013A130045F6800853817 /* SwashWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 046013A030045F6800853817 /* SwashWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0460AE0430045F6A00853817 /* MacAppKitExtras in Frameworks */ = {isa = PBXBuildFile; productRef = 0460AE0230045F6A00853817 /* MacAppKitExtras */; };
+		0460AE0530045F6A00853817 /* MacAppKitExtras in Frameworks */ = {isa = PBXBuildFile; productRef = 0460AE0330045F6A00853817 /* MacAppKitExtras */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,7 +78,9 @@
 		0460134C30045F6A00853817 /* Exceptions for "Swash" folder in "Swash" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				"Info-iOS.plist",
 				Info.plist,
+				"Swash-iOS.entitlements",
 				Swash.entitlements,
 			);
 			target = 0460133F30045F6800853817 /* Swash */;
@@ -85,6 +89,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				DefaultAppManager.swift,
+				"Info-iOS.plist",
 				Info.plist,
 				"Rendering/KaTeX-LICENSE.txt",
 				"Rendering/KaTeX_AMS-Regular.woff2",
@@ -117,6 +122,7 @@
 				ServicesProvider.swift,
 				SettingsView.swift,
 				SparkleUpdater.swift,
+				"Swash-iOS.entitlements",
 				Swash.entitlements,
 				SwashApp.swift,
 				SwashAppIntents.swift,
@@ -134,6 +140,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				"SwashShareExtension-iOS.entitlements",
 			);
 			target = 0460138330045F6800853817 /* SwashShareExtension */;
 		};
@@ -203,6 +210,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0460136230045F6A00853817 /* Sparkle in Frameworks */,
+				0460AE0430045F6A00853817 /* MacAppKitExtras in Frameworks */,
 				046013C230045F6A00853817 /* PixerateMarkdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -211,6 +219,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0460AE0530045F6A00853817 /* MacAppKitExtras in Frameworks */,
 				046013C430045F6A00853817 /* PixerateMarkdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -269,6 +278,7 @@
 			name = Swash;
 			packageProductDependencies = (
 				0460136130045F6A00853817 /* Sparkle */,
+				0460AE0230045F6A00853817 /* MacAppKitExtras */,
 				046013C130045F6A00853817 /* PixerateMarkdown */,
 			);
 			productName = Swash;
@@ -293,6 +303,7 @@
 			);
 			name = SwashQuickLookExtension;
 			packageProductDependencies = (
+				0460AE0330045F6A00853817 /* MacAppKitExtras */,
 				046013C330045F6A00853817 /* PixerateMarkdown */,
 			);
 			productName = SwashQuickLookExtension;
@@ -397,6 +408,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				0460136030045F6A00853817 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				0460AE0130045F6A00853817 /* XCLocalSwiftPackageReference "Packages/MacAppKitExtras" */,
 				046013C030045F6A00853817 /* XCRemoteSwiftPackageReference "editor" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -469,7 +481,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ -z \"$CI\" ] && command -v git >/dev/null 2>&1; then\n  BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo \"1\")\n  if [ -n \"$BUILD_NUMBER\" ]; then\n    /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $BUILD_NUMBER\" \"${SRCROOT}/Swash/Info.plist\" 2>/dev/null || /usr/libexec/PlistBuddy -c \"Add :CFBundleVersion string $BUILD_NUMBER\" \"${SRCROOT}/Swash/Info.plist\" 2>/dev/null || true\n  fi\nfi\n";
+			shellScript = "if [ -z \"$CI\" ] && command -v git >/dev/null 2>&1; then\n  BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo \"1\")\n  if [ -n \"$BUILD_NUMBER\" ]; then\n    /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $BUILD_NUMBER\" \"${SRCROOT}/${INFOPLIST_FILE}\" 2>/dev/null || /usr/libexec/PlistBuddy -c \"Add :CFBundleVersion string $BUILD_NUMBER\" \"${SRCROOT}/${INFOPLIST_FILE}\" 2>/dev/null || true\n  fi\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -514,6 +526,9 @@
 /* Begin PBXTargetDependency section */
 		0460137430045F6800853817 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
+			platformFilters = (
+				macos,
+			);
 			target = 0460137330045F6800853817 /* SwashQuickLookExtension */;
 			targetProxy = 0460137230045F6800853817 /* PBXContainerItemProxy */;
 		};
@@ -524,6 +539,9 @@
 		};
 		0460139430045F6800853817 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
+			platformFilters = (
+				macos,
+			);
 			target = 0460139330045F6800853817 /* SwashThumbnailExtension */;
 			targetProxy = 0460139230045F6800853817 /* PBXContainerItemProxy */;
 		};
@@ -541,6 +559,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Swash/Swash.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "Swash/Swash-iOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 27;
@@ -549,21 +568,37 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Swash/Info.plist;
+				"INFOPLIST_FILE[sdk=iphone*]" = "Swash/Info-iOS.plist";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -573,6 +608,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Swash/Swash.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "Swash/Swash-iOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 27;
@@ -581,21 +617,37 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Swash/Info.plist;
+				"INFOPLIST_FILE[sdk=iphone*]" = "Swash/Info-iOS.plist";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -788,6 +840,19 @@
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SwashShareExtension/Info.plist;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "SwashShareExtension/SwashShareExtension-iOS.entitlements";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -818,6 +883,19 @@
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SwashShareExtension/Info.plist;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "SwashShareExtension/SwashShareExtension-iOS.entitlements";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -908,6 +986,18 @@
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SwashWidgetExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -937,6 +1027,18 @@
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SwashWidgetExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				"LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]" = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1016,6 +1118,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		0460AE0130045F6A00853817 /* XCLocalSwiftPackageReference "Packages/MacAppKitExtras" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/MacAppKitExtras;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		0460136030045F6A00853817 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1040,6 +1149,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0460136030045F6A00853817 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		0460AE0230045F6A00853817 /* MacAppKitExtras */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0460AE0130045F6A00853817 /* XCLocalSwiftPackageReference "Packages/MacAppKitExtras" */;
+			productName = MacAppKitExtras;
+		};
+		0460AE0330045F6A00853817 /* MacAppKitExtras */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0460AE0130045F6A00853817 /* XCLocalSwiftPackageReference "Packages/MacAppKitExtras" */;
+			productName = MacAppKitExtras;
 		};
 		046013C130045F6A00853817 /* PixerateMarkdown */ = {
 			isa = XCSwiftPackageProductDependency;

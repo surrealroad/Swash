@@ -9,15 +9,20 @@ BUILD_DIR="build/spec-runner"
 mkdir -p "$BUILD_DIR"
 BIN="$BUILD_DIR/gfm-spec-runner"
 
+EXTRAS="$(scripts/build_mac_appkit_extras.sh)"
+
 echo "Compiling GFM Spec Runner..."
-swiftc \
+swiftc $EXTRAS \
   -O \
   -target arm64-apple-macos14.0 \
   -sdk "$(xcrun --show-sdk-path --sdk macosx)" \
+  Swash/PlatformTypes.swift \
+  Swash/EditorSupport.swift \
   Swash/MarkdownFlavor.swift \
   Swash/FolderAccessManager.swift \
   Swash/MarkdownParser.swift \
   $PIXERATE_MARKDOWN \
+  Swash/PixerateMarkdownExtensions.swift \
   Swash/MarkdownEditorStyler.swift \
   Swash/CodeHighlightTheme.swift \
   Swash/RichContentRenderer.swift \

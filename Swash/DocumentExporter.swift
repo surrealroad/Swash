@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import MacAppKitExtras
 import WebKit
 import UniformTypeIdentifiers
 import PixerateMarkdown
@@ -331,9 +332,7 @@ final class DocumentExporter: NSObject {
 
     /// Puts the document's HTML source on the clipboard as plain text.
     static func copyHTML(_ source: Source) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(bodyHTML(for: source, embedImages: false), forType: .string)
+        PlatformPasteboard.setString(bodyHTML(for: source, embedImages: false))
     }
 }
 
