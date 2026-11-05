@@ -1,5 +1,11 @@
 # swash
 
+## 1.21.2
+
+### Patch Changes
+
+- 2d06317: Fix `icon_ios_1024.png` in `AppIcon.appiconset` so the iOS app icon renders instead of appearing black.
+
 ## 1.21.1
 
 ### Patch Changes
