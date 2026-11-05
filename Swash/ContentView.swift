@@ -146,7 +146,33 @@ struct ContentView: View {
         if folder != unreadableFolder { unreadableFolder = folder }
     }
 
+    // The body is split into stages so each modifier chain type-checks on its own: as one
+    // expression it exceeded the compiler's type-checking time limit on CI.
     var body: some View {
+        withLifecycle
+        .onChange(of: window) { _, window in
+            if window?.isKeyWindow == true { documentWindowBecameKey() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            if let window = window, notification.object as? NSWindow === window { documentWindowBecameKey() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            guard let window = window, notification.object as? NSWindow === window else { return }
+            if let url = effectiveBaseURL { RecentlyClosedDocuments.shared.push(url) }
+            if QuickCaptureController.shared.target?.window === window { QuickCaptureController.shared.target = nil }
+        }
+        .sheet(isPresented: $showConflictSheet) {
+            if let url = effectiveBaseURL {
+                ConflictResolutionSheet(url: url, onKeep: { version in
+                    showConflictSheet = false
+                    resolveConflicts(keeping: version, at: url)
+                }, onCancel: { showConflictSheet = false })
+            }
+        }
+    }
+
+    /// The outline and document layout with the toolbar.
+    private var layoutWithToolbar: some View {
         Group {
             if hostedOutline != nil {
                 documentPane
@@ -201,6 +227,11 @@ struct ContentView: View {
                 .help("Share raw Markdown text with other apps")
             }
         }
+    }
+
+    /// Table-cell selection and window tracking.
+    private var withSelectionTracking: some View {
+        layoutWithToolbar
         .onReceive(NotificationCenter.default.publisher(for: .cellSelectionDidChange)) { notification in
             // Editing a table cell ends the text selection: the bubble menu belongs to the cell now
             if selectionRect != nil { selectionRect = nil }
@@ -222,6 +253,11 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
             if let window = window, notification.object as? NSWindow === window { refreshWindowDocumentURL() }
         }
+    }
+
+    /// Values the menu commands read from the focused document.
+    private var withFocusedValues: some View {
+        withSelectionTracking
         .focusedSceneValue(\.formatCommandHandler, { handleFormatCommand($0) })
         .modifier(exportAndWritingCommands)
         .focusedSceneValue(\.documentCommandHandler, { handleDocumentCommand($0) })
@@ -229,6 +265,11 @@ struct ContentView: View {
         .focusedSceneValue(\.outlineVisibility, hostedOutline == nil ? $showOutline : nil)
         .focusedSceneValue(\.viewModeSelection, ViewModeSelection(current: viewMode) { viewMode = $0 })
         .focusedSceneValue(\.markdownFlavorSelection, MarkdownFlavorSelection(current: document.flavor) { requestFlavorChange(to: $0) })
+    }
+
+    /// Mode changes, insights, the folder banner and first appearance.
+    private var withLifecycle: some View {
+        withFocusedValues
         .onChange(of: documentID) {
             selectedRange = nil
             selectionRect = nil
@@ -260,25 +301,6 @@ struct ContentView: View {
             // An untitled document created for a quick note or an import starts with its text
             if fileURL == nil, document.text.isEmpty, let seed = NewDocumentSeed.take() {
                 document.text = seed
-            }
-        }
-        .onChange(of: window) { _, window in
-            if window?.isKeyWindow == true { documentWindowBecameKey() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-            if let window = window, notification.object as? NSWindow === window { documentWindowBecameKey() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
-            guard let window = window, notification.object as? NSWindow === window else { return }
-            if let url = effectiveBaseURL { RecentlyClosedDocuments.shared.push(url) }
-            if QuickCaptureController.shared.target?.window === window { QuickCaptureController.shared.target = nil }
-        }
-        .sheet(isPresented: $showConflictSheet) {
-            if let url = effectiveBaseURL {
-                ConflictResolutionSheet(url: url, onKeep: { version in
-                    showConflictSheet = false
-                    resolveConflicts(keeping: version, at: url)
-                }, onCancel: { showConflictSheet = false })
             }
         }
     }
