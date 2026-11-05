@@ -14,7 +14,7 @@ import PixerateMarkdown
 
 enum EditorClipboard {
     /// Raw Markdown written by Swash's own copy, so copy and paste between Swash documents is lossless.
-    static let swashMarkdownType = "com.surrealroad.swash.markdown"
+    static let swashMarkdownType = "com.pixerate.swash.markdown"
 
     /// Markdown to insert for the pasteboard's contents, or nil to paste its plain text as usual.
     static func markdownForPaste(from pasteboard: UIPasteboard) -> String? {

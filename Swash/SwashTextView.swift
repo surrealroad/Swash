@@ -17,7 +17,7 @@ func logDebug(_ message: String) {
 
 extension NSPasteboard.PasteboardType {
     /// Raw Markdown written by Swash's own copy, so copy/paste between Swash documents is lossless.
-    static let swashMarkdown = NSPasteboard.PasteboardType("com.surrealroad.swash.markdown")
+    static let swashMarkdown = NSPasteboard.PasteboardType("com.pixerate.swash.markdown")
 }
 
 /// Opens a link to another note (a folder window's relative and `[[wiki]]` links). Returns false
@@ -813,7 +813,7 @@ final class MarkdownRotorDelegate: NSObject, NSAccessibilityCustomRotorItemSearc
 }
 
 final class ImageTextAttachment: NSTextAttachment, RawMarkdownAttachment {
-    static let fileTypeIdentifier = "com.surrealroad.swash.image"
+    static let fileTypeIdentifier = "com.pixerate.swash.image"
     let alt: String
     let urlString: String
     let rawMarkdown: String

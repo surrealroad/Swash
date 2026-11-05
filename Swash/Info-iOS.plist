@@ -28,7 +28,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.surrealroad.Swash</string>
+			<string>com.pixerate.Swash</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>swash</string>

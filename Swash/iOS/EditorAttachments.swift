@@ -12,7 +12,7 @@ import SwiftUI
 import UIKit
 
 final class ImageTextAttachment: NSTextAttachment, RawMarkdownAttachment {
-    static let fileTypeIdentifier = "com.surrealroad.swash.image"
+    static let fileTypeIdentifier = "com.pixerate.swash.image"
     let alt: String
     let urlString: String
     let rawMarkdown: String
@@ -32,7 +32,7 @@ final class ImageTextAttachment: NSTextAttachment, RawMarkdownAttachment {
 }
 
 final class TableTextAttachment: NSTextAttachment, RawMarkdownAttachment {
-    static let fileTypeIdentifier = "com.surrealroad.swash.table"
+    static let fileTypeIdentifier = "com.pixerate.swash.table"
 
     var tableData: MarkdownTableData
     let flavor: MarkdownFlavor

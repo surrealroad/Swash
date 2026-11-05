@@ -1039,7 +1039,7 @@ final class TableAttachmentCell: NSTextAttachmentCell {
 }
 
 final class TableTextAttachment: NSTextAttachment, RawMarkdownAttachment {
-    static let fileTypeIdentifier = "com.surrealroad.swash.table"
+    static let fileTypeIdentifier = "com.pixerate.swash.table"
     
     var tableData: MarkdownTableData {
         didSet { cachedRawMarkdown = nil }

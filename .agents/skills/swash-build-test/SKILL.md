@@ -22,7 +22,7 @@ The `Swash` target is multiplatform (macOS, iOS, iPadOS). Build both platforms:
 xcodebuild -scheme Swash -destination 'generic/platform=macOS' -configuration Debug build CODE_SIGN_IDENTITY="-"
 xcodebuild -scheme Swash -destination 'generic/platform=iOS Simulator' -configuration Debug build CODE_SIGNING_ALLOWED=NO
 ```
-To run on a simulator, boot one (`xcrun simctl boot "iPhone 17"`), then install `build/.../Debug-iphonesimulator/Swash.app` with `xcrun simctl install booted <path>`. Sample documents can be copied into `$(xcrun simctl get_app_container booted com.surrealroad.Swash data)/Documents`, where the document browser lists them under On My iPhone › Swash.
+To run on a simulator, boot one (`xcrun simctl boot "iPhone 17"`), then install `build/.../Debug-iphonesimulator/Swash.app` with `xcrun simctl install booted <path>`. Sample documents can be copied into `$(xcrun simctl get_app_container booted com.pixerate.Swash data)/Documents`, where the document browser lists them under On My iPhone › Swash.
 
 To compile specific app extensions (macOS only):
 ```bash

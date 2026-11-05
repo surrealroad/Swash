@@ -102,7 +102,7 @@ final class RichContentRenderer: NSObject {
 
     /// Pixel density of the snapshots (crisp on Retina, still fine on 1x displays).
     static let scale: CGFloat = 2
-    private static let log = Logger(subsystem: "com.surrealroad.Swash", category: "RichContent")
+    private static let log = Logger(subsystem: "com.pixerate.Swash", category: "RichContent")
     private static let cacheLimit = 400
     private static let timeout: TimeInterval = 15
 

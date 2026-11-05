@@ -100,7 +100,7 @@ Status: **in progress** on the `feat/universal-ios` branch. The phase checklists
 - [x] iOS share extension: "Save to Swash" saves the note to the App Group inbox; Swash imports and opens it when it next comes to the front (extensions can't open their app).
 - [x] Widget for both platforms (the existing SwiftUI widget, now also built for iOS).
 
-**Phase 5 notes.** The app and share extension on iOS use the App Group `group.com.surrealroad.Swash`, which has to be registered for the team before device or App Store builds. Unsigned simulator builds have no App Group container, so the share extension reports that it can't save there.
+**Phase 5 notes.** The app and share extension on iOS use the App Group `group.com.pixerate.Swash`, which has to be registered for the team before device or App Store builds. Unsigned simulator builds have no App Group container, so the share extension reports that it can't save there.
 
 ### 6. Testing and distribution
 - [ ] iOS simulator test target for the editor (mirrors `Tests/EditorAudit`), run in CI.

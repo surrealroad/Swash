@@ -155,7 +155,7 @@ import UniformTypeIdentifiers
 /// inbox; Swash moves it into its documents and opens it when it next comes to the front.
 class ShareViewController: UIViewController {
     /// Must match `DocumentOpener.appGroupIdentifier` in the app.
-    private static let appGroupIdentifier = "group.com.surrealroad.Swash"
+    private static let appGroupIdentifier = "group.com.pixerate.Swash"
 
     override func viewDidLoad() {
         super.viewDidLoad()

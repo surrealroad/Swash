@@ -584,7 +584,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pixerate.Swash;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -633,7 +633,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pixerate.Swash;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -787,7 +787,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				LM_SKIP_METADATA_EXTRACTION = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.QuickLookExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pixerate.Swash.QuickLookExtension;
 				PRODUCT_MODULE_NAME = SwashQuickLookExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -818,7 +818,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				LM_SKIP_METADATA_EXTRACTION = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.QuickLookExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pixerate.Swash.QuickLookExtension;
 				PRODUCT_MODULE_NAME = SwashQuickLookExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -861,7 +861,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				LM_SKIP_METADATA_EXTRACTION = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pixerate.Swash.ShareExtension;
 				PRODUCT_MODULE_NAME = SwashShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -904,7 +904,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				LM_SKIP_METADATA_EXTRACTION = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pixerate.Swash.ShareExtension;
 				PRODUCT_MODULE_NAME = SwashShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -934,7 +934,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				LM_SKIP_METADATA_EXTRACTION = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.ThumbnailExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pixerate.Swash.ThumbnailExtension;
 				PRODUCT_MODULE_NAME = SwashThumbnailExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -964,7 +964,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				LM_SKIP_METADATA_EXTRACTION = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.ThumbnailExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pixerate.Swash.ThumbnailExtension;
 				PRODUCT_MODULE_NAME = SwashThumbnailExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1005,7 +1005,7 @@
 					"@executable_path/../../Contents/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.WidgetExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pixerate.Swash.WidgetExtension;
 				PRODUCT_MODULE_NAME = SwashWidgetExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1046,7 +1046,7 @@
 					"@executable_path/../../Contents/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.surrealroad.Swash.WidgetExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pixerate.Swash.WidgetExtension;
 				PRODUCT_MODULE_NAME = SwashWidgetExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

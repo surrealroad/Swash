@@ -14,7 +14,7 @@ import UIKit
 @MainActor
 enum DocumentOpener {
     /// Shared with the share extension, which leaves notes in its `Inbox` folder.
-    nonisolated static let appGroupIdentifier = "group.com.surrealroad.Swash"
+    nonisolated static let appGroupIdentifier = "group.com.pixerate.Swash"
 
     static var documentsFolder: URL {
         get throws {
